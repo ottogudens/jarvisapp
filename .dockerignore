@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+*.md
+lib/
+*.dart
+pubspec.*
+__pycache__/
+*.pyc
+*.pyo
+.vscode/
+.idea/
+*.apk
+*.aab
+build/
+.dart_tool/

@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # ── API Backend ──────────────────────────────────────────
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── PostgreSQL para desarrollo local (Fix #23) ──────────
+  # Levantar con: docker compose up
+  # En producción, usar Supabase y solo desplegar 'api' en Railway.
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: jarvis_db
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarvis_dev_2024}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis -d jarvis_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
