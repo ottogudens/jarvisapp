@@ -55,8 +55,7 @@ def seed_db():
                 id_tenant=tenant.id_tenant,
                 email="mecanico@loshermanos.com",
                 password_hash=hash_password("admin123"),
-                perfil_jarvis="Mecanico",
-                es_admin=True
+                perfil_jarvis="Mecanico"
             )
             db.add(usuario)
             db.commit()
