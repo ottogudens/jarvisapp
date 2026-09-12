@@ -35,17 +35,16 @@ def seed_db():
             print("SaaSPlan ya existe.")
 
         # 2. Crear Tenant
-        tenant = db.query(Tenant).filter_by(nombre="Taller Los Hermanos").first()
+        tenant = db.query(Tenant).filter_by(nombre_organizacion="Taller Los Hermanos").first()
         if not tenant:
             tenant = Tenant(
-                nombre="Taller Los Hermanos",
+                nombre_organizacion="Taller Los Hermanos",
                 id_plan=plan.id_plan,
-                dominio_personalizado="loshermanos.jarvis.app"
             )
             db.add(tenant)
             db.commit()
             db.refresh(tenant)
-            print(f"Creado Tenant: {tenant.nombre}")
+            print(f"Creado Tenant: {tenant.nombre_organizacion}")
         else:
             print("Tenant ya existe.")
 
@@ -71,15 +70,15 @@ def seed_db():
         if not cliente:
             cliente = Cliente(
                 id_tenant=tenant.id_tenant,
-                nombre="Juan",
-                apellido="Perez",
+                rut="12345678-9",
+                nombre="Juan Perez",
                 telefono="555-1234",
                 email="juan.perez@email.com"
             )
             db.add(cliente)
             db.commit()
             db.refresh(cliente)
-            print(f"Creado Cliente: {cliente.nombre} {cliente.apellido}")
+            print(f"Creado Cliente: {cliente.nombre}")
         else:
             print("Cliente ya existe.")
 
@@ -106,9 +105,9 @@ def seed_db():
             orden = OrdenTrabajo(
                 id_tenant=tenant.id_tenant,
                 id_vehiculo=vehiculo.id_vehiculo,
+                folio_ot="OT-0001",
                 estado="Recepción",
-                diagnostico="El cliente reporta pérdida de líquido refrigerante. Requiere revisión.",
-                presupuesto=0.0
+                diagnostico_ia="El cliente reporta pérdida de líquido refrigerante. Requiere revisión."
             )
             db.add(orden)
             db.commit()
