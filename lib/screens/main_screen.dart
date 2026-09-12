@@ -20,7 +20,7 @@ import 'stats_screen.dart';
 
 /// URL base del servidor J.A.R.V.I.S.
 /// Fix #20: Reemplazar con el dominio real de Railway en producción.
-const String kApiBaseUrl = 'https://TU-DOMINIO.railway.app';
+const String kApiBaseUrl = 'https://jarvisapp-production-f259.up.railway.app';
 
 class JarvisMainScreen extends StatefulWidget {
   /// Fix #21: id_orden dinámico, recibido como parámetro.

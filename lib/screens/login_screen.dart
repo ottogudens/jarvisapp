@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'hub_screen.dart';
 
-const String kApiBaseUrl = 'https://TU-DOMINIO.railway.app'; // Reemplazar con URL real
+const String kApiBaseUrl = 'https://jarvisapp-production-f259.up.railway.app'; // Reemplazar con URL real
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
