@@ -88,8 +88,7 @@ def seed_db():
                 id_cliente=cliente.id_cliente,
                 patente="AB123CD",
                 marca="Toyota",
-                modelo="Corolla",
-                anio=2018
+                modelo="Corolla"
             )
             db.add(vehiculo)
             db.commit()
