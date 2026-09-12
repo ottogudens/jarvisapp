@@ -7,8 +7,6 @@ env/
 .env
 .venv/
 temp.db
-backend/alembic.ini
-
 # Flutter/Dart
 .dart_tool/
 .packages
