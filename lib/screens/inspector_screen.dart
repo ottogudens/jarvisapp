@@ -91,17 +91,26 @@ class _InspectorScreenState extends State<InspectorScreen> with SingleTickerProv
   }
 
   Future<void> _stop() async {
-    final path = await _recorder.stop();
+    if (!await _recorder.isRecording()) return;
 
-    setState(() {
-      _isListening = false;
-      _status = 'J.A.R.V.I.S. está analizando la inspección...';
-    });
-    _pulseController.stop();
-    _pulseController.value = 0.0;
+    try {
+      final path = await _recorder.stop();
 
-    if (path != null) {
-      await _send(path);
+      setState(() {
+        _isListening = false;
+        _status = 'J.A.R.V.I.S. está analizando la inspección...';
+      });
+      _pulseController.stop();
+      _pulseController.value = 0.0;
+
+      if (path != null) {
+        await _send(path);
+      }
+    } catch (e) {
+      setState(() {
+        _isListening = false;
+        _status = 'Error al detener grabación.';
+      });
     }
   }
 

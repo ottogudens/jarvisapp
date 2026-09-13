@@ -101,17 +101,26 @@ class _JarvisMainScreenState extends State<JarvisMainScreen> with SingleTickerPr
   }
 
   Future<void> _stop() async {
-    final path = await _recorder.stop();
-    
-    setState(() {
-      _isListening = false;
-      _status = 'J.A.R.V.I.S. está pensando...';
-    });
-    _pulseController.stop();
-    _pulseController.value = 0.0;
-    
-    if (path != null) {
-      await _send(path);
+    if (!await _recorder.isRecording()) return;
+
+    try {
+      final path = await _recorder.stop();
+      
+      setState(() {
+        _isListening = false;
+        _status = 'J.A.R.V.I.S. está pensando...';
+      });
+      _pulseController.stop();
+      _pulseController.value = 0.0;
+      
+      if (path != null) {
+        await _send(path);
+      }
+    } catch (e) {
+      setState(() {
+        _isListening = false;
+        _status = 'Error al detener grabación.';
+      });
     }
   }
 
