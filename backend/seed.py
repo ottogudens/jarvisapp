@@ -23,6 +23,16 @@ def seed_db():
     db: Session = next(get_db())
     
     try:
+        # HACK: Migración manual temporal para agregar la columna faltante
+        from sqlalchemy import text
+        try:
+            db.execute(text("ALTER TABLE saas_planes ADD COLUMN IF NOT EXISTS permite_inspeccion BOOLEAN DEFAULT FALSE;"))
+            db.commit()
+            print("Migración: Columna permite_inspeccion validada.")
+        except Exception as e:
+            db.rollback()
+            print(f"Nota de migración: {e}")
+
         # 1. Crear SaaS Plan
         plan = db.query(SaaSPlan).filter_by(nombre_plan="Plan Pro Auto").first()
         if not plan:
