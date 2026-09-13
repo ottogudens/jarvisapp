@@ -225,15 +225,19 @@ async def _pipeline_ia(
             texto_usuario = data.get("transcripcion_usuario", "")
             parsed_data = None
 
-        # 3. Text-to-Speech con ElevenLabs
-        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-        audio_response = get_elevenlabs_client().generate(
-            text=respuesta_texto,
-            voice=voice_id,
-            model="eleven_multilingual_v2",
-        )
-        audio_tts = b"".join(audio_response)
-        audio_b64 = base64.b64encode(audio_tts).decode("utf-8")
+        # 3. Text-to-Speech con ElevenLabs (con fallback seguro si la API key o cuota falla)
+        audio_b64 = ""
+        try:
+            voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+            audio_response = get_elevenlabs_client().generate(
+                text=respuesta_texto,
+                voice=voice_id,
+                model="eleven_multilingual_v2",
+            )
+            audio_tts = b"".join(audio_response)
+            audio_b64 = base64.b64encode(audio_tts).decode("utf-8")
+        except Exception as tts_err:
+            print(f"⚠️ Error generando audio con ElevenLabs (fallback a solo texto): {tts_err}")
 
         response_obj = JarvisResponse(
             transcripcion=texto_usuario,
