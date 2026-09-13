@@ -26,6 +26,7 @@ class SaaSPlan(Base):
     id_plan = Column(Integer, primary_key=True, autoincrement=True)
     nombre_plan = Column(String(50), unique=True, nullable=False)
     permite_erp = Column(Boolean, default=False)
+    permite_inspeccion = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

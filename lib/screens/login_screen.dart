@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'hub_screen.dart';
+import 'inspector_hub_screen.dart';
 
-const String kApiBaseUrl = 'https://jarvisapp-production-f259.up.railway.app'; // Reemplazar con URL real
+const String kApiBaseUrl = 'https://jarvisapp-production-f259.up.railway.app';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -15,8 +16,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController(text: 'mecanico@loshermanos.com');
-  final _passwordController = TextEditingController(text: 'admin123');
+  final _emailController = TextEditingController(text: '');
+  final _passwordController = TextEditingController(text: '');
   bool _isLoading = false;
   String _errorMessage = '';
 
@@ -28,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('$kApiBaseUrl/auth/login'),
+        Uri.parse('\$kApiBaseUrl/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': _emailController.text.trim(),
@@ -38,15 +39,32 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final token = data['token'];
+        final token = data['access_token'];
+        final perfil = data['perfil_jarvis'] ?? '';
+        final organizacion = data['nombre_organizacion'] ?? '';
 
-        // Guardar token
+        // Guardar token y datos de perfil
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('jwt_token', token);
+        await prefs.setString('perfil_jarvis', perfil);
+        await prefs.setString('nombre_organizacion', organizacion);
 
         if (!mounted) return;
+
+        // Ruteo dinámico por perfil
+        Widget destino;
+        switch (perfil) {
+          case 'Inspector_DGC':
+            destino = const InspectorHubScreen();
+            break;
+          case 'Mecanico':
+          default:
+            destino = const HubScreen();
+            break;
+        }
+
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HubScreen()),
+          MaterialPageRoute(builder: (_) => destino),
         );
       } else {
         setState(() {

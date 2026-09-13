@@ -149,6 +149,17 @@ class RespuestaMecanico(BaseModel):
     mensaje_para_usuario: str
 
 
+class RespuestaInspector(BaseModel):
+    """Esquema de extracción estructurada para el perfil Inspector DGC."""
+    transcripcion_usuario: str
+    tipo_infraccion: str
+    descripcion_hallazgo: str
+    normativa_aplicable: str
+    gravedad: str  # Leve, Grave, Gravísima
+    accion_recomendada: str
+    mensaje_para_usuario: str
+
+
 # ============================================================
 # Pipeline central de IA: STT → GPT-4 → TTS
 # ============================================================
@@ -297,8 +308,22 @@ async def pipeline_inspector(
     audio_file: UploadFile = File(...),
     usuario: dict = Depends(requiere_feature("modulo_inspeccion")),
 ):
-    """Pipeline para perfil Inspector Fiscal DGC."""
-    respuesta, _ = await _pipeline_ia(audio_file, "Inspector_DGC")
+    """Pipeline para perfil Inspector Fiscal DGC con extracción estructurada."""
+    contexto = (
+        "(IMPORTANTE: Extrae tipo de infracción, descripción del hallazgo, normativa aplicable, "
+        "gravedad (Leve/Grave/Gravísima) y acción recomendada. Genera un resumen profesional en 'mensaje_para_usuario'.)"
+    )
+    respuesta, parsed = await _pipeline_ia(audio_file, "Inspector_DGC", contexto, response_format=RespuestaInspector)
+    
+    if parsed:
+        respuesta.diagnostico_ia = (
+            f"Tipo: {parsed.tipo_infraccion}\n"
+            f"Hallazgo: {parsed.descripcion_hallazgo}\n"
+            f"Normativa: {parsed.normativa_aplicable}\n"
+            f"Gravedad: {parsed.gravedad}\n"
+            f"Acción: {parsed.accion_recomendada}"
+        )
+    
     return respuesta
 
 

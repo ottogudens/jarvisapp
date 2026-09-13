@@ -114,6 +114,51 @@ def seed_db():
         else:
             print("Orden de Trabajo ya existe.")
             
+        # ============================================================
+        # 6. Seed para perfil Inspector DGC
+        # ============================================================
+        
+        # Plan Inspector
+        plan_inspector = db.query(SaaSPlan).filter_by(nombre_plan="Plan Inspector DGC").first()
+        if not plan_inspector:
+            plan_inspector = SaaSPlan(nombre_plan="Plan Inspector DGC", permite_inspeccion=True)
+            db.add(plan_inspector)
+            db.commit()
+            db.refresh(plan_inspector)
+            print(f"Creado SaaSPlan: {plan_inspector.nombre_plan}")
+        else:
+            print("SaaSPlan Inspector ya existe.")
+
+        # Tenant Municipalidad
+        tenant_muni = db.query(Tenant).filter_by(nombre_organizacion="Municipalidad de Santiago").first()
+        if not tenant_muni:
+            tenant_muni = Tenant(
+                nombre_organizacion="Municipalidad de Santiago",
+                id_plan=plan_inspector.id_plan,
+            )
+            db.add(tenant_muni)
+            db.commit()
+            db.refresh(tenant_muni)
+            print(f"Creado Tenant: {tenant_muni.nombre_organizacion}")
+        else:
+            print("Tenant Municipalidad ya existe.")
+
+        # Usuario Inspector
+        inspector = db.query(Usuario).filter_by(email="inspector@municipalidad.cl").first()
+        if not inspector:
+            inspector = Usuario(
+                id_tenant=tenant_muni.id_tenant,
+                email="inspector@municipalidad.cl",
+                password_hash=hash_password("admin123"),
+                perfil_jarvis="Inspector_DGC"
+            )
+            db.add(inspector)
+            db.commit()
+            db.refresh(inspector)
+            print(f"Creado Usuario Inspector: {inspector.email}")
+        else:
+            print("Usuario Inspector ya existe.")
+
         print("Seed completado exitosamente.")
 
     except Exception as e:
