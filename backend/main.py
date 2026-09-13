@@ -531,7 +531,7 @@ async def enviar_mensaje_chat(
         contents = [prompt_con_contexto] + gemini_contents
         client = get_gemini_client()
         gemini_response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             contents=contents
         )
         respuesta_jarvis = gemini_response.text
@@ -552,12 +552,27 @@ async def enviar_mensaje_chat(
     sesion.updated_at = func.now()
     db.commit()
     db.refresh(msg_jarvis)
+
+    # Sintetizar voz de JARVIS con ElevenLabs
+    audio_b64 = ""
+    try:
+        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+        audio_response = get_elevenlabs_client().generate(
+            text=respuesta_jarvis,
+            voice=voice_id,
+            model="eleven_multilingual_v2",
+        )
+        audio_tts = b"".join(audio_response)
+        audio_b64 = base64.b64encode(audio_tts).decode("utf-8")
+    except Exception as tts_err:
+        print(f"⚠️ Error generando voz de JARVIS para chat: {tts_err}")
     
     return {
         "id_mensaje": msg_jarvis.id_mensaje,
         "rol": msg_jarvis.rol,
         "contenido": msg_jarvis.contenido,
         "file_urls": msg_jarvis.file_urls or [],
+        "audio_base64": audio_b64,
         "created_at": msg_jarvis.created_at.isoformat(),
     }
 

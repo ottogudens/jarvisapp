@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 
 class ChatScreen extends StatefulWidget {
@@ -22,11 +23,18 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final AudioPlayer _player = AudioPlayer();
   
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
   List<PlatformFile> _selectedFiles = [];
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -127,6 +135,12 @@ class _ChatScreenState extends State<ChatScreen> {
           _messages.add(jarvisMsg);
         });
         _scrollToBottom();
+
+        // Reproducir voz si viene audio_base64
+        final audioB64 = jarvisMsg['audio_base64'] as String?;
+        if (audioB64 != null && audioB64.isNotEmpty) {
+          _playAudio(audioB64);
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error del servidor: ${response.statusCode}')),
@@ -138,6 +152,16 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     } finally {
       setState(() => _isSending = false);
+    }
+  }
+
+  Future<void> _playAudio(String audioB64) async {
+    try {
+      final audioBytes = base64Decode(audioB64);
+      await _player.stop();
+      await _player.play(BytesSource(audioBytes));
+    } catch (e) {
+      print('Error reproduciendo voz: $e');
     }
   }
 
@@ -260,9 +284,19 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (!isUser)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 4),
-                child: Text('J.A.R.V.I.S.', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('J.A.R.V.I.S.', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+                    if (msg['audio_base64'] != null && (msg['audio_base64'] as String).isNotEmpty)
+                      GestureDetector(
+                        onTap: () => _playAudio(msg['audio_base64']),
+                        child: const Icon(Icons.volume_up, color: Colors.cyanAccent, size: 18),
+                      ),
+                  ],
+                ),
               ),
             Text(
               msg['contenido'] ?? '',
