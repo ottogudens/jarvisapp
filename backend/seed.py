@@ -59,12 +59,21 @@ def seed_db():
             print("Tenant ya existe.")
 
         # 3. Crear Usuario (Mecánico)
-        usuario = db.query(Usuario).filter_by(email="mecanico@loshermanos.com").first()
-        if not usuario:
+        usuario = db.query(Usuario).filter_by(email="mecanico@skale.cl").first()
+        # También buscar el email antiguo para actualizar si existe
+        usuario_old = db.query(Usuario).filter_by(email="mecanico@loshermanos.com").first()
+        if usuario_old and not usuario:
+            usuario_old.email = "mecanico@skale.cl"
+            usuario_old.password_hash = hash_password("Admin123!")
+            db.commit()
+            db.refresh(usuario_old)
+            usuario = usuario_old
+            print(f"Actualizado Usuario: {usuario.email}")
+        elif not usuario:
             usuario = Usuario(
                 id_tenant=tenant.id_tenant,
-                email="mecanico@loshermanos.com",
-                password_hash=hash_password("admin123"),
+                email="mecanico@skale.cl",
+                password_hash=hash_password("Admin123!"),
                 perfil_jarvis="Mecanico"
             )
             db.add(usuario)
@@ -72,7 +81,7 @@ def seed_db():
             db.refresh(usuario)
             print(f"Creado Usuario: {usuario.email}")
         else:
-            print("Usuario ya existe.")
+            print("Usuario Mecánico ya existe.")
 
         # 4. Crear Cliente y Vehículo
         cliente = db.query(Cliente).filter_by(email="juan.perez@email.com").first()
@@ -154,12 +163,21 @@ def seed_db():
             print("Tenant Municipalidad ya existe.")
 
         # Usuario Inspector
-        inspector = db.query(Usuario).filter_by(email="inspector@municipalidad.cl").first()
-        if not inspector:
+        inspector = db.query(Usuario).filter_by(email="inspector@skale.cl").first()
+        # También buscar el email antiguo para actualizar si existe
+        inspector_old = db.query(Usuario).filter_by(email="inspector@municipalidad.cl").first()
+        if inspector_old and not inspector:
+            inspector_old.email = "inspector@skale.cl"
+            inspector_old.password_hash = hash_password("Admin123!")
+            db.commit()
+            db.refresh(inspector_old)
+            inspector = inspector_old
+            print(f"Actualizado Usuario: {inspector.email}")
+        elif not inspector:
             inspector = Usuario(
                 id_tenant=tenant_muni.id_tenant,
-                email="inspector@municipalidad.cl",
-                password_hash=hash_password("admin123"),
+                email="inspector@skale.cl",
+                password_hash=hash_password("Admin123!"),
                 perfil_jarvis="Inspector_DGC"
             )
             db.add(inspector)

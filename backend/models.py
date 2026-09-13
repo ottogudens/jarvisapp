@@ -8,8 +8,9 @@ Correcciones aplicadas respecto al blueprint original:
 - Fix #5:   Timestamps created_at / updated_at en todas las tablas
 """
 
+import uuid
 from sqlalchemy import (
-    Column, Integer, String, ForeignKey, DateTime, Text, Boolean, func,
+    Column, Integer, String, ForeignKey, DateTime, Text, Boolean, func, JSON
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -72,6 +73,7 @@ class Usuario(Base):
 
     # Relationships (Fix #2)
     tenant = relationship("Tenant", back_populates="usuarios")
+    chat_sessions = relationship("ChatSession", back_populates="usuario", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Usuario {self.email} [{self.perfil_jarvis}]>"
@@ -162,3 +164,34 @@ class PagoMercadoPago(Base):
 
     def __repr__(self):
         return f"<PagoMercadoPago {self.id_transaccion_mp} ${self.monto_pagado}>"
+
+# ============================================================
+# Chat Persistente (J.A.R.V.I.S. Multimodal)
+# ============================================================
+
+class ChatSession(Base):
+    __tablename__ = 'chat_sessions'
+    
+    id_session = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='CASCADE'), nullable=False)
+    titulo = Column(String(150), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relationships
+    usuario = relationship("Usuario", back_populates="chat_sessions")
+    mensajes = relationship("ChatMessage", back_populates="sesion", cascade="all, delete-orphan", order_by="ChatMessage.created_at")
+
+
+class ChatMessage(Base):
+    __tablename__ = 'chat_messages'
+    
+    id_mensaje = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_session = Column(String(36), ForeignKey('chat_sessions.id_session', ondelete='CASCADE'), nullable=False)
+    rol = Column(String(20), nullable=False) # 'user' o 'jarvis'
+    contenido = Column(Text, nullable=False)
+    file_urls = Column(JSON, nullable=True, default=list) # Lista de URLs de Supabase Storage
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    
+    # Relationships
+    sesion = relationship("ChatSession", back_populates="mensajes")
