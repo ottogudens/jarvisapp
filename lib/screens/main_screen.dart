@@ -8,6 +8,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
@@ -104,7 +105,7 @@ class _JarvisMainScreenState extends State<JarvisMainScreen> with SingleTickerPr
     _pulseController.stop();
     _pulseController.value = 0.0;
     if (_audioPath != null) {
-      await _send(File(_audioPath!));
+      await _send(_audioPath!);
     }
   }
 
@@ -112,15 +113,23 @@ class _JarvisMainScreenState extends State<JarvisMainScreen> with SingleTickerPr
   // Envío al backend y reproducción de respuesta
   // ------------------------------------------------------------------
 
-  Future<void> _send(File file) async {
+  Future<void> _send(String path) async {
     try {
       // Fix #20: URL configurable
       final uri = Uri.parse('$kApiBaseUrl/v1/jarvis/mecanico/procesar-completo');
       var request = http.MultipartRequest('POST', uri);
 
-      request.files.add(
-        await http.MultipartFile.fromPath('audio_file', file.path),
-      );
+      if (kIsWeb) {
+        // Fix para Web: Leer los bytes desde la URL blob generada por el recorder
+        final blobResponse = await http.get(Uri.parse(path));
+        request.files.add(
+          http.MultipartFile.fromBytes('audio_file', blobResponse.bodyBytes, filename: 'audio.m4a'),
+        );
+      } else {
+        request.files.add(
+          await http.MultipartFile.fromPath('audio_file', path),
+        );
+      }
       // Fix #21: id_orden dinámico
       request.fields['id_orden'] = widget.idOrden;
 
