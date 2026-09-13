@@ -25,7 +25,8 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from openai import OpenAI
+from google import genai
+from google.genai import types
 from elevenlabs.client import ElevenLabs as ElevenLabsClient
 from sqlalchemy.orm import Session
 
@@ -71,15 +72,15 @@ app.include_router(auth_router)
 
 # Inicialización lazy: se crean al primer uso para evitar errores si
 # las API keys no están configuradas (ej: durante tests o imports).
-_client_openai = None
+_client_gemini = None
 _client_elevenlabs = None
 
 
-def get_openai_client() -> OpenAI:
-    global _client_openai
-    if _client_openai is None:
-        _client_openai = OpenAI()
-    return _client_openai
+def get_gemini_client() -> genai.Client:
+    global _client_gemini
+    if _client_gemini is None:
+        _client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+    return _client_gemini
 
 
 def get_elevenlabs_client() -> ElevenLabsClient:
@@ -141,6 +142,7 @@ class JarvisResponse(BaseModel):
 
 class RespuestaMecanico(BaseModel):
     """Esquema de extracción estructurada para el perfil Mecánico."""
+    transcripcion_usuario: str
     diagnostico_tecnico: str
     repuestos_requeridos: list[str]
     estado_sugerido: str
@@ -166,65 +168,59 @@ async def _pipeline_ia(
     Fix #12: usa tempfile para cleanup seguro.
     Fix #13: retorna JSON con audio en base64.
     """
-    # 1. Guardar audio en archivo temporal seguro
-    suffix = os.path.splitext(audio_file.filename or "audio.m4a")[1] or ".m4a"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        contenido = await audio_file.read()
-        tmp.write(contenido)
-        ruta_temp = tmp.name
+    # 1. Leer audio directamente en memoria
+    audio_bytes = await audio_file.read()
 
     try:
-        # 2. Speech-to-Text con Whisper
-        with open(ruta_temp, "rb") as f:
-            transcripcion = get_openai_client().audio.transcriptions.create(
-                model="whisper-1", file=f, language="es",
-            )
-        texto_usuario = transcripcion.text
-
-        # 3. Clasificación de intención y respuesta con GPT-4
         system_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
-        messages = [{"role": "system", "content": system_prompt}]
-
         if contexto_extra:
-            messages.append({
-                "role": "system",
-                "content": f"Contexto operativo actual:\n{contexto_extra}",
-            })
+            system_prompt += f"\n\nContexto operativo actual:\n{contexto_extra}"
 
-        messages.append({"role": "user", "content": texto_usuario})
+        # 2. Generación multimodal con Gemini 1.5 Flash
+        client = get_gemini_client()
+        
+        mime_type = audio_file.content_type if audio_file.content_type else "audio/mp4"
+        audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+        
+        prompt_text = (
+            "Transcribe el audio adjunto e incluye la transcripcion exacta en el campo 'transcripcion_usuario' de la respuesta JSON. "
+            "Responde a la solicitud de acuerdo a tus instrucciones."
+        )
 
+        config_args = {
+            "system_instruction": system_prompt,
+            "response_mime_type": "application/json",
+            "temperature": 0.7,
+        }
+        
         if response_format:
-            # Fix #17.1: Extracción de datos estructurados con JSON Schema
-            # Usar modelo gpt-4o-mini o gpt-4o que soportan parse()
-            respuesta_gpt = get_openai_client().beta.chat.completions.parse(
-                model="gpt-4o",
-                messages=messages,
-                response_format=response_format,
-                temperature=0.7,
-            )
-            parsed_data = respuesta_gpt.choices[0].message.parsed
-            # Asumimos que el esquema tiene un campo "mensaje_para_usuario" para el TTS
-            respuesta_texto = getattr(parsed_data, "mensaje_para_usuario", str(parsed_data))
+            config_args["response_schema"] = response_format
+
+        respuesta_gemini = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=[audio_part, prompt_text],
+            config=types.GenerateContentConfig(**config_args),
+        )
+
+        import json
+        if response_format:
+            parsed_data = response_format.model_validate_json(respuesta_gemini.text)
+            respuesta_texto = getattr(parsed_data, "mensaje_para_usuario", "")
+            texto_usuario = getattr(parsed_data, "transcripcion_usuario", "")
         else:
-            respuesta_gpt = get_openai_client().chat.completions.create(
-                model="gpt-4",
-                messages=messages,
-                max_tokens=500,
-                temperature=0.7,
-            )
-            respuesta_texto = respuesta_gpt.choices[0].message.content
+            data = json.loads(respuesta_gemini.text)
+            respuesta_texto = data.get("mensaje_para_usuario", "")
+            texto_usuario = data.get("transcripcion_usuario", "")
             parsed_data = None
 
-        # 4. Text-to-Speech con ElevenLabs (API 1.x)
+        # 3. Text-to-Speech con ElevenLabs
         voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
         audio_response = get_elevenlabs_client().generate(
             text=respuesta_texto,
             voice=voice_id,
             model="eleven_multilingual_v2",
         )
-        # generate() retorna un generador de bytes; unirlos
         audio_tts = b"".join(audio_response)
-
         audio_b64 = base64.b64encode(audio_tts).decode("utf-8")
 
         response_obj = JarvisResponse(
@@ -234,10 +230,9 @@ async def _pipeline_ia(
         )
         return response_obj, parsed_data
 
-    finally:
-        # Cleanup seguro: siempre eliminar el archivo temporal
-        if os.path.exists(ruta_temp):
-            os.unlink(ruta_temp)
+    except Exception as e:
+        print(f"Error procesando IA: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================
