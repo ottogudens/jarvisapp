@@ -17,7 +17,7 @@ import base64
 import tempfile
 import hashlib
 import hmac
-from typing import Type
+from typing import Type, List, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import (
@@ -29,6 +29,7 @@ from google import genai
 from google.genai import types
 from elevenlabs.client import ElevenLabs as ElevenLabsClient
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from backend.database import get_db, inicializar_base_de_datos_remota
 from backend.auth import router as auth_router, obtener_usuario_actual, requiere_feature
@@ -398,6 +399,167 @@ async def webhook_mp(request: Request):
         print(f"[MercadoPago] Pago creado: {payment_id}")
 
     return Response(content="OK", status_code=200)
+
+
+# ============================================================
+# Endpoints: Chat Multimodal Persistente con J.A.R.V.I.S.
+# ============================================================
+
+class CreateSessionRequest(BaseModel):
+    titulo: Optional[str] = "Nueva Conversación"
+
+
+@app.get("/v1/chat/sessions")
+async def listar_sesiones(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    sessions = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).order_by(ChatSession.updated_at.desc()).all()
+    return [
+        {
+            "id_session": s.id_session,
+            "titulo": s.titulo or "Conversación con JARVIS",
+            "created_at": s.created_at.isoformat(),
+            "updated_at": s.updated_at.isoformat(),
+        }
+        for s in sessions
+    ]
+
+
+@app.post("/v1/chat/sessions")
+async def crear_sesion(
+    body: CreateSessionRequest = CreateSessionRequest(),
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    nueva_sesion = ChatSession(
+        id_usuario=usuario["id_usuario"],
+        titulo=body.titulo or "Nueva Conversación"
+    )
+    db.add(nueva_sesion)
+    db.commit()
+    db.refresh(nueva_sesion)
+    return {
+        "id_session": nueva_sesion.id_session,
+        "titulo": nueva_sesion.titulo,
+        "created_at": nueva_sesion.created_at.isoformat(),
+        "updated_at": nueva_sesion.updated_at.isoformat(),
+    }
+
+
+@app.get("/v1/chat/sessions/{session_id}/messages")
+async def obtener_mensajes(
+    session_id: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    sesion = db.query(ChatSession).filter(
+        ChatSession.id_session == session_id,
+        ChatSession.id_usuario == usuario["id_usuario"]
+    ).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    
+    mensajes = db.query(ChatMessage).filter(ChatMessage.id_session == session_id).order_by(ChatMessage.created_at.asc()).all()
+    return [
+        {
+            "id_mensaje": m.id_mensaje,
+            "rol": m.rol,
+            "contenido": m.contenido,
+            "file_urls": m.file_urls or [],
+            "created_at": m.created_at.isoformat(),
+        }
+        for m in mensajes
+    ]
+
+
+@app.post("/v1/chat/sessions/{session_id}/send")
+async def enviar_mensaje_chat(
+    session_id: str,
+    mensaje: str = Form(""),
+    files: List[UploadFile] = File(default=[]),
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    sesion = db.query(ChatSession).filter(
+        ChatSession.id_session == session_id,
+        ChatSession.id_usuario == usuario["id_usuario"]
+    ).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    
+    uploaded_urls = []
+    gemini_contents = []
+    
+    for file in files:
+        if file.filename:
+            file_bytes = await file.read()
+            file_type = file.content_type or "application/octet-stream"
+            b64 = base64.b64encode(file_bytes).decode('utf-8')
+            data_uri = f"data:{file_type};base64,{b64}"
+            uploaded_urls.append(data_uri)
+            if file_type.startswith("image/"):
+                gemini_contents.append(types.Part.from_bytes(data=file_bytes, mime_type=file_type))
+            elif file_type == "application/pdf" or file_type.startswith("text/"):
+                try:
+                    text_content = file_bytes.decode('utf-8', errors='ignore')
+                    mensaje += f"\n\n[Adjunto: {file.filename}]:\n{text_content[:2000]}"
+                except Exception:
+                    pass
+
+    # Guardar mensaje del usuario
+    msg_user = ChatMessage(
+        id_session=session_id,
+        rol="user",
+        contenido=mensaje if mensaje else "(Archivo adjunto)",
+        file_urls=uploaded_urls
+    )
+    db.add(msg_user)
+    
+    perfil = usuario.get("perfil_jarvis", "Mecanico")
+    sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
+    
+    history_msgs = db.query(ChatMessage).filter(ChatMessage.id_session == session_id).order_by(ChatMessage.created_at.desc()).limit(10).all()
+    history_msgs.reverse()
+    
+    prompt_con_contexto = f"Instrucción del sistema: {sys_prompt}\n\n"
+    for h in history_msgs:
+        prompt_con_contexto += f"{h.rol.capitalize()}: {h.contenido}\n"
+    prompt_con_contexto += f"User: {mensaje if mensaje else '(Archivo)'}\nJARVIS:"
+    
+    try:
+        contents = [prompt_con_contexto] + gemini_contents
+        client = get_gemini_client()
+        gemini_response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents
+        )
+        respuesta_jarvis = gemini_response.text
+    except Exception as e:
+        respuesta_jarvis = f"Señor, he experimentado una anomalía al procesar su solicitud: {str(e)}"
+    
+    msg_jarvis = ChatMessage(
+        id_session=session_id,
+        rol="jarvis",
+        contenido=respuesta_jarvis,
+        file_urls=[]
+    )
+    db.add(msg_jarvis)
+    
+    if (sesion.titulo == "Nueva Conversación" or not sesion.titulo) and mensaje:
+        sesion.titulo = mensaje[:30] + ("..." if len(mensaje) > 30 else "")
+    
+    sesion.updated_at = func.now()
+    db.commit()
+    db.refresh(msg_jarvis)
+    
+    return {
+        "id_mensaje": msg_jarvis.id_mensaje,
+        "rol": msg_jarvis.rol,
+        "contenido": msg_jarvis.contenido,
+        "file_urls": msg_jarvis.file_urls or [],
+        "created_at": msg_jarvis.created_at.isoformat(),
+    }
 
 
 # ============================================================
