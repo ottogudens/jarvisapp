@@ -38,6 +38,8 @@ class _JarvisMainScreenState extends State<JarvisMainScreen> with SingleTickerPr
   bool _isListening = false;
   String _status = 'Mantenga presionado el micrófono para hablar con J.A.R.V.I.S.';
   String? _audioPath;
+  String? _transcripcion;
+  String? _diagnostico;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -137,6 +139,8 @@ class _JarvisMainScreenState extends State<JarvisMainScreen> with SingleTickerPr
 
         setState(() {
           _status = body['respuesta_texto'] as String? ?? 'Listo.';
+          _transcripcion = body['transcripcion'] as String?;
+          _diagnostico = body['diagnostico_ia'] as String?;
         });
 
         // Decodificar audio base64 y reproducir
@@ -245,6 +249,53 @@ class _JarvisMainScreenState extends State<JarvisMainScreen> with SingleTickerPr
                   },
                 ),
               ),
+              const SizedBox(height: 40),
+              if (_transcripcion != null) ...[
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Tú dijiste:',
+                    style: TextStyle(color: Colors.white54, fontSize: 14),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '"$_transcripcion"',
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontStyle: FontStyle.italic),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              if (_diagnostico != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.cyan.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.cyan.withOpacity(0.3)),
+                  ),
+                  width: double.infinity,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.build_circle, color: Colors.cyan, size: 20),
+                          SizedBox(width: 8),
+                          Text('Diagnóstico IA', style: TextStyle(color: Colors.cyan, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _diagnostico!,
+                        style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 30),
             ],
           ),
