@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'main_screen.dart';
 import 'login_screen.dart';
 import 'stats_screen.dart';
+import 'chat_list_screen.dart';
 
 class HubScreen extends StatefulWidget {
   const HubScreen({Key? key}) : super(key: key);
@@ -31,7 +32,14 @@ class _HubScreenState extends State<HubScreen> {
         title: const Text('Workspace', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.bar_chart, color: Colors.cyanAccent),
+            icon: const Icon(Icons.chat_bubble_outline, color: Colors.cyanAccent),
+            tooltip: 'Chat con JARVIS',
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.bar_chart, color: Colors.white70),
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const JarvisStatsScreen()));
             },
@@ -98,6 +106,14 @@ class _HubScreenState extends State<HubScreen> {
             ),
           ],
         ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: Colors.cyan,
+        onPressed: () {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
+        },
+        icon: const Icon(Icons.chat, color: Colors.black),
+        label: const Text('Chat con JARVIS', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
       ),
     );
   }

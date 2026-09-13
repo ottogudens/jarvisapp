@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'inspector_screen.dart';
 import 'login_screen.dart';
+import 'chat_list_screen.dart';
 
 class InspectorHubScreen extends StatefulWidget {
   const InspectorHubScreen({Key? key}) : super(key: key);
@@ -53,6 +54,13 @@ class _InspectorHubScreenState extends State<InspectorHubScreen> {
         title: const Text('J.A.R.V.I.S. Inspector', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
         backgroundColor: const Color(0xFF1E293B),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline, color: Colors.amber),
+            tooltip: 'Chat con JARVIS',
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white54),
             onPressed: _logout,
@@ -151,6 +159,14 @@ class _InspectorHubScreenState extends State<InspectorHubScreen> {
             ),
           ],
         ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: Colors.amber,
+        onPressed: () {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
+        },
+        icon: const Icon(Icons.chat, color: Colors.black),
+        label: const Text('Chat con JARVIS', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
       ),
     );
   }
