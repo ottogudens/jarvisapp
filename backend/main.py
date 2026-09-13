@@ -197,7 +197,7 @@ async def _pipeline_ia(
             config_args["response_schema"] = response_format
 
         respuesta_gemini = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-3.6-flash',
             contents=[audio_part, prompt_text],
             config=types.GenerateContentConfig(**config_args),
         )
