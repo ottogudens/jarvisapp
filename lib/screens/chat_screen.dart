@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:html' as html;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -6,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 
 class ChatScreen extends StatefulWidget {
@@ -22,26 +25,66 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateMixin {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final AudioPlayer _player = AudioPlayer();
+  late final AudioRecorder _recorder;
   
   List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
   bool _isSending = false;
+  bool _isRecording = false;
   List<PlatformFile> _selectedFiles = [];
+  
+  // Ajustes de Agente
+  String _voiceId = '';
+  String _sarcasmLevel = '';
+  bool _handsFreeMode = false;
 
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
-    _fetchMessages();
+    _recorder = AudioRecorder();
+    
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    _player.onPlayerComplete.listen((event) {
+      if (_handsFreeMode && mounted) {
+        // En modo manos libres, cuando J.A.R.V.I.S. termina de hablar, empezamos a escuchar.
+        _startRecording();
+      }
+    });
+
+    _loadSettings().then((_) {
+      _fetchMessages();
+    });
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _voiceId = prefs.getString('jarvis_voice_id') ?? '';
+      _sarcasmLevel = prefs.getString('jarvis_sarcasm_level') ?? '';
+      _handsFreeMode = prefs.getBool('jarvis_hands_free') ?? false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    _recorder.dispose();
+    _pulseController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchMessages() async {
@@ -83,9 +126,46 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _sendMessage() async {
+  Future<void> _startRecording() async {
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permiso de micrófono denegado.')));
+      return;
+    }
+
+    String path = '';
+    if (!kIsWeb) {
+      final dir = await getTemporaryDirectory();
+      path = '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    }
+
+    setState(() => _isRecording = true);
+    _pulseController.repeat(reverse: true);
+
+    await _recorder.start(
+      const RecordConfig(encoder: AudioEncoder.aacLc, sampleRate: 16000),
+      path: path,
+    );
+  }
+
+  Future<void> _stopRecording() async {
+    if (!await _recorder.isRecording()) return;
+
+    final path = await _recorder.stop();
+    setState(() {
+      _isRecording = false;
+    });
+    _pulseController.stop();
+    _pulseController.value = 0.0;
+
+    if (path != null) {
+      await _sendMessage(audioPath: path);
+    }
+  }
+
+  Future<void> _sendMessage({String? audioPath}) async {
     final text = _messageController.text.trim();
-    if (text.isEmpty && _selectedFiles.isEmpty) return;
+    if (text.isEmpty && _selectedFiles.isEmpty && audioPath == null) return;
 
     final userText = text;
     _messageController.clear();
@@ -95,7 +175,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages.add({
         'id_mensaje': DateTime.now().millisecondsSinceEpoch.toString(),
         'rol': 'user',
-        'contenido': userText.isEmpty ? '(Archivo adjunto)' : userText,
+        'contenido': audioPath != null ? '(Audio)' : (userText.isEmpty ? '(Archivo adjunto)' : userText),
         'file_urls': _selectedFiles.map((f) => f.name).toList(),
         'created_at': DateTime.now().toIso8601String(),
       });
@@ -114,8 +194,17 @@ class _ChatScreenState extends State<ChatScreen> {
         Uri.parse('$kApiBaseUrl/v1/chat/sessions/${widget.sessionId}/send'),
       );
       request.headers['Authorization'] = 'Bearer $token';
+      
+      if (_voiceId.isNotEmpty) {
+        request.headers['x-voice-id'] = _voiceId;
+      }
+      if (_sarcasmLevel.isNotEmpty) {
+        request.headers['x-sarcasm-level'] = _sarcasmLevel;
+      }
+      
       request.fields['mensaje'] = userText;
 
+      // Adjuntar archivos de texto/imagen
       for (var file in filesToSend) {
         if (file.bytes != null) {
           request.files.add(
@@ -124,6 +213,20 @@ class _ChatScreenState extends State<ChatScreen> {
               file.bytes!,
               filename: file.name,
             ),
+          );
+        }
+      }
+
+      // Adjuntar audio si lo hay
+      if (audioPath != null) {
+        if (kIsWeb) {
+          final blobResponse = await http.get(Uri.parse(audioPath));
+          request.files.add(
+            http.MultipartFile.fromBytes('files', blobResponse.bodyBytes, filename: 'audio.m4a'),
+          );
+        } else {
+          request.files.add(
+            await http.MultipartFile.fromPath('files', audioPath),
           );
         }
       }
@@ -175,6 +278,14 @@ class _ChatScreenState extends State<ChatScreen> {
         final utterance = html.SpeechSynthesisUtterance(text);
         utterance.lang = 'es-ES';
         utterance.rate = 1.0;
+        
+        // Emular onComplete
+        utterance.onEnd.listen((_) {
+          if (_handsFreeMode && mounted) {
+            _startRecording();
+          }
+        });
+
         html.window.speechSynthesis?.cancel(); // Detener audios anteriores
         html.window.speechSynthesis?.speak(utterance);
       } catch (e) {
@@ -219,6 +330,23 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              _handsFreeMode ? Icons.headset_mic : Icons.headset_off,
+              color: _handsFreeMode ? Colors.cyanAccent : Colors.white38,
+            ),
+            tooltip: _handsFreeMode ? 'Manos Libres Activo' : 'Manos Libres Inactivo',
+            onPressed: () async {
+              setState(() => _handsFreeMode = !_handsFreeMode);
+              final prefs = await SharedPreferences.getInstance();
+              prefs.setBool('jarvis_hands_free', _handsFreeMode);
+              if (_handsFreeMode) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Modo Manos Libres Activo')));
+              }
+            },
+          )
+        ],
       ),
       body: Column(
         children: [
@@ -260,18 +388,28 @@ class _ChatScreenState extends State<ChatScreen> {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
-          Icon(Icons.chat_bubble_outline, size: 64, color: Colors.white24),
-          SizedBox(height: 16),
-          Text(
+        children: [
+          const Icon(Icons.chat_bubble_outline, size: 64, color: Colors.white24),
+          const SizedBox(height: 16),
+          const Text(
             'Inicia la conversación con J.A.R.V.I.S.',
             style: TextStyle(color: Colors.white54, fontSize: 16),
           ),
-          SizedBox(height: 8),
-          Text(
-            'Puedes enviar texto, imágenes y documentos.',
+          const SizedBox(height: 8),
+          const Text(
+            'Puedes enviar texto, voz y documentos.',
             style: TextStyle(color: Colors.white30, fontSize: 12),
           ),
+          const SizedBox(height: 32),
+          if (_handsFreeMode)
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.headset_mic, color: Colors.cyanAccent, size: 16),
+                SizedBox(width: 8),
+                Text('Modo Manos Libres Activo', style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+              ],
+            )
         ],
       ),
     );
@@ -318,10 +456,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
-            Text(
-              msg['contenido'] ?? '',
-              style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
-            ),
+            if (msg['contenido'] == '(Audio)') 
+               const Row(children: [Icon(Icons.mic, color: Colors.white54, size: 16), SizedBox(width:4), Text('Mensaje de voz', style: TextStyle(color: Colors.white54))])
+            else
+              Text(
+                msg['contenido'] ?? '',
+                style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+              ),
             if (fileUrls.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
@@ -409,8 +550,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 controller: _messageController,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: 'Escribe un mensaje a JARVIS...',
-                  hintStyle: const TextStyle(color: Colors.white38),
+                  hintText: _isRecording ? 'Escuchando...' : 'Escribe a JARVIS...',
+                  hintStyle: TextStyle(color: _isRecording ? Colors.redAccent : Colors.white38),
                   filled: true,
                   fillColor: const Color(0xFF0F172A),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -420,15 +561,48 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
                 onSubmitted: (_) => _sendMessage(),
+                enabled: !_isRecording,
               ),
             ),
+            const SizedBox(width: 8),
+            
+            // Botón de Micrófono (Mantener presionado o toggle)
+            GestureDetector(
+              onLongPress: _startRecording,
+              onLongPressUp: _stopRecording,
+              onTap: () {
+                if (_isRecording) {
+                  _stopRecording();
+                } else {
+                  _startRecording();
+                }
+              },
+              child: AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _isRecording ? _pulseAnimation.value : 1.0,
+                    child: CircleAvatar(
+                      backgroundColor: _isRecording ? Colors.red : const Color(0xFF334155),
+                      radius: 22,
+                      child: Icon(
+                        _isRecording ? Icons.mic : Icons.mic_none,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            
             const SizedBox(width: 8),
             CircleAvatar(
               backgroundColor: Colors.cyan,
               radius: 22,
               child: IconButton(
                 icon: const Icon(Icons.send, color: Colors.black, size: 20),
-                onPressed: _sendMessage,
+                onPressed: () => _sendMessage(),
               ),
             ),
           ],

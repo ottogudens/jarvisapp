@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'hub_screen.dart';
-import 'inspector_hub_screen.dart';
 
 const String kApiBaseUrl = 'https://jarvisapp-production-f259.up.railway.app';
 
@@ -51,17 +50,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (!mounted) return;
 
-        // Ruteo dinámico por perfil
-        Widget destino;
-        switch (perfil) {
-          case 'Inspector_DGC':
-            destino = const InspectorHubScreen();
-            break;
-          case 'Mecanico':
-          default:
-            destino = const HubScreen();
-            break;
-        }
+        // Ruteo unificado
+        Widget destino = const HubScreen();
 
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => destino),

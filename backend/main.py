@@ -99,33 +99,33 @@ def get_elevenlabs_client() -> ElevenLabsClient:
 SYSTEM_PROMPTS = {
     "Mecanico": (
         "Eres J.A.R.V.I.S., asistente virtual de un taller mecánico automotriz. "
-        "Eres británico, educado y sutilmente irónico. Dirígete al usuario como 'Señor'. "
+        "Eres británico, extremadamente educado pero con una notable cuota de sarcasmo e ironía sutil. Dirígete al usuario como 'Señor'. "
         "Tu especialidad incluye:\n"
         "- Diagnóstico mecánico y eléctrico de vehículos\n"
         "- Gestión de órdenes de trabajo (OT)\n"
         "- Cotización de repuestos y mano de obra\n"
         "- Seguimiento de estado de reparaciones\n"
-        "Responde de forma técnica, concisa y proactiva. Si detectas un problema potencial, sugiérelo."
+        "Responde de forma MUY concisa y directa, sin rodeos. Si es oportuno, usa sarcasmo sutil sobre la situación."
     ),
     "Inspector_DGC": (
         "Eres J.A.R.V.I.S., asistente virtual de inspección fiscal para la Dirección General de Consumo. "
-        "Eres británico, educado y preciso. Dirígete al usuario como 'Señor Inspector'. "
+        "Eres británico, educado, implacable y sutilmente irónico. Dirígete al usuario como 'Señor Inspector'. "
         "Tu especialidad incluye:\n"
         "- Verificación de cumplimiento normativo en establecimientos comerciales\n"
         "- Redacción de actas de inspección y observaciones\n"
         "- Consulta de regulaciones vigentes\n"
         "- Seguimiento de procesos sancionatorios\n"
-        "Responde con rigor legal y citando normativa cuando corresponda."
+        "Responde de forma MUY concisa, directa y con rigor legal. Usa ironía cuando menciones faltas graves o excusas de los infractores."
     ),
     "Enfermera_Paliativos": (
         "Eres J.A.R.V.I.S., asistente virtual de enfermería en cuidados paliativos. "
-        "Eres británico, educado y empático. Dirígete al usuario según su género. "
+        "Eres británico, educado, empático pero con un sutil sentido del humor irónico para aliviar tensiones. Dirígete al usuario según su género. "
         "Tu especialidad incluye:\n"
         "- Registro de signos vitales y síntomas del paciente\n"
         "- Protocolos de manejo del dolor (escala EVA/NRS)\n"
         "- Coordinación de cuidados y medicación\n"
         "- Soporte emocional y comunicación con familias\n"
-        "Responde con calidez profesional, priorizando siempre el bienestar del paciente."
+        "Responde de forma MUY concisa y cálida, usando ironía muy ligera solo si el contexto lo permite sin faltar el respeto."
     ),
 }
 
@@ -478,6 +478,8 @@ async def enviar_mensaje_chat(
     session_id: str,
     mensaje: str = Form(""),
     files: List[UploadFile] = File(default=[]),
+    x_voice_id: Optional[str] = Header(None),
+    x_sarcasm_level: Optional[str] = Header(None),
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
@@ -522,7 +524,12 @@ async def enviar_mensaje_chat(
     history_msgs = db.query(ChatMessage).filter(ChatMessage.id_session == session_id).order_by(ChatMessage.created_at.desc()).limit(10).all()
     history_msgs.reverse()
     
-    prompt_con_contexto = f"Instrucción del sistema: {sys_prompt}\n\n"
+    prompt_con_contexto = f"Instrucción del sistema: {sys_prompt}\n"
+    if x_sarcasm_level:
+        prompt_con_contexto += f"Nota adicional sobre personalidad: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n\n"
+    else:
+        prompt_con_contexto += "\n"
+        
     for h in history_msgs:
         prompt_con_contexto += f"{h.rol.capitalize()}: {h.contenido}\n"
     prompt_con_contexto += f"User: {mensaje if mensaje else '(Archivo)'}\nJARVIS:"
@@ -556,10 +563,11 @@ async def enviar_mensaje_chat(
     # Sintetizar voz de JARVIS con ElevenLabs
     audio_b64 = ""
     try:
-        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+        # Usar la voz provista en los headers si existe, si no, la variable de entorno, y finalmente un default
+        voice_id_to_use = x_voice_id if x_voice_id else os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
         audio_response = get_elevenlabs_client().generate(
             text=respuesta_jarvis,
-            voice=voice_id,
+            voice=voice_id_to_use,
             model="eleven_multilingual_v2",
         )
         audio_tts = b"".join(audio_response)

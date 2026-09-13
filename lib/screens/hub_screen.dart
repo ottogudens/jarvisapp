@@ -1,10 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'main_screen.dart';
 import 'login_screen.dart';
-import 'stats_screen.dart';
 import 'chat_list_screen.dart';
+import 'settings_screen.dart';
 
 class HubScreen extends StatefulWidget {
   const HubScreen({Key? key}) : super(key: key);
@@ -14,10 +13,33 @@ class HubScreen extends StatefulWidget {
 }
 
 class _HubScreenState extends State<HubScreen> {
-  
+  String _perfil = 'Usuario';
+  String _organizacion = 'Organización';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _perfil = prefs.getString('perfil_jarvis') ?? 'Usuario';
+      _organizacion = prefs.getString('nombre_organizacion') ?? 'Organización';
+      
+      // Limpiar el nombre para la UI si es Inspector_DGC
+      if (_perfil == 'Inspector_DGC') {
+        _perfil = 'Inspector';
+      }
+    });
+  }
+
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('jwt_token');
+    await prefs.remove('perfil_jarvis');
+    await prefs.remove('nombre_organizacion');
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -30,18 +52,13 @@ class _HubScreenState extends State<HubScreen> {
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         title: const Text('Workspace', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
+        backgroundColor: const Color(0xFF1E293B),
         actions: [
           IconButton(
-            icon: const Icon(Icons.chat_bubble_outline, color: Colors.cyanAccent),
-            tooltip: 'Chat con JARVIS',
+            icon: const Icon(Icons.settings, color: Colors.white70),
+            tooltip: 'Configuración de J.A.R.V.I.S.',
             onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.bar_chart, color: Colors.white70),
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const JarvisStatsScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
             },
           ),
           IconButton(
@@ -60,7 +77,7 @@ class _HubScreenState extends State<HubScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Hola, Mecánico',
+                      'Hola, $_perfil',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -68,7 +85,7 @@ class _HubScreenState extends State<HubScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Taller Los Hermanos',
+                      _organizacion,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             color: Colors.cyanAccent.withOpacity(0.8),
                           ),
@@ -77,7 +94,7 @@ class _HubScreenState extends State<HubScreen> {
                     _buildMetricCards(),
                     const SizedBox(height: 40),
                     Text(
-                      'ÓRDENES ACTIVAS',
+                      'ACTIVIDADES RECIENTES',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             color: Colors.white54,
                             letterSpacing: 1.5,
@@ -94,13 +111,15 @@ class _HubScreenState extends State<HubScreen> {
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    return _buildOrderCard(
-                      idOrden: 'OT-100${index + 2}',
-                      vehiculo: 'Toyota Corolla 2018 (AB123CD)',
-                      estado: index == 0 ? 'Recepción' : 'En Diagnóstico',
+                    return _buildActivityCard(
+                      id: 'ACT-100${index + 1}',
+                      descripcion: _perfil == 'Inspector' 
+                          ? 'Inspección Local Comercial ${index + 1}' 
+                          : 'Revisión Vehículo ${index + 1}',
+                      estado: index == 0 ? 'En curso' : 'Pendiente',
                     );
                   },
-                  childCount: 3, // Mock orders
+                  childCount: 3, // Mock activities
                 ),
               ),
             ),
@@ -113,7 +132,7 @@ class _HubScreenState extends State<HubScreen> {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen()));
         },
         icon: const Icon(Icons.chat, color: Colors.black),
-        label: const Text('Chat con JARVIS', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        label: const Text('Sesiones de J.A.R.V.I.S.', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
       ),
     );
   }
@@ -125,7 +144,7 @@ class _HubScreenState extends State<HubScreen> {
           child: _buildGlassCard(
             title: 'Pendientes',
             value: '3',
-            icon: Icons.build_circle_outlined,
+            icon: Icons.pending_actions,
             color: Colors.orangeAccent,
           ),
         ),
@@ -175,7 +194,7 @@ class _HubScreenState extends State<HubScreen> {
     );
   }
 
-  Widget _buildOrderCard({required String idOrden, required String vehiculo, required String estado}) {
+  Widget _buildActivityCard({required String id, required String descripcion, required String estado}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       child: Material(
@@ -184,7 +203,7 @@ class _HubScreenState extends State<HubScreen> {
           onTap: () {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => JarvisMainScreen(idOrden: idOrden)),
+              MaterialPageRoute(builder: (_) => const ChatListScreen()),
             );
           },
           borderRadius: BorderRadius.circular(16),
@@ -204,7 +223,7 @@ class _HubScreenState extends State<HubScreen> {
                       color: Colors.cyan.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.directions_car, color: Colors.cyanAccent),
+                    child: const Icon(Icons.assignment, color: Colors.cyanAccent),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -212,12 +231,12 @@ class _HubScreenState extends State<HubScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          idOrden,
+                          id,
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          vehiculo,
+                          descripcion,
                           style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 14),
                         ),
                       ],
@@ -226,13 +245,13 @@ class _HubScreenState extends State<HubScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: estado == 'Recepción' ? Colors.orange.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
+                      color: estado == 'Pendiente' ? Colors.orange.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       estado,
                       style: TextStyle(
-                        color: estado == 'Recepción' ? Colors.orangeAccent : Colors.blueAccent,
+                        color: estado == 'Pendiente' ? Colors.orangeAccent : Colors.blueAccent,
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
