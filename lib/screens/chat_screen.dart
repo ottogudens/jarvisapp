@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:html' as html;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -135,12 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _messages.add(jarvisMsg);
         });
         _scrollToBottom();
-
-        // Reproducir voz si viene audio_base64
-        final audioB64 = jarvisMsg['audio_base64'] as String?;
-        if (audioB64 != null && audioB64.isNotEmpty) {
-          _playAudio(audioB64);
-        }
+        _speakMessage(jarvisMsg);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error del servidor: ${response.statusCode}')),
@@ -155,13 +152,34 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _playAudio(String audioB64) async {
-    try {
-      final audioBytes = base64Decode(audioB64);
-      await _player.stop();
-      await _player.play(BytesSource(audioBytes));
-    } catch (e) {
-      print('Error reproduciendo voz: $e');
+  Future<void> _speakMessage(Map<String, dynamic> msg) async {
+    final audioB64 = msg['audio_base64'] as String?;
+    if (audioB64 != null && audioB64.isNotEmpty) {
+      try {
+        final audioBytes = base64Decode(audioB64);
+        await _player.stop();
+        await _player.play(BytesSource(audioBytes));
+        return;
+      } catch (e) {
+        print('Error reproduciendo audio base64: $e');
+      }
+    }
+    
+    // Fallback a Síntesis de voz del Navegador (Web Speech API)
+    _speakTextWeb(msg['contenido'] ?? '');
+  }
+
+  void _speakTextWeb(String text) {
+    if (kIsWeb) {
+      try {
+        final utterance = html.SpeechSynthesisUtterance(text);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.0;
+        html.window.speechSynthesis?.cancel(); // Detener audios anteriores
+        html.window.speechSynthesis?.speak(utterance);
+      } catch (e) {
+        print('Error Web Speech: $e');
+      }
     }
   }
 
@@ -290,11 +308,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('J.A.R.V.I.S.', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 11)),
-                    if (msg['audio_base64'] != null && (msg['audio_base64'] as String).isNotEmpty)
-                      GestureDetector(
-                        onTap: () => _playAudio(msg['audio_base64']),
-                        child: const Icon(Icons.volume_up, color: Colors.cyanAccent, size: 18),
-                      ),
+                    IconButton(
+                      constraints: const BoxConstraints(),
+                      padding: EdgeInsets.zero,
+                      icon: const Icon(Icons.volume_up, color: Colors.cyanAccent, size: 18),
+                      tooltip: 'Escuchar respuesta',
+                      onPressed: () => _speakMessage(msg),
+                    ),
                   ],
                 ),
               ),
