@@ -40,6 +40,8 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
   bool _isRecording = false;
   bool _isPlayingAudio = false;
   List<PlatformFile> _selectedFiles = [];
+  List<String> _focusedDocumentIds = [];
+  List<Map<String,dynamic>> _availableDocsForFocus = [];
   
   // Ajustes de Agente
   String _voiceId = '';
@@ -312,6 +314,79 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     }
   }
 
+  void _showFocusBottomSheet() {
+    // Collect all documents uploaded in this session
+    final docs = _messages.where((m) => m['rol'] == 'user' && m['file_urls'] != null && (m['file_urls'] as List).isNotEmpty).toList();
+    if (docs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay documentos previos en esta sesión.')));
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              height: 400,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Enfocar Documentos', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  const Text('Selecciona los archivos sobre los que JARVIS debe basar su respuesta.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: docs.length,
+                      itemBuilder: (context, index) {
+                        final doc = docs[index];
+                        final id = doc['id_mensaje'] as String;
+                        final isSelected = _focusedDocumentIds.contains(id);
+                        final urls = doc['file_urls'] as List;
+                        final isPdf = urls.any((u) => u.toString().contains('pdf'));
+                        
+                        return CheckboxListTile(
+                          activeColor: Colors.cyanAccent,
+                          checkColor: Colors.black,
+                          title: Text('Doc #${id.substring(id.length - 4)}', style: const TextStyle(color: Colors.white)),
+                          subtitle: Text(doc['contenido'] ?? 'Archivo', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54)),
+                          secondary: Icon(isPdf ? Icons.picture_as_pdf : Icons.insert_drive_file, color: Colors.cyanAccent),
+                          value: isSelected,
+                          onChanged: (val) {
+                            setSheetState(() {
+                              if (val == true) {
+                                _focusedDocumentIds.add(id);
+                              } else {
+                                _focusedDocumentIds.remove(id);
+                              }
+                            });
+                            setState(() {}); // Update main UI
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Confirmar', style: TextStyle(color: Colors.white)),
+                    ),
+                  )
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _sendMessage({String? audioPath}) async {
     final text = _messageController.text.trim();
     if (text.isEmpty && _selectedFiles.isEmpty && audioPath == null) return;
@@ -332,7 +407,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     _scrollToBottom();
 
     final filesToSend = List<PlatformFile>.from(_selectedFiles);
-    setState(() => _selectedFiles.clear());
+    setState(() { _selectedFiles.clear(); _focusedDocumentIds.clear(); });
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -357,6 +432,9 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       }
       
       request.fields['mensaje'] = userText;
+      if (_focusedDocumentIds.isNotEmpty) {
+        request.fields['focused_document_ids'] = jsonEncode(_focusedDocumentIds);
+      }
       if (_customPrompt.isNotEmpty) {
         request.fields['custom_prompt'] = _customPrompt;
       }

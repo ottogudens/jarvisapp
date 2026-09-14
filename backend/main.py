@@ -735,6 +735,7 @@ async def enviar_mensaje_chat(
     session_id: str,
     mensaje: str = Form(""),
     custom_prompt: Optional[str] = Form(None),
+    focused_document_ids: Optional[str] = Form(None),
     files: List[UploadFile] = File(default=[]),
     x_voice_id: Optional[str] = Header(None),
     x_sarcasm_level: Optional[str] = Header(None),
@@ -813,8 +814,34 @@ async def enviar_mensaje_chat(
         ChatMessage.id_session == session_id
     ).order_by(ChatMessage.created_at.asc()).all()
 
+    import json
+    focused_ids_list = []
+    if focused_document_ids:
+        try:
+            focused_ids_list = json.loads(focused_document_ids)
+            if not isinstance(focused_ids_list, list):
+                focused_ids_list = []
+        except Exception:
+            pass
+
+    focused_knowledge = ""
+    if focused_ids_list:
+        for hist_msg in mensajes_hist:
+            if hist_msg.id_mensaje in focused_ids_list and hist_msg.file_urls:
+                for url in (hist_msg.file_urls or []):
+                    if "base64," in url and (url.startswith("data:text/") or url.startswith("data:application/pdf")):
+                        try:
+                            _, b64_part = url.split("base64,", 1)
+                            raw = base64.b64decode(b64_part).decode("utf-8", errors="ignore")
+                            if raw.strip():
+                                focused_knowledge += f"\n\n=== DOCUMENTO SELECCIONADO PARA FOCO ({hist_msg.id_mensaje}) ===\n{raw[:20000]}"
+                        except Exception:
+                            pass
+
     knowledge_from_history = ""
     for hist_msg in mensajes_hist[-12:]:
+        if hist_msg.id_mensaje in focused_ids_list:
+            continue
         if hist_msg.rol == "user" and hist_msg.file_urls:
             for url in (hist_msg.file_urls or []):
                 if "base64," in url and (url.startswith("data:text/") or url.startswith("data:application/pdf")):
@@ -845,6 +872,8 @@ async def enviar_mensaje_chat(
     if x_sarcasm_level:
         prompt_con_contexto += f"Nota: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n"
     prompt_con_contexto += "\n"
+    if focused_knowledge:
+        prompt_con_contexto += f"[DOCUMENTOS SELECCIONADOS COMO FOCO PRINCIPAL]\n(Instrucción: El usuario te pide que te enfoques PRINCIPALMENTE en estos documentos para responder)\n{focused_knowledge}\n\n"
     if knowledge_from_history:
         prompt_con_contexto += f"[CONOCIMIENTO DE DOCUMENTOS PREVIOS EN ESTA SESIÓN]{knowledge_from_history}\n\n"
     if doc_context:
