@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:html' as html;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
@@ -35,12 +37,19 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
   bool _isLoading = true;
   bool _isSending = false;
   bool _isRecording = false;
+  bool _isPlayingAudio = false;
   List<PlatformFile> _selectedFiles = [];
   
   // Ajustes de Agente
   String _voiceId = '';
   String _sarcasmLevel = '';
+  String _customPrompt = '';
   bool _handsFreeMode = false;
+
+  // Detección de silencio (VAD) para manos libres
+  Timer? _silenceTimer;
+  StreamSubscription<Amplitude>? _amplitudeSub;
+  bool _hasSpokenInCurrentRecording = false;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -54,20 +63,88 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       vsync: this,
       duration: const Duration(seconds: 1),
     );
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.25).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
+    // Listener de fin de audio de J.A.R.V.I.S.
     _player.onPlayerComplete.listen((event) {
-      if (_handsFreeMode && mounted) {
-        // En modo manos libres, cuando J.A.R.V.I.S. termina de hablar, empezamos a escuchar.
-        _startRecording();
+      if (mounted) {
+        setState(() => _isPlayingAudio = false);
+        if (_handsFreeMode) {
+          // Iniciar grabación automáticamente para la siguiente consulta
+          _startRecording();
+        }
       }
     });
+
+    _player.onPlayerStateChanged.listen((state) {
+      if (mounted) {
+        setState(() {
+          _isPlayingAudio = (state == PlayerState.playing);
+        });
+      }
+    });
+
+    _initHeadsetListener();
 
     _loadSettings().then((_) {
       _fetchMessages();
     });
+  }
+
+  void _initHeadsetListener() {
+    // 1. Escuchar eventos de teclas multimedia / auriculares (Bluetooth)
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+
+    // 2. En Web: registrar soporte para MediaSession API (botones de auriculares Bluetooth)
+    if (kIsWeb) {
+      try {
+        final mediaSession = html.window.navigator.mediaSession;
+        if (mediaSession != null) {
+          mediaSession.setActionHandler('play', () {
+            _onHeadsetButtonPressed();
+          });
+          mediaSession.setActionHandler('pause', () {
+            _onHeadsetButtonPressed();
+          });
+          mediaSession.setActionHandler('stop', () {
+            _stopSpeaking();
+          });
+        }
+      } catch (e) {
+        debugPrint('MediaSession no disponible: $e');
+      }
+    }
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final key = event.logicalKey;
+      if (key == LogicalKeyboardKey.mediaPlayPause ||
+          key == LogicalKeyboardKey.mediaPlay ||
+          key == LogicalKeyboardKey.mediaPause ||
+          key == LogicalKeyboardKey.mediaTrackNext ||
+          key == LogicalKeyboardKey.headsetHook) {
+        _onHeadsetButtonPressed();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _onHeadsetButtonPressed() {
+    if (_isPlayingAudio) {
+      // Si JARVIS está hablando, cancelar lectura y empezar a escuchar
+      _stopSpeaking();
+      _startRecording();
+    } else if (_isRecording) {
+      // Si ya está grabando, un segundo clic envía inmediatamente
+      _stopRecording();
+    } else {
+      // Si está en reposo, iniciar grabación
+      _startRecording();
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -75,15 +152,22 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     setState(() {
       _voiceId = prefs.getString('jarvis_voice_id') ?? '';
       _sarcasmLevel = prefs.getString('jarvis_sarcasm_level') ?? '';
+      _customPrompt = prefs.getString('jarvis_custom_prompt') ?? '';
       _handsFreeMode = prefs.getBool('jarvis_hands_free') ?? false;
     });
   }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    _silenceTimer?.cancel();
+    _amplitudeSub?.cancel();
+    _stopSpeaking();
     _player.dispose();
     _recorder.dispose();
     _pulseController.dispose();
+    _messageController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -94,23 +178,23 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
       final response = await http.get(
         Uri.parse('$kApiBaseUrl/v1/chat/sessions/${widget.sessionId}/messages'),
-        headers: {
-          'Authorization': 'Bearer $token',
-        },
+        headers: {'Authorization': 'Bearer $token'},
       );
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        setState(() {
-          _messages = data.cast<Map<String, dynamic>>();
-          _isLoading = false;
-        });
-        _scrollToBottom();
+        if (mounted) {
+          setState(() {
+            _messages = data.cast<Map<String, dynamic>>();
+            _isLoading = false;
+          });
+          _scrollToBottom();
+        }
       } else {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -127,9 +211,18 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _startRecording() async {
+    if (_isRecording) return;
+    
+    // Si estaba hablando, detenerlo
+    _stopSpeaking();
+
     final hasPermission = await _recorder.hasPermission();
     if (!hasPermission) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permiso de micrófono denegado.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permiso de micrófono denegado.')),
+        );
+      }
       return;
     }
 
@@ -139,6 +232,9 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       path = '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
     }
 
+    _hasSpokenInCurrentRecording = false;
+    _silenceTimer?.cancel();
+
     setState(() => _isRecording = true);
     _pulseController.repeat(reverse: true);
 
@@ -146,20 +242,72 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       const RecordConfig(encoder: AudioEncoder.aacLc, sampleRate: 16000),
       path: path,
     );
+
+    // Monitoreo de amplitud para detectar silencio por más de 3 segundos
+    try {
+      _amplitudeSub?.cancel();
+      _amplitudeSub = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 200))
+          .listen((amp) {
+        // En general, valores superiores a -38 dB indican habla/voz
+        if (amp.current > -38.0) {
+          _hasSpokenInCurrentRecording = true;
+          _resetSilenceTimer();
+        }
+      });
+    } catch (e) {
+      debugPrint('Amplitud no soportada en este entorno: $e');
+    }
+  }
+
+  void _resetSilenceTimer() {
+    _silenceTimer?.cancel();
+    // Cuando deje de hablar por más de 3 segundos, se envía automáticamente
+    _silenceTimer = Timer(const Duration(seconds: 3), () {
+      if (_isRecording && _hasSpokenInCurrentRecording) {
+        _stopRecording();
+      }
+    });
   }
 
   Future<void> _stopRecording() async {
-    if (!await _recorder.isRecording()) return;
+    _silenceTimer?.cancel();
+    _amplitudeSub?.cancel();
+
+    if (!await _recorder.isRecording()) {
+      if (mounted) {
+        setState(() => _isRecording = false);
+        _pulseController.stop();
+        _pulseController.value = 0.0;
+      }
+      return;
+    }
 
     final path = await _recorder.stop();
-    setState(() {
-      _isRecording = false;
-    });
-    _pulseController.stop();
-    _pulseController.value = 0.0;
+    if (mounted) {
+      setState(() => _isRecording = false);
+      _pulseController.stop();
+      _pulseController.value = 0.0;
+    }
 
     if (path != null) {
       await _sendMessage(audioPath: path);
+    }
+  }
+
+  void _stopSpeaking() {
+    try {
+      _player.stop();
+    } catch (_) {}
+
+    if (kIsWeb) {
+      try {
+        html.window.speechSynthesis?.cancel();
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      setState(() => _isPlayingAudio = false);
     }
   }
 
@@ -175,7 +323,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       _messages.add({
         'id_mensaje': DateTime.now().millisecondsSinceEpoch.toString(),
         'rol': 'user',
-        'contenido': audioPath != null ? '(Audio)' : (userText.isEmpty ? '(Archivo adjunto)' : userText),
+        'contenido': audioPath != null ? '(Audio de voz)' : (userText.isEmpty ? '(Archivo adjunto)' : userText),
         'file_urls': _selectedFiles.map((f) => f.name).toList(),
         'created_at': DateTime.now().toIso8601String(),
       });
@@ -200,6 +348,9 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       }
       if (_sarcasmLevel.isNotEmpty) {
         request.headers['x-sarcasm-level'] = _sarcasmLevel;
+      }
+      if (_customPrompt.isNotEmpty) {
+        request.headers['x-custom-prompt'] = _customPrompt;
       }
       
       request.fields['mensaje'] = userText;
@@ -236,35 +387,44 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
       if (response.statusCode == 200) {
         final jarvisMsg = jsonDecode(response.body);
-        setState(() {
-          _messages.add(jarvisMsg);
-        });
-        _scrollToBottom();
-        _speakMessage(jarvisMsg);
+        if (mounted) {
+          setState(() {
+            _messages.add(jarvisMsg);
+          });
+          _scrollToBottom();
+          // En manos libres o siempre que el usuario haya interactuado con audio, reproducir
+          _speakMessage(jarvisMsg);
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error del servidor: ${response.statusCode}')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error del servidor: ${response.statusCode}')),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error enviando mensaje: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al enviar mensaje: $e')),
+        );
+      }
     } finally {
-      setState(() => _isSending = false);
+      if (mounted) setState(() => _isSending = false);
     }
   }
 
   Future<void> _speakMessage(Map<String, dynamic> msg) async {
+    _stopSpeaking();
+
     final audioB64 = msg['audio_base64'] as String?;
     if (audioB64 != null && audioB64.isNotEmpty) {
       try {
         final audioBytes = base64Decode(audioB64);
-        await _player.stop();
+        setState(() => _isPlayingAudio = true);
         await _player.play(BytesSource(audioBytes));
         return;
       } catch (e) {
-        print('Error reproduciendo audio base64: $e');
+        debugPrint('Error reproduciendo audio base64: $e');
       }
     }
     
@@ -276,20 +436,27 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     if (kIsWeb) {
       try {
         final utterance = html.SpeechSynthesisUtterance(text);
-        utterance.lang = 'es-ES';
-        utterance.rate = 1.0;
+        // Intentar español latinoamericano
+        utterance.lang = 'es-419';
+        utterance.rate = 1.05;
         
-        // Emular onComplete
+        utterance.onStart.listen((_) {
+          if (mounted) setState(() => _isPlayingAudio = true);
+        });
+
         utterance.onEnd.listen((_) {
-          if (_handsFreeMode && mounted) {
-            _startRecording();
+          if (mounted) {
+            setState(() => _isPlayingAudio = false);
+            if (_handsFreeMode) {
+              _startRecording();
+            }
           }
         });
 
-        html.window.speechSynthesis?.cancel(); // Detener audios anteriores
+        html.window.speechSynthesis?.cancel();
         html.window.speechSynthesis?.speak(utterance);
       } catch (e) {
-        print('Error Web Speech: $e');
+        debugPrint('Error Web Speech: $e');
       }
     }
   }
@@ -341,44 +508,76 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
               setState(() => _handsFreeMode = !_handsFreeMode);
               final prefs = await SharedPreferences.getInstance();
               prefs.setBool('jarvis_hands_free', _handsFreeMode);
-              if (_handsFreeMode) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Modo Manos Libres Activo')));
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      _handsFreeMode
+                          ? 'Modo Manos Libres Activo: pulsa tu audífono o habla para interactuar'
+                          : 'Modo Manos Libres Desactivado',
+                    ),
+                  ),
+                );
               }
             },
           )
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
-                : _messages.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, index) {
-                          final msg = _messages[index];
-                          final isUser = msg['rol'] == 'user';
-                          return _buildMessageBubble(msg, isUser);
-                        },
-                      ),
+          Column(
+            children: [
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+                    : _messages.isEmpty
+                        ? _buildEmptyState()
+                        : ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _messages.length,
+                            itemBuilder: (context, index) {
+                              final msg = _messages[index];
+                              final isUser = msg['rol'] == 'user';
+                              return _buildMessageBubble(msg, isUser);
+                            },
+                          ),
+              ),
+              if (_isSending)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: const [
+                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent)),
+                      SizedBox(width: 10),
+                      Text('J.A.R.V.I.S. está procesando...', style: TextStyle(color: Colors.cyanAccent, fontSize: 12, fontStyle: FontStyle.italic)),
+                    ],
+                  ),
+                ),
+              if (_selectedFiles.isNotEmpty) _buildSelectedFilesPreview(),
+              _buildInputBar(),
+            ],
           ),
-          if (_isSending)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: const [
-                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent)),
-                  SizedBox(width: 10),
-                  Text('J.A.R.V.I.S. está procesando...', style: TextStyle(color: Colors.cyanAccent, fontSize: 12, fontStyle: FontStyle.italic)),
-                ],
+
+          // Botón flotante prominente para Cancelar / Detener Lectura de J.A.R.V.I.S.
+          if (_isPlayingAudio)
+            Positioned(
+              bottom: 80,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: FloatingActionButton.extended(
+                  backgroundColor: Colors.redAccent,
+                  elevation: 6,
+                  icon: const Icon(Icons.stop_circle, color: Colors.white, size: 24),
+                  label: const Text(
+                    'CANCELAR LECTURA',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1),
+                  ),
+                  onPressed: _stopSpeaking,
+                ),
               ),
             ),
-          if (_selectedFiles.isNotEmpty) _buildSelectedFilesPreview(),
-          _buildInputBar(),
         ],
       ),
     );
@@ -397,18 +596,26 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
           ),
           const SizedBox(height: 8),
           const Text(
-            'Puedes enviar texto, voz y documentos.',
+            'Puedes hablar por manos libres, escribir o adjuntar documentos.',
             style: TextStyle(color: Colors.white30, fontSize: 12),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
           if (_handsFreeMode)
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.headset_mic, color: Colors.cyanAccent, size: 16),
-                SizedBox(width: 8),
-                Text('Modo Manos Libres Activo', style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
-              ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.cyan.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.headset_mic, color: Colors.cyanAccent, size: 18),
+                  SizedBox(width: 8),
+                  Text('Presiona el botón de tu auricular para hablar', style: TextStyle(color: Colors.cyanAccent, fontSize: 13, fontWeight: FontWeight.w500)),
+                ],
+              ),
             )
         ],
       ),
@@ -449,15 +656,25 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                     IconButton(
                       constraints: const BoxConstraints(),
                       padding: EdgeInsets.zero,
-                      icon: const Icon(Icons.volume_up, color: Colors.cyanAccent, size: 18),
+                      icon: Icon(
+                        _isPlayingAudio ? Icons.volume_up : Icons.volume_down,
+                        color: _isPlayingAudio ? Colors.cyanAccent : Colors.white60,
+                        size: 18,
+                      ),
                       tooltip: 'Escuchar respuesta',
                       onPressed: () => _speakMessage(msg),
                     ),
                   ],
                 ),
               ),
-            if (msg['contenido'] == '(Audio)') 
-               const Row(children: [Icon(Icons.mic, color: Colors.white54, size: 16), SizedBox(width:4), Text('Mensaje de voz', style: TextStyle(color: Colors.white54))])
+            if (msg['contenido'] == '(Audio de voz)') 
+               const Row(
+                 children: [
+                   Icon(Icons.mic, color: Colors.white70, size: 16),
+                   SizedBox(width: 6),
+                   Text('Mensaje de voz', style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic)),
+                 ],
+               )
             else
               Text(
                 msg['contenido'] ?? '',
@@ -550,8 +767,11 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                 controller: _messageController,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: _isRecording ? 'Escuchando...' : 'Escribe a JARVIS...',
-                  hintStyle: TextStyle(color: _isRecording ? Colors.redAccent : Colors.white38),
+                  hintText: _isRecording ? 'Escuchando... (pausa de 3s envía)' : 'Escribe a J.A.R.V.I.S...',
+                  hintStyle: TextStyle(
+                    color: _isRecording ? Colors.redAccent : Colors.white38,
+                    fontWeight: _isRecording ? FontWeight.bold : FontWeight.normal,
+                  ),
                   filled: true,
                   fillColor: const Color(0xFF0F172A),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -566,10 +786,8 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             ),
             const SizedBox(width: 8),
             
-            // Botón de Micrófono (Mantener presionado o toggle)
+            // Botón de Micrófono / Auricular (Click 1: Graba, Click 2 o 3s de silencio: Envía)
             GestureDetector(
-              onLongPress: _startRecording,
-              onLongPressUp: _stopRecording,
               onTap: () {
                 if (_isRecording) {
                   _stopRecording();
@@ -583,12 +801,12 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   return Transform.scale(
                     scale: _isRecording ? _pulseAnimation.value : 1.0,
                     child: CircleAvatar(
-                      backgroundColor: _isRecording ? Colors.red : const Color(0xFF334155),
+                      backgroundColor: _isRecording ? Colors.redAccent : const Color(0xFF334155),
                       radius: 22,
                       child: Icon(
                         _isRecording ? Icons.mic : Icons.mic_none,
                         color: Colors.white,
-                        size: 20,
+                        size: 22,
                       ),
                     ),
                   );

@@ -447,6 +447,72 @@ async def crear_sesion(
     }
 
 
+@app.patch("/v1/chat/sessions/{session_id}")
+async def actualizar_sesion(
+    session_id: str,
+    body: CreateSessionRequest,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    sesion = db.query(ChatSession).filter(
+        ChatSession.id_session == session_id,
+        ChatSession.id_usuario == usuario["id_usuario"]
+    ).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    
+    if body.titulo:
+        sesion.titulo = body.titulo
+    db.commit()
+    db.refresh(sesion)
+    return {"message": "Sesión actualizada", "titulo": sesion.titulo}
+
+
+@app.delete("/v1/chat/sessions/{session_id}")
+async def eliminar_sesion(
+    session_id: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    sesion = db.query(ChatSession).filter(
+        ChatSession.id_session == session_id,
+        ChatSession.id_usuario == usuario["id_usuario"]
+    ).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    
+    db.delete(sesion)
+    db.commit()
+    return {"message": "Sesión eliminada correctamente"}
+
+
+@app.get("/v1/chat/sessions/all/files")
+async def listar_todos_archivos(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    sesiones = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).all()
+    session_ids = [s.id_session for s in sesiones]
+    
+    mensajes = db.query(ChatMessage).filter(
+        ChatMessage.id_session.in_(session_ids)
+    ).all()
+    
+    archivos_subidos = 0
+    archivos_generados = 0
+    for m in mensajes:
+        if m.file_urls:
+            if m.rol == 'user':
+                archivos_subidos += len(m.file_urls)
+            elif m.rol == 'jarvis':
+                archivos_generados += len(m.file_urls)
+                
+    return {
+        "archivos_subidos": archivos_subidos,
+        "archivos_generados": archivos_generados
+    }
+
+
 @app.get("/v1/chat/sessions/{session_id}/messages")
 async def obtener_mensajes(
     session_id: str,
@@ -473,6 +539,19 @@ async def obtener_mensajes(
     ]
 
 
+@app.get("/v1/agent/prompt")
+async def obtener_prompt_agente(
+    usuario: dict = Depends(obtener_usuario_actual)
+):
+    perfil = usuario.get("perfil_jarvis", "Mecanico")
+    prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
+    return {
+        "perfil": perfil,
+        "prompt": prompt,
+        "todos_los_prompts": SYSTEM_PROMPTS
+    }
+
+
 @app.post("/v1/chat/sessions/{session_id}/send")
 async def enviar_mensaje_chat(
     session_id: str,
@@ -480,6 +559,7 @@ async def enviar_mensaje_chat(
     files: List[UploadFile] = File(default=[]),
     x_voice_id: Optional[str] = Header(None),
     x_sarcasm_level: Optional[str] = Header(None),
+    x_custom_prompt: Optional[str] = Header(None),
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
@@ -519,7 +599,10 @@ async def enviar_mensaje_chat(
     db.add(msg_user)
     
     perfil = usuario.get("perfil_jarvis", "Mecanico")
-    sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
+    if x_custom_prompt and x_custom_prompt.strip():
+        sys_prompt = x_custom_prompt.strip()
+    else:
+        sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
     
     history_msgs = db.query(ChatMessage).filter(ChatMessage.id_session == session_id).order_by(ChatMessage.created_at.desc()).limit(10).all()
     history_msgs.reverse()
