@@ -251,7 +251,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
           .onAmplitudeChanged(const Duration(milliseconds: 200))
           .listen((amp) {
         // En general, valores superiores a -38 dB indican habla/voz
-        if (amp.current > -38.0) {
+        if (amp.current > -45.0) {
           _hasSpokenInCurrentRecording = true;
           _resetSilenceTimer();
         }
@@ -411,7 +411,9 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             _messages.add(jarvisMsg);
           });
           _scrollToBottom();
-          _speakMessage(jarvisMsg);
+          if (_handsFreeMode) {
+            _speakMessage(jarvisMsg);
+          }
         }
       } else {
         if (mounted) {
