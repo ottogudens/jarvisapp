@@ -521,36 +521,178 @@ async def obtener_mensajes(
 ):
     sesion = db.query(ChatSession).filter(
         ChatSession.id_session == session_id,
-        ChatSession.id_usuario == usuario["id_usuario"]
-    ).first()
-    if not sesion:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+            f"Gravedad: {parsed.gravedad}\n"
+            f"Acción: {parsed.accion_recomendada}"
+        )
     
-    mensajes = db.query(ChatMessage).filter(ChatMessage.id_session == session_id).order_by(ChatMessage.created_at.asc()).all()
-    return [
-        {
-            "id_mensaje": m.id_mensaje,
-            "rol": m.rol,
-            "contenido": m.contenido,
-            "file_urls": m.file_urls or [],
-            "created_at": m.created_at.isoformat(),
-        }
-        for m in mensajes
-    ]
+    return respuesta
 
 
+# ============================================================
+# Endpoint: Enfermera Paliativos (Fix #17)
+# ============================================================
+
+@app.post("/v1/jarvis/enfermera/procesar-completo", response_model=JarvisResponse)
+async def pipeline_enfermera(
+    audio_file: UploadFile = File(...),
+    usuario: dict = Depends(requiere_feature("modulo_enfermeria")),
+):
+    """Pipeline para perfil Enfermera de Cuidados Paliativos."""
+    respuesta, _ = await _pipeline_ia(audio_file, "Enfermera_Paliativos")
+    return respuesta
+
+
+# ============================================================
+# Webhook MercadoPago (Fix #15: verificación de firma)
+# ============================================================
+
+MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
+
+
+@app.post("/v1/mercado-pago/webhook")
+async def webhook_mp(request: Request):
+    """
+    Recibe notificaciones de pago de MercadoPago.
+    Fix #15: valida la firma HMAC del webhook cuando MP_WEBHOOK_SECRET está configurado.
+    """
+    payload_bytes = await request.body()
+
+    if MP_WEBHOOK_SECRET:
+        # Extraer componentes de la firma
+        x_signature = request.headers.get("x-signature", "")
+        x_request_id = request.headers.get("x-request-id", "")
+
+        parts = {}
+        for item in x_signature.split(","):
+            if "=" in item:
+                k, v = item.strip().split("=", 1)
+                parts[k] = v
+
+        ts = parts.get("ts", "")
+        v1 = parts.get("v1", "")
+
+        # Reconstruir el manifest para verificación
+        import json
+        payload = json.loads(payload_bytes)
+        data_id = str(payload.get("data", {}).get("id", ""))
+        manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
+
+        expected = hmac.new(
+            MP_WEBHOOK_SECRET.encode(), manifest.encode(), hashlib.sha256,
+        ).hexdigest()
+
+        if not hmac.compare_digest(v1, expected):
+            raise HTTPException(status_code=403, detail="Firma de webhook inválida.")
+    else:
+        import json
+        payload = json.loads(payload_bytes)
+
+    # Procesar evento de pago
+    action = payload.get("action", "")
+    if action == "payment.created":
+        payment_id = payload.get("data", {}).get("id", "desconocido")
+        print(f"[MercadoPago] Pago creado: {payment_id}")
+
+    return Response(content="OK", status_code=200)
+
+
+# ============================================================
+# Endpoints: Chat Multimodal Persistente con J.A.R.V.I.S.
 @app.get("/v1/agent/prompt")
 async def obtener_prompt_agente(
     usuario: dict = Depends(obtener_usuario_actual)
 ):
     perfil = usuario.get("perfil_jarvis", "Mecanico")
     prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
-    return {
-        "perfil": perfil,
-        "prompt": prompt,
-        "todos_los_prompts": SYSTEM_PROMPTS
-    }
+    return {"perfil": perfil, "prompt": prompt, "todos_los_prompts": SYSTEM_PROMPTS}
 
+
+# ── Gestión de documentos / mensajes con archivos ──────────────
+
+@app.get("/v1/chat/sessions/documents/all")
+async def listar_documentos(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    """Lista todos los mensajes con archivos adjuntos del usuario."""
+    sesiones = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).all()
+    session_map = {s.id_session: s.titulo for s in sesiones}
+    session_ids = list(session_map.keys())
+    mensajes_con_archivos = db.query(ChatMessage).filter(
+        ChatMessage.id_session.in_(session_ids),
+        ChatMessage.rol == "user",
+        ChatMessage.file_urls.isnot(None),
+    ).order_by(ChatMessage.created_at.desc()).all()
+
+    resultado = []
+    for m in mensajes_con_archivos:
+        urls = m.file_urls or []
+        if not urls:
+            continue
+        for url in urls:
+            tipo = "desconocido"
+            if url.startswith("data:"):
+                tipo = url.split(";")[0].replace("data:", "")
+            resultado.append({
+                "id_mensaje": m.id_mensaje,
+                "id_session": m.id_session,
+                "titulo_sesion": session_map.get(m.id_session, "Conversación"),
+                "contenido": m.contenido,
+                "tipo": tipo,
+                "created_at": m.created_at.isoformat(),
+            })
+    return resultado
+
+
+@app.delete("/v1/chat/messages/{mensaje_id}")
+async def eliminar_mensaje(
+    mensaje_id: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    """Elimina un mensaje verificando propiedad del usuario."""
+    sesiones = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).all()
+    session_ids = [s.id_session for s in sesiones]
+    mensaje = db.query(ChatMessage).filter(
+        ChatMessage.id_mensaje == mensaje_id,
+        ChatMessage.id_session.in_(session_ids)
+    ).first()
+    if not mensaje:
+        raise HTTPException(status_code=404, detail="Mensaje no encontrado o sin permisos")
+    db.delete(mensaje)
+    db.commit()
+    return {"message": "Mensaje eliminado correctamente"}
+
+
+class PatchMensajeRequest(BaseModel):
+    contenido: Optional[str] = None
+
+
+@app.patch("/v1/chat/messages/{mensaje_id}")
+async def editar_mensaje(
+    mensaje_id: str,
+    body: PatchMensajeRequest,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    """Edita el contenido de un mensaje del usuario."""
+    sesiones = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).all()
+    session_ids = [s.id_session for s in sesiones]
+    mensaje = db.query(ChatMessage).filter(
+        ChatMessage.id_mensaje == mensaje_id,
+        ChatMessage.id_session.in_(session_ids),
+        ChatMessage.rol == "user"
+    ).first()
+    if not mensaje:
+        raise HTTPException(status_code=404, detail="Mensaje no encontrado o sin permisos")
+    if body.contenido is not None:
+        mensaje.contenido = body.contenido
+    db.commit()
+    db.refresh(mensaje)
+    return {"id_mensaje": mensaje.id_mensaje, "contenido": mensaje.contenido, "updated": True}
+
+
+# ── Chat: envío de mensaje principal ──────────────────────────
 
 @app.post("/v1/chat/sessions/{session_id}/send")
 async def enviar_mensaje_chat(
@@ -570,109 +712,144 @@ async def enviar_mensaje_chat(
     ).first()
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
-    
-    uploaded_urls = []
-    gemini_contents = []
-    
-    for file in files:
-        if file.filename:
-            file_bytes = await file.read()
-            file_type = file.content_type or "application/octet-stream"
-            b64 = base64.b64encode(file_bytes).decode('utf-8')
-            data_uri = f"data:{file_type};base64,{b64}"
-            uploaded_urls.append(data_uri)
-            if file_type.startswith("image/"):
-                gemini_contents.append(types.Part.from_bytes(data=file_bytes, mime_type=file_type))
-            elif file_type == "application/pdf" or file_type.startswith("text/"):
-                try:
-                    text_content = file_bytes.decode('utf-8', errors='ignore')
-                    mensaje += f"\n\n[Adjunto: {file.filename}]:\n{text_content[:2000]}"
-                except Exception:
-                    pass
 
-    # Guardar mensaje del usuario
-    msg_user = ChatMessage(
-        id_session=session_id,
-        rol="user",
-        contenido=mensaje if mensaje else "(Archivo adjunto)",
-        file_urls=uploaded_urls
-    )
+    uploaded_urls: list = []
+    gemini_parts: list = []
+    doc_context: str = ""
+    transcripcion_audio: str = ""
+    audio_parts: list = []
+
+    for file in files:
+        if not file.filename:
+            continue
+        file_bytes = await file.read()
+        file_type = file.content_type or "application/octet-stream"
+        b64 = base64.b64encode(file_bytes).decode("utf-8")
+        data_uri = f"data:{file_type};base64,{b64}"
+        uploaded_urls.append(data_uri)
+
+        if file_type.startswith("image/"):
+            gemini_parts.append(types.Part.from_bytes(data=file_bytes, mime_type=file_type))
+
+        elif file_type.startswith("audio/") or file.filename.lower().endswith((".m4a", ".mp3", ".ogg", ".wav", ".webm")):
+            safe_mime = file_type if file_type.startswith("audio/") else "audio/mp4"
+            audio_parts.append(types.Part.from_bytes(data=file_bytes, mime_type=safe_mime))
+
+        elif (file_type in ("application/pdf",) or file_type.startswith("text/")
+              or file.filename.lower().endswith((".pdf", ".txt", ".csv", ".md"))):
+            try:
+                if file_type == "application/pdf":
+                    try:
+                        import fitz
+                        import io as _io
+                        pdf_doc = fitz.open(stream=_io.BytesIO(file_bytes), filetype="pdf")
+                        text = "\n".join(page.get_text() for page in pdf_doc)
+                        pdf_doc.close()
+                    except ImportError:
+                        text = file_bytes.decode("utf-8", errors="ignore")
+                else:
+                    text = file_bytes.decode("utf-8", errors="ignore")
+                doc_context += f"\n\n=== DOCUMENTO: {file.filename} ===\n{text[:10000]}"
+            except Exception:
+                pass
+
+    # FIX #1 – Transcribir audio con Gemini
+    if audio_parts:
+        try:
+            _gc = get_gemini_client()
+            tr = _gc.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=audio_parts + [
+                    "Transcribe EXACTAMENTE lo que se dice en el audio adjunto. "
+                    "Responde SOLO con el texto transcrito, sin ninguna explicación."
+                ],
+            )
+            transcripcion_audio = (tr.text or "").strip()
+            if transcripcion_audio:
+                mensaje = transcripcion_audio
+        except Exception as e:
+            print(f"⚠️ Error transcribiendo audio: {e}")
+            mensaje = mensaje or "(Audio de voz - no transcribible)"
+
+    # FIX #2 – Recuperar documentos previos de la sesión
+    mensajes_hist = db.query(ChatMessage).filter(
+        ChatMessage.id_session == session_id
+    ).order_by(ChatMessage.created_at.asc()).all()
+
+    knowledge_from_history = ""
+    for hist_msg in mensajes_hist:
+        if hist_msg.rol == "user" and hist_msg.file_urls:
+            for url in (hist_msg.file_urls or []):
+                if "base64," in url and (url.startswith("data:text/") or url.startswith("data:application/pdf")):
+                    try:
+                        _, b64_part = url.split("base64,", 1)
+                        raw = base64.b64decode(b64_part).decode("utf-8", errors="ignore")
+                        if raw.strip():
+                            knowledge_from_history += f"\n\n=== DOCUMENTO PREVIO ===\n{raw[:5000]}"
+                    except Exception:
+                        pass
+
+    contenido_usuario = transcripcion_audio if transcripcion_audio else (mensaje if mensaje else "(Archivo adjunto)")
+    msg_user = ChatMessage(id_session=session_id, rol="user", contenido=contenido_usuario, file_urls=uploaded_urls)
     db.add(msg_user)
-    
+
     perfil = usuario.get("perfil_jarvis", "Mecanico")
-    
-    # Resolver prompt personalizado: puede venir como Form field o como Header (posiblemente base64)
     prompt_personalizado = custom_prompt
     if not prompt_personalizado and x_custom_prompt:
         try:
-            # Intentar decodificar Base64 si viene codificado desde el cliente web
             prompt_personalizado = base64.b64decode(x_custom_prompt).decode("utf-8")
         except Exception:
             prompt_personalizado = x_custom_prompt
 
-    if prompt_personalizado and prompt_personalizado.strip():
-        sys_prompt = prompt_personalizado.strip()
-    else:
-        sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
-    
-    history_msgs = db.query(ChatMessage).filter(ChatMessage.id_session == session_id).order_by(ChatMessage.created_at.desc()).limit(10).all()
-    history_msgs.reverse()
-    
+    sys_prompt = (prompt_personalizado.strip() if prompt_personalizado and prompt_personalizado.strip()
+                  else SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"]))
+
     prompt_con_contexto = f"Instrucción del sistema: {sys_prompt}\n"
     if x_sarcasm_level:
-        prompt_con_contexto += f"Nota adicional sobre personalidad: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n\n"
-    else:
-        prompt_con_contexto += "\n"
-        
-    for h in history_msgs:
+        prompt_con_contexto += f"Nota: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n"
+    prompt_con_contexto += "\n"
+    if knowledge_from_history:
+        prompt_con_contexto += f"[CONOCIMIENTO DE DOCUMENTOS PREVIOS EN ESTA SESIÓN]{knowledge_from_history}\n\n"
+    if doc_context:
+        prompt_con_contexto += f"[DOCUMENTOS ADJUNTOS EN ESTE MENSAJE]{doc_context}\n\n"
+    for h in mensajes_hist[-12:]:
         prompt_con_contexto += f"{h.rol.capitalize()}: {h.contenido}\n"
-    prompt_con_contexto += f"User: {mensaje if mensaje else '(Archivo)'}\nJARVIS:"
-    
+    prompt_con_contexto += f"User: {mensaje if mensaje else '(sin texto adicional)'}\nJARVIS:"
+
     try:
-        contents = [prompt_con_contexto] + gemini_contents
-        client = get_gemini_client()
-        gemini_response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=contents
-        )
-        respuesta_jarvis = gemini_response.text
+        _gc = get_gemini_client()
+        contents = [prompt_con_contexto] + gemini_parts
+        gr = _gc.models.generate_content(model="gemini-3.6-flash", contents=contents)
+        respuesta_jarvis = gr.text or "Lo siento, no pude generar una respuesta."
     except Exception as e:
-        respuesta_jarvis = f"Señor, he experimentado una anomalía al procesar su solicitud: {str(e)}"
-    
-    msg_jarvis = ChatMessage(
-        id_session=session_id,
-        rol="jarvis",
-        contenido=respuesta_jarvis,
-        file_urls=[]
-    )
+        respuesta_jarvis = f"Señor, he experimentado una anomalía: {str(e)}"
+
+    msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=[])
     db.add(msg_jarvis)
-    
-    if (sesion.titulo == "Nueva Conversación" or not sesion.titulo) and mensaje:
-        sesion.titulo = mensaje[:30] + ("..." if len(mensaje) > 30 else "")
-    
+
+    texto_titulo = transcripcion_audio if transcripcion_audio else mensaje
+    if (sesion.titulo == "Nueva Conversación" or not sesion.titulo) and texto_titulo:
+        sesion.titulo = texto_titulo[:35] + ("..." if len(texto_titulo) > 35 else "")
+
     sesion.updated_at = func.now()
     db.commit()
     db.refresh(msg_jarvis)
+    db.refresh(msg_user)
 
-    # Sintetizar voz de JARVIS con ElevenLabs
     audio_b64 = ""
     try:
-        # Usar la voz provista en los headers si existe, si no, la variable de entorno, y finalmente un default
-        voice_id_to_use = x_voice_id if x_voice_id else os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-        audio_response = get_elevenlabs_client().generate(
-            text=respuesta_jarvis,
-            voice=voice_id_to_use,
-            model="eleven_multilingual_v2",
-        )
-        audio_tts = b"".join(audio_response)
-        audio_b64 = base64.b64encode(audio_tts).decode("utf-8")
+        vid = x_voice_id if x_voice_id else os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+        ar = get_elevenlabs_client().generate(text=respuesta_jarvis, voice=vid, model="eleven_multilingual_v2")
+        audio_b64 = base64.b64encode(b"".join(ar)).decode("utf-8")
     except Exception as tts_err:
-        print(f"⚠️ Error generando voz de JARVIS para chat: {tts_err}")
-    
+        print(f"⚠️ Error TTS: {tts_err}")
+
     return {
         "id_mensaje": msg_jarvis.id_mensaje,
+        "id_mensaje_usuario": msg_user.id_mensaje,
         "rol": msg_jarvis.rol,
         "contenido": msg_jarvis.contenido,
+        "transcripcion_usuario": transcripcion_audio,
         "file_urls": msg_jarvis.file_urls or [],
         "audio_base64": audio_b64,
         "created_at": msg_jarvis.created_at.isoformat(),
@@ -680,7 +857,7 @@ async def enviar_mensaje_chat(
 
 
 # ============================================================
-# Health Check (para Docker HEALTHCHECK y monitoring)
+# Health Check
 # ============================================================
 
 @app.get("/health")

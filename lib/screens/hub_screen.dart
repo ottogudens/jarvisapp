@@ -7,6 +7,7 @@ import 'login_screen.dart';
 import 'chat_list_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
+import 'documents_screen.dart';
 
 class HubScreen extends StatefulWidget {
   const HubScreen({Key? key}) : super(key: key);
@@ -402,7 +403,10 @@ class _HubScreenState extends State<HubScreen> {
             value: '$_archivosSubidos',
             icon: Icons.cloud_upload_outlined,
             color: Colors.cyanAccent,
-            onTap: () => _showFileManagementDialog('Archivos Subidos'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DocumentsScreen()),
+            ).then((_) => _fetchFileStats()),
           ),
         ),
         const SizedBox(width: 16),

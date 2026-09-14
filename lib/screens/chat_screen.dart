@@ -391,13 +391,25 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        final jarvisMsg = jsonDecode(response.body);
+        final jarvisMsg = jsonDecode(response.body) as Map<String, dynamic>;
+        final transcripcion = jarvisMsg['transcripcion_usuario'] as String? ?? '';
         if (mounted) {
           setState(() {
+            // Si fue un mensaje de audio, actualizar el contenido del burbuja del usuario
+            // con la transcripción real devuelta por el backend
+            if (audioPath != null && transcripcion.isNotEmpty) {
+              final lastUserIdx = _messages.lastIndexWhere((m) => m['rol'] == 'user');
+              if (lastUserIdx != -1) {
+                _messages[lastUserIdx] = {
+                  ..._messages[lastUserIdx],
+                  'contenido': transcripcion,
+                  'id_mensaje': jarvisMsg['id_mensaje_usuario'] ?? _messages[lastUserIdx]['id_mensaje'],
+                };
+              }
+            }
             _messages.add(jarvisMsg);
           });
           _scrollToBottom();
-          // En manos libres o siempre que el usuario haya interactuado con audio, reproducir
           _speakMessage(jarvisMsg);
         }
       } else {
@@ -672,16 +684,16 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   ],
                 ),
               ),
-            if (msg['contenido'] == '(Audio de voz)') 
+            if (msg['contenido'] == '(Audio de voz)')
                const Row(
                  children: [
-                   Icon(Icons.mic, color: Colors.white70, size: 16),
+                   Icon(Icons.mic, color: Colors.cyanAccent, size: 16),
                    SizedBox(width: 6),
-                   Text('Mensaje de voz', style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic)),
+                   Text('Procesando transcripción...', style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic)),
                  ],
                )
             else
-              Text(
+              SelectableText(
                 msg['contenido'] ?? '',
                 style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
               ),
@@ -690,23 +702,41 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                 padding: const EdgeInsets.only(top: 8),
                 child: Wrap(
                   spacing: 6,
+                  runSpacing: 4,
                   children: fileUrls.map((url) {
-                    return Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.black26,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.attach_file, size: 14, color: Colors.cyanAccent),
-                          const SizedBox(width: 4),
-                          Text(
-                            url.length > 20 ? '${url.substring(0, 15)}...' : url,
-                            style: const TextStyle(color: Colors.white70, fontSize: 10),
-                          ),
-                        ],
+                    // Determinar tipo de archivo desde data URI
+                    IconData fileIcon = Icons.attach_file;
+                    String label = 'Archivo';
+                    if (url.startsWith('data:image/')) {
+                      fileIcon = Icons.image;
+                      label = 'Imagen';
+                    } else if (url.startsWith('data:audio/')) {
+                      fileIcon = Icons.mic;
+                      label = 'Audio';
+                    } else if (url.startsWith('data:application/pdf')) {
+                      fileIcon = Icons.picture_as_pdf;
+                      label = 'PDF';
+                    } else if (url.startsWith('data:text/')) {
+                      fileIcon = Icons.description;
+                      label = 'Documento';
+                    }
+                    return Tooltip(
+                      message: label == 'Audio' ? 'Audio transcrito por J.A.R.V.I.S.' : 'Documento conocido por J.A.R.V.I.S.',
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black26,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(fileIcon, size: 14, color: Colors.cyanAccent),
+                            const SizedBox(width: 4),
+                            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
+                          ],
+                        ),
                       ),
                     );
                   }).toList(),
