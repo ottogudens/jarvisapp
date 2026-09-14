@@ -350,10 +350,15 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
         request.headers['x-sarcasm-level'] = _sarcasmLevel;
       }
       if (_customPrompt.isNotEmpty) {
-        request.headers['x-custom-prompt'] = _customPrompt;
+        // En navegadores web, los headers HTTP no admiten caracteres no-ASCII ni saltos de línea (\n).
+        // Se codifica en Base64 seguro para evitar ClientException: Failed to execute 'fetch' on 'Window': Invalid value
+        request.headers['x-custom-prompt'] = base64Encode(utf8.encode(_customPrompt));
       }
       
       request.fields['mensaje'] = userText;
+      if (_customPrompt.isNotEmpty) {
+        request.fields['custom_prompt'] = _customPrompt;
+      }
 
       // Adjuntar archivos de texto/imagen
       for (var file in filesToSend) {

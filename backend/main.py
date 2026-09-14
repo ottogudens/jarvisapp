@@ -556,6 +556,7 @@ async def obtener_prompt_agente(
 async def enviar_mensaje_chat(
     session_id: str,
     mensaje: str = Form(""),
+    custom_prompt: Optional[str] = Form(None),
     files: List[UploadFile] = File(default=[]),
     x_voice_id: Optional[str] = Header(None),
     x_sarcasm_level: Optional[str] = Header(None),
@@ -599,8 +600,18 @@ async def enviar_mensaje_chat(
     db.add(msg_user)
     
     perfil = usuario.get("perfil_jarvis", "Mecanico")
-    if x_custom_prompt and x_custom_prompt.strip():
-        sys_prompt = x_custom_prompt.strip()
+    
+    # Resolver prompt personalizado: puede venir como Form field o como Header (posiblemente base64)
+    prompt_personalizado = custom_prompt
+    if not prompt_personalizado and x_custom_prompt:
+        try:
+            # Intentar decodificar Base64 si viene codificado desde el cliente web
+            prompt_personalizado = base64.b64decode(x_custom_prompt).decode("utf-8")
+        except Exception:
+            prompt_personalizado = x_custom_prompt
+
+    if prompt_personalizado and prompt_personalizado.strip():
+        sys_prompt = prompt_personalizado.strip()
     else:
         sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
     
