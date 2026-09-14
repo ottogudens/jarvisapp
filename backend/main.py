@@ -652,7 +652,6 @@ async def listar_documentos(
     session_ids = list(session_map.keys())
     mensajes_con_archivos = db.query(ChatMessage).filter(
         ChatMessage.id_session.in_(session_ids),
-        ChatMessage.rol == "user",
         ChatMessage.file_urls.isnot(None),
     ).order_by(ChatMessage.created_at.desc()).all()
 
@@ -665,12 +664,17 @@ async def listar_documentos(
             tipo = "desconocido"
             if url.startswith("data:"):
                 tipo = url.split(";")[0].replace("data:", "")
+            elif url.startswith("http"):
+                tipo = "archivo_generado"
+            
             resultado.append({
                 "id_mensaje": m.id_mensaje,
                 "id_session": m.id_session,
                 "titulo_sesion": session_map.get(m.id_session, "Conversación"),
                 "contenido": m.contenido,
                 "tipo": tipo,
+                "rol": m.rol,
+                "url": url,
                 "created_at": m.created_at.isoformat(),
             })
     return resultado
@@ -810,7 +814,7 @@ async def enviar_mensaje_chat(
     ).order_by(ChatMessage.created_at.asc()).all()
 
     knowledge_from_history = ""
-    for hist_msg in mensajes_hist:
+    for hist_msg in mensajes_hist[-12:]:
         if hist_msg.rol == "user" and hist_msg.file_urls:
             for url in (hist_msg.file_urls or []):
                 if "base64," in url and (url.startswith("data:text/") or url.startswith("data:application/pdf")):

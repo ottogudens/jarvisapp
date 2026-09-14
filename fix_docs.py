@@ -1,4 +1,6 @@
-import 'dart:convert';
+﻿import re
+
+new_code = """import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -202,7 +204,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              'Sesión: ${doc['titulo_sesion']}\nTipo: $tipo\n${doc['created_at']?.split('T')[0] ?? ''}',
+              'Sesión: ${doc['titulo_sesion']}\\nTipo: $tipo\\n${doc['created_at']?.split('T')[0] ?? ''}',
               style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
             isThreeLine: true,
@@ -261,3 +263,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     );
   }
 }
+"""
+
+with open('lib/screens/documents_screen.dart', 'w', encoding='utf-8') as f:
+    f.write(new_code)
+print("Updated documents_screen.dart")
