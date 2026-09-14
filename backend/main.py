@@ -1,4 +1,4 @@
-﻿"""
+"""
 J.A.R.V.I.S. Core Engine — Servidor FastAPI
 
 Correcciones aplicadas:
@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from google import genai
 from google.genai import types
 from elevenlabs.client import ElevenLabs as ElevenLabsClient
+from elevenlabs import VoiceSettings
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -98,14 +99,10 @@ def get_elevenlabs_client() -> ElevenLabsClient:
 
 SYSTEM_PROMPTS = {
     "Mecanico": (
-        "Eres J.A.R.V.I.S., asistente virtual de un taller mecánico automotriz. "
-        "Eres británico, extremadamente educado pero con una notable cuota de sarcasmo e ironía sutil. Dirígete al usuario como 'Señor'. "
-        "Tu especialidad incluye:\n"
-        "- Diagnóstico mecánico y eléctrico de vehículos\n"
-        "- Gestión de órdenes de trabajo (OT)\n"
-        "- Cotización de repuestos y mano de obra\n"
-        "- Seguimiento de estado de reparaciones\n"
-        "Responde de forma MUY concisa y directa, sin rodeos. Si es oportuno, usa sarcasmo sutil sobre la situación."
+        "Eres J.A.R.V.I.S., asistente virtual. "
+        "Tienes una personalidad relajada, amigable y masculina, con un toque latino, pero mantienes una notable cuota de sarcasmo e ironía sutil cuando es oportuno. Dirígete al usuario de forma respetuosa pero cercana. "
+        "Tu especialidad incluye integraciones IoT y asistencia general.\n"
+        "Responde de forma MUY concisa y directa, sin rodeos. Sé conversacional, amigable y fluido, ideal para voz hablada."
     ),
     "Inspector_DGC": (
         "Eres J.A.R.V.I.S., asistente virtual de inspección fiscal para la Dirección General de Consumo. "
@@ -234,6 +231,7 @@ async def _pipeline_ia(
                 text=respuesta_texto,
                 voice=voice_id,
                 model="eleven_multilingual_v2",
+                voice_settings=VoiceSettings(stability=0.30, similarity_boost=0.75, style=0.0, use_speaker_boost=True)
             )
             audio_tts = b"".join(audio_response)
             audio_b64 = base64.b64encode(audio_tts).decode("utf-8")
@@ -513,6 +511,29 @@ async def listar_todos_archivos(
     }
 
 
+@app.post("/v1/jarvis/inspector/procesar-completo", response_model=JarvisResponse)
+async def pipeline_inspector(
+    audio_file: UploadFile = File(...),
+    usuario: dict = Depends(requiere_feature("modulo_inspeccion")),
+):
+    """Pipeline para perfil Inspector Fiscal DGC con extracción estructurada."""
+    contexto = (
+        "(IMPORTANTE: Extrae tipo de infracción, descripción del hallazgo, normativa aplicable, "
+        "gravedad (Leve/Grave/Gravísima) y acción recomendada. Genera un resumen profesional en 'mensaje_para_usuario'.)"
+    )
+    respuesta, parsed = await _pipeline_ia(audio_file, "Inspector_DGC", contexto, response_format=RespuestaInspector)
+    
+    if parsed:
+        respuesta.diagnostico_ia = (
+            f"Tipo: {parsed.tipo_infraccion}\n"
+            f"Hallazgo: {parsed.descripcion_hallazgo}\n"
+            f"Normativa: {parsed.normativa_aplicable}\n"
+            f"Gravedad: {parsed.gravedad}\n"
+            f"Acción: {parsed.accion_recomendada}"
+        )
+    
+    return respuesta
+
 @app.get("/v1/chat/sessions/{session_id}/messages")
 async def obtener_mensajes(
     session_id: str,
@@ -521,11 +542,22 @@ async def obtener_mensajes(
 ):
     sesion = db.query(ChatSession).filter(
         ChatSession.id_session == session_id,
-            f"Gravedad: {parsed.gravedad}\n"
-            f"Acción: {parsed.accion_recomendada}"
-        )
+        ChatSession.id_usuario == usuario["id_usuario"]
+    ).first()
+    if not sesion:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
     
-    return respuesta
+    mensajes = db.query(ChatMessage).filter(ChatMessage.id_session == session_id).order_by(ChatMessage.created_at.asc()).all()
+    return [
+        {
+            "id_mensaje": m.id_mensaje,
+            "rol": m.rol,
+            "contenido": m.contenido,
+            "file_urls": m.file_urls or [],
+            "created_at": m.created_at.isoformat(),
+        }
+        for m in mensajes
+    ]
 
 
 # ============================================================
@@ -714,6 +746,7 @@ async def enviar_mensaje_chat(
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
 
     uploaded_urls: list = []
+    generated_urls: list = []
     gemini_parts: list = []
     doc_context: str = ""
     transcripcion_audio: str = ""
@@ -749,7 +782,7 @@ async def enviar_mensaje_chat(
                         text = file_bytes.decode("utf-8", errors="ignore")
                 else:
                     text = file_bytes.decode("utf-8", errors="ignore")
-                doc_context += f"\n\n=== DOCUMENTO: {file.filename} ===\n{text[:10000]}"
+                doc_context += f"\n\n=== DOCUMENTO: {file.filename} ===\n{text[:20000]}"
             except Exception:
                 pass
 
@@ -811,7 +844,7 @@ async def enviar_mensaje_chat(
     if knowledge_from_history:
         prompt_con_contexto += f"[CONOCIMIENTO DE DOCUMENTOS PREVIOS EN ESTA SESIÓN]{knowledge_from_history}\n\n"
     if doc_context:
-        prompt_con_contexto += f"[DOCUMENTOS ADJUNTOS EN ESTE MENSAJE]{doc_context}\n\n"
+        prompt_con_contexto += f"[DOCUMENTOS ADJUNTOS EN ESTE MENSAJE]\n(Instrucción: Analiza el siguiente contenido para generar la respuesta. No lo ignores.)\n{doc_context}\n\n"
     for h in mensajes_hist[-12:]:
         prompt_con_contexto += f"{h.rol.capitalize()}: {h.contenido}\n"
     prompt_con_contexto += f"User: {mensaje if mensaje else '(sin texto adicional)'}\nJARVIS:"
@@ -843,13 +876,43 @@ async def enviar_mensaje_chat(
             """Publica un mensaje JSON en MQTT para controlar dispositivos locales."""
             return iot_service.publicar_mensaje_mqtt(topic, payload)
 
+        def generar_documento(titulo: str, contenido: str, formato: str = "txt") -> str:
+            """Genera un documento (txt, md, o pdf) y lo guarda permanentemente, devolviendo la URL."""
+            import os, uuid
+            from supabase import create_client, Client
+            try:
+                url = os.getenv("SUPABASE_URL")
+                key = os.getenv("SUPABASE_KEY")
+                if not url or not key:
+                    return "Error: Supabase no está configurado."
+                supabase: Client = create_client(url, key)
+                
+                filename = f"{uuid.uuid4()}.{formato}"
+                # Guardar temporal
+                path = f"/tmp/{filename}"
+                with open(path, "w", encoding="utf-8") as file:
+                    file.write(contenido)
+                
+                with open(path, "rb") as file:
+                    res = supabase.storage.from_("jarvis-files").upload(filename, file)
+                
+                public_url = supabase.storage.from_("jarvis-files").get_public_url(filename)
+                
+                # Adjuntar la URL a la variable global uploaded_urls para que se guarde en la BD
+                generated_urls.append(public_url)
+                
+                return f"Documento '{titulo}' generado y guardado exitosamente. URL: {public_url}"
+            except Exception as e:
+                return f"Fallo al guardar el documento: {str(e)}"
+
+
         contents = [prompt_con_contexto] + gemini_parts
         
         gr = _gc.models.generate_content(
             model="gemini-3.6-flash", 
             contents=contents,
             config=types.GenerateContentConfig(
-                tools=[obtener_estado_dispositivo, activar_dispositivo, enviar_mensaje_mqtt],
+                tools=[obtener_estado_dispositivo, activar_dispositivo, enviar_mensaje_mqtt, generar_documento],
                 temperature=0.7
             )
         )
@@ -868,6 +931,8 @@ async def enviar_mensaje_chat(
                     res = activar_dispositivo(**args)
                 elif fn_name == "enviar_mensaje_mqtt":
                     res = enviar_mensaje_mqtt(**args)
+                elif fn_name == "generar_documento":
+                    res = generar_documento(**args)
                 else:
                     res = "Herramienta no encontrada"
                 responses.append(types.Part.from_function_response(name=fn_name, response={"result": res}))
@@ -881,7 +946,7 @@ async def enviar_mensaje_chat(
     except Exception as e:
         respuesta_jarvis = f"Señor, he experimentado un fallo en la matriz de red: {str(e)}"
 
-    msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=[])
+    msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls)
     db.add(msg_jarvis)
 
     texto_titulo = transcripcion_audio if transcripcion_audio else mensaje
@@ -895,8 +960,8 @@ async def enviar_mensaje_chat(
 
     audio_b64 = ""
     try:
-        vid = x_voice_id if x_voice_id else os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
-        ar = get_elevenlabs_client().generate(text=respuesta_jarvis, voice=vid, model="eleven_multilingual_v2")
+        vid = x_voice_id if x_voice_id else os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obbfDQGcgMyIGb")
+        ar = get_elevenlabs_client().generate(text=respuesta_jarvis, voice=vid, model="eleven_multilingual_v2", voice_settings=VoiceSettings(stability=0.30, similarity_boost=0.75, style=0.0, use_speaker_boost=True))
         audio_b64 = base64.b64encode(b"".join(ar)).decode("utf-8")
     except Exception as tts_err:
         print(f"⚠️ Error TTS: {tts_err}")
