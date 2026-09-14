@@ -195,3 +195,32 @@ class ChatMessage(Base):
     
     # Relationships
     sesion = relationship("ChatSession", back_populates="mensajes")
+
+# ============================================================
+# Configuracion IoT (Home Assistant & MQTT)
+# ============================================================
+
+class IoTConfig(Base):
+    __tablename__ = 'iot_configs'
+
+    id_iot_config = Column(Integer, primary_key=True, autoincrement=True)
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='CASCADE'), unique=True, nullable=False)
+    
+    # Home Assistant
+    ha_url = Column(String(255), nullable=True)
+    ha_token = Column(Text, nullable=True)
+    
+    # MQTT
+    mqtt_broker = Column(String(255), nullable=True)
+    mqtt_port = Column(Integer, default=1883)
+    mqtt_user = Column(String(100), nullable=True)
+    mqtt_password = Column(String(255), nullable=True)
+    
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    usuario = relationship("Usuario")
+
+    def __repr__(self):
+        return f"<IoTConfig Usuario:{self.id_usuario}>"
