@@ -599,6 +599,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         )
       ],
     );
+  }
+
   Widget _buildTextField(TextEditingController controller, String label, {bool obscure = false}) {
     return TextFormField(
       controller: controller,
