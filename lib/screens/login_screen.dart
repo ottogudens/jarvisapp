@@ -129,10 +129,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'SaaS Operating System',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.cyanAccent.withOpacity(0.7),
-                            ),
+                        'JARVIS Tu agente de IA',
+                        style: TextStyle(
+                          color: Colors.cyanAccent.withOpacity(0.8),
+                          fontSize: 16,
+                        ),
                       ),
                       const SizedBox(height: 48),
                       _buildTextField(

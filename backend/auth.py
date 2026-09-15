@@ -73,6 +73,12 @@ def crear_token_jwt(data: dict) -> str:
 # Schemas Pydantic
 # ---------------------------------------------------------------------------
 
+
+class ProfileUpdate(BaseModel):
+    nombre_organizacion: str
+    email: str
+    password: str = None
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -181,3 +187,51 @@ def requiere_feature(feature_requerido: str):
         return payload
 
     return _verificar
+
+
+@router.put('/profile')
+def update_profile(
+    data: ProfileUpdate,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import Tenant
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
+    if not user:
+        raise HTTPException(status_code=404, detail='Usuario no encontrado')
+        
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
+    if tenant:
+        tenant.nombre_organizacion = data.nombre_organizacion
+        
+    # Check if email is being changed and is already taken
+    if user.email != data.email:
+        existing = db.query(Usuario).filter(Usuario.email == data.email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail='El email ya est en uso')
+        user.email = data.email
+        
+    if data.password:
+        import bcrypt
+        user.password_hash = bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+    db.commit()
+    return {'message': 'Perfil actualizado correctamente'}
+
+
+@router.get('/profile')
+def get_profile(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import Tenant
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
+    if not user:
+        raise HTTPException(status_code=404, detail='Usuario no encontrado')
+        
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
+    
+    return {
+        'email': user.email,
+        'nombre_organizacion': tenant.nombre_organizacion if tenant else ''
+    }

@@ -18,6 +18,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _handsFreeMode = false;
   bool _isLoading = true;
   String _defaultPrompt = '';
+  String _userId = '';
+  
+  // Profile Config
+  final _orgNameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
   // IoT Config
   final _haUrlController = TextEditingController();
@@ -39,16 +45,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
-    final savedPrompt = prefs.getString('jarvis_custom_prompt');
+    if (token != null) {
+      try {
+        final parts = token.split('.');
+        if (parts.length == 3) {
+          final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+          _userId = payload['sub']?.toString() ?? '';
+        }
+      } catch (_) {}
+    }
+    
+    final savedPrompt = prefs.getString('jarvis_custom_prompt_$_userId');
 
     setState(() {
-      _voiceIdController.text = prefs.getString('jarvis_voice_id') ?? '';
-      _sarcasmLevel = prefs.getString('jarvis_sarcasm_level') ?? 'Medio';
-      _handsFreeMode = prefs.getBool('jarvis_hands_free') ?? false;
+      _voiceIdController.text = prefs.getString('jarvis_voice_id_$_userId') ?? '';
+      _sarcasmLevel = prefs.getString('jarvis_sarcasm_level_$_userId') ?? 'Medio';
+      _handsFreeMode = prefs.getBool('jarvis_hands_free_$_userId') ?? false;
     });
 
-    // Cargar prompt por defecto desde el servidor si no hay uno guardado o para tenerlo de referencia
     if (token != null) {
+      try {
+        final profileResp = await http.get(
+          Uri.parse('$kApiBaseUrl/v1/auth/profile'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+        if (profileResp.statusCode == 200) {
+          final data = jsonDecode(profileResp.body);
+          _orgNameController.text = data['nombre_organizacion'] ?? '';
+          _emailController.text = data['email'] ?? '';
+        }
+      } catch (e) {
+        debugPrint('Error perfil: $e');
+      }
+
       try {
         final response = await http.get(
           Uri.parse('$kApiBaseUrl/v1/agent/prompt'),
@@ -73,7 +102,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _isLoading = false);
     }
   }
-
   Future<void> _loadIoTConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -101,10 +129,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('jarvis_voice_id', _voiceIdController.text.trim());
-    await prefs.setString('jarvis_sarcasm_level', _sarcasmLevel);
-    await prefs.setBool('jarvis_hands_free', _handsFreeMode);
-    await prefs.setString('jarvis_custom_prompt', _promptController.text.trim());
+    await prefs.setString('jarvis_voice_id_$_userId', _voiceIdController.text.trim());
+    await prefs.setString('jarvis_sarcasm_level_$_userId', _sarcasmLevel);
+    await prefs.setBool('jarvis_hands_free_$_userId', _handsFreeMode);
+    await prefs.setString('jarvis_custom_prompt_$_userId', _promptController.text.trim());
 
     final token = prefs.getString('jwt_token');
     if (token != null) {
@@ -126,6 +154,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       } catch (e) {
         debugPrint('Error saving IoT config: $e');
+      }
+    }
+
+
+    // Guardar perfil
+    if (token != null) {
+      try {
+        await http.put(
+          Uri.parse('$kApiBaseUrl/v1/auth/profile'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'nombre_organizacion': _orgNameController.text.trim(),
+            'email': _emailController.text.trim(),
+            'password': _passwordController.text.isNotEmpty ? _passwordController.text : null,
+          }),
+        );
+      } catch (e) {
+        debugPrint('Error saving profile: $e');
       }
     }
 
@@ -170,6 +219,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           : ListView(
               padding: const EdgeInsets.all(24.0),
               children: [
+
+                _buildSectionTitle('Información de la Cuenta'),
+                const SizedBox(height: 14),
+                _buildTextField(_orgNameController, 'Nombre de la Empresa', Icons.business),
+                const SizedBox(height: 10),
+                _buildTextField(_emailController, 'Correo Electrónico', Icons.email),
+                const SizedBox(height: 10),
+                _buildTextField(_passwordController, 'Nueva Contraseña (Opcional)', Icons.lock, TextInputType.text, true),
+                
+                const SizedBox(height: 32),
                 _buildSectionTitle('Rol e Instrucciones del Agente'),
                 const SizedBox(height: 8),
                 Text(
