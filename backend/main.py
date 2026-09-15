@@ -759,20 +759,6 @@ async def enviar_mensaje_chat(
             print(f"Error en RAG retrieval: {e}")
 
     knowledge_from_history = ""
-    for hist_msg in mensajes_hist[-12:]:
-        if hist_msg.id_mensaje in focused_ids_list:
-            continue
-        if hist_msg.rol == "user" and hist_msg.file_urls:
-            for url in (hist_msg.file_urls or []):
-                if "base64," in url and (url.startswith("data:text/") or url.startswith("data:application/pdf")):
-                    try:
-                        _, b64_part = url.split("base64,", 1)
-                        raw = base64.b64decode(b64_part).decode("utf-8", errors="ignore")
-                        if raw.strip():
-                            knowledge_from_history += f"\n\n=== DOCUMENTO PREVIO ===\n{raw[:5000]}"
-                    except Exception:
-                        pass
-
     contenido_usuario = transcripcion_audio if transcripcion_audio else (mensaje if mensaje else "(Archivo adjunto)")
     msg_user = ChatMessage(id_session=session_id, rol="user", contenido=contenido_usuario, file_urls=uploaded_urls)
     db.add(msg_user)
@@ -832,137 +818,17 @@ async def enviar_mensaje_chat(
             "Si contiene datos tabulares, organízalos en formato de tabla. "
             "Incluye esta información extraída como parte de tu respuesta.)\n\n"
         )
-    for h in mensajes_hist[-12:]:
+    for h in mensajes_hist[-6:]:
         prompt_con_contexto += f"{h.rol.capitalize()}: {h.contenido}\n"
     prompt_con_contexto += f"User: {mensaje if mensaje else '(sin texto adicional)'}\nJARVIS:"
 
-    try:
-        _gc = get_gemini_client()
-        
-        from backend.iot_service import IoTService
-        import asyncio
-        iot_service = IoTService(db, usuario["id_usuario"])
-        
-        def obtener_estado_dispositivo(entity_id: str) -> str:
-            """Obtiene el estado de un dispositivo en Home Assistant."""
-            try: loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            return loop.run_until_complete(iot_service.obtener_estado_dispositivo(entity_id))
-            
-        def activar_dispositivo(entity_id: str, accion: str) -> str:
-            """Cambia estado de un dispositivo en Home Assistant (ej. turn_on, turn_off)."""
-            try: loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            return loop.run_until_complete(iot_service.activar_dispositivo(entity_id, accion))
+    user_db = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
+    if not user_db:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-        def enviar_mensaje_mqtt(topic: str, payload: str) -> str:
-            """Publica un mensaje JSON en MQTT para controlar dispositivos locales."""
-            return iot_service.publicar_mensaje_mqtt(topic, payload)
-
-        def generar_documento(titulo: str, contenido: str, formato: str = "txt") -> str:
-            """Genera un documento (txt, md, o pdf) y lo guarda permanentemente, devolviendo la URL."""
-            import os, uuid
-            from supabase import create_client, Client
-            try:
-                url = os.getenv("SUPABASE_URL")
-                key = os.getenv("SUPABASE_KEY")
-                if not url or not key:
-                    return "Error: Supabase no está configurado."
-                supabase: Client = create_client(url, key)
-                
-                filename = f"{uuid.uuid4()}.{formato}"
-                # Guardar temporal
-                path = f"/tmp/{filename}"
-                with open(path, "w", encoding="utf-8") as file:
-                    file.write(contenido)
-                
-                with open(path, "rb") as file:
-                    res = supabase.storage.from_("jarvis-files").upload(filename, file)
-                
-                public_url = supabase.storage.from_("jarvis-files").get_public_url(filename)
-                
-                # Adjuntar la URL a la variable global uploaded_urls para que se guarde en la BD
-                generated_urls.append(public_url)
-                
-                return f"Documento '{titulo}' generado y guardado exitosamente. URL: {public_url}"
-            except Exception as e:
-                return f"Fallo al guardar el documento: {str(e)}"
-
-
-        
-        # --- MikroTik Context Injection ---
-        from backend.models import Usuario, MikrotikRouter
-        user_db = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
-        if user_db:
-            routers = db.query(MikrotikRouter).filter(MikrotikRouter.id_tenant == user_db.id_tenant).all()
-            if routers:
-                routers_str = "\n".join([f"- ID: {r.id_router} | Nombre: {r.nombre} | IP: {r.ip_address}" for r in routers])
-                prompt_con_contexto += f"\n\n=== ROUTERS MIKROTIK DISPONIBLES ===\n{routers_str}\nPara comandos de red, usa el ID del router en las herramientas MikroTik."
-        # ----------------------------------
-
-        contents = [prompt_con_contexto] + gemini_parts
-        
-        gr = _gc.models.generate_content(
-            model="gemini-3.6-flash", 
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=[obtener_estado_dispositivo, activar_dispositivo, enviar_mensaje_mqtt, generar_documento],
-                temperature=0.7
-            )
-        )
-        
-        if hasattr(gr, 'usage_metadata') and hasattr(gr.usage_metadata, 'total_token_count'):
-            total_tokens += gr.usage_metadata.total_token_count
-        respuesta_jarvis = "Ejecuté sus órdenes en los sistemas domésticos, señor." if gr.function_calls else (gr.text or "Entendido.")
-        
-        # En caso de tool call, procesar y re-invocar a Gemini para respuesta final
-        if gr.function_calls:
-            responses = []
-            from backend.mikrotik_tools import obtener_estado_red_mikrotik, listar_interfaces_mikrotik, ver_clientes_dhcp_mikrotik, comando_mikrotik_avanzado
-            
-            for function_call in gr.function_calls:
-                args = {}
-                if "args" in function_call:
-                    args = dict(function_call.args)
-                elif hasattr(function_call, "args"):
-                    args = dict(function_call.args)
-
-                fn_name = function_call.name
-                res = "Herramienta no encontrada"
-                
-                if fn_name == "obtener_estado_dispositivo":
-                    res = obtener_estado_dispositivo(**args)
-                elif fn_name == "activar_dispositivo":
-                    res = activar_dispositivo(**args)
-                elif fn_name == "enviar_mensaje_mqtt":
-                    res = enviar_mensaje_mqtt(**args)
-                elif fn_name == "generar_documento":
-                    res = generar_documento(**args)
-                elif fn_name == "obtener_estado_red_mikrotik":
-                    res = obtener_estado_red_mikrotik(**args)
-                elif fn_name == "listar_interfaces_mikrotik":
-                    res = listar_interfaces_mikrotik(**args)
-                elif fn_name == "ver_clientes_dhcp_mikrotik":
-                    res = ver_clientes_dhcp_mikrotik(**args)
-                elif fn_name == "comando_mikrotik_avanzado":
-                    res = comando_mikrotik_avanzado(**args)
-
-                responses.append(types.Part.from_function_response(name=fn_name, response={"result": res}))
-            
-            # Segunda llamada
-            contents.append(gr.candidates[0].content) # el call
-            contents.append(types.Content(parts=responses, role="user")) # los resultados
-            gr2 = _gc.models.generate_content(model="gemini-3.6-flash", contents=contents)
-            if hasattr(gr2, 'usage_metadata') and hasattr(gr2.usage_metadata, 'total_token_count'):
-                total_tokens += gr2.usage_metadata.total_token_count
-            respuesta_jarvis = gr2.text or respuesta_jarvis
-            
-    except Exception as e:
-        respuesta_jarvis = f"Señor, he experimentado un fallo en la matriz de red: {str(e)}"
+    from backend.ai_service import call_llm_with_tools
+    respuesta_jarvis, t_tokens = call_llm_with_tools(db, user_db, prompt_con_contexto, uploaded_urls, generated_urls)
+    total_tokens += t_tokens
 
     msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls)
     db.add(msg_jarvis)

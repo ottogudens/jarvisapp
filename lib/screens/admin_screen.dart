@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
@@ -18,11 +19,13 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   List<dynamic> _plans = [];
   List<dynamic> _tenants = [];
   bool _isLoading = true;
+  Map<String, dynamic>? _aiStats;
+  Map<String, dynamic> _aiKeys = {};
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _loadAllData();
   }
 
@@ -36,6 +39,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
       _loadDashboard(),
       _loadPlans(),
       _loadTenants(),
+      _loadAiStats(),
+      _loadAiKeys(),
     ]);
     if (mounted) setState(() => _isLoading = false);
   }
@@ -345,9 +350,50 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
               children: [
                 _buildDashboardTab(),
                 _buildTenantsTab(),
+          _buildAiKeysTab(),
                 _buildPlansTab(),
               ],
             ),
+    );
+  }
+
+  
+  Widget _buildAiChart() {
+    if (_aiStats == null || _aiStats!['providers'] == null) return const SizedBox();
+    List<dynamic> providers = _aiStats!['providers'];
+    if (providers.isEmpty) return const SizedBox();
+    
+    return Container(
+      height: 200,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          const Text('Consumo por Proveedor IA (Tokens)', style: TextStyle(color: Colors.white)),
+          const SizedBox(height: 16),
+            _buildAiChart(),
+            const SizedBox(height: 16),
+          Expanded(
+            child: PieChart(
+              PieChartData(
+                sections: providers.map((p) {
+                  final providerName = p['provider'].toString().toLowerCase();
+                  Color c = Colors.blue;
+                  if (providerName == 'gemini') c = Colors.purple;
+                  if (providerName == 'openai') c = Colors.green;
+                  if (providerName == 'deepseek') c = Colors.orange;
+                  return PieChartSectionData(
+                    value: (p['tokens'] as int).toDouble(),
+                    title: p['provider'],
+                    color: c,
+                    radius: 50,
+                  );
+                }).toList(),
+              )
+            )
+          )
+        ],
+      )
     );
   }
 
@@ -366,6 +412,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             ],
           ),
           const SizedBox(height: 16),
+            _buildAiChart(),
+            const SizedBox(height: 16),
           Row(
             children: [
               Expanded(child: _buildMetricCard("Tokens Consumidos", _dashboardData!['tokens_consumidos'].toString(), Icons.token, color: Colors.orange)),
@@ -493,6 +541,61 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           ),
         ),
       ],
+    );
+  }
+
+  
+  Widget _buildAiKeysTab() {
+    final openaiCtrl = TextEditingController(text: _aiKeys['openai_api_key'] ?? '');
+    final anthropicCtrl = TextEditingController(text: _aiKeys['anthropic_api_key'] ?? '');
+    final deepseekCtrl = TextEditingController(text: _aiKeys['deepseek_api_key'] ?? '');
+    final geminiCtrl = TextEditingController(text: _aiKeys['gemini_api_key'] ?? '');
+    
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: ListView(
+        children: [
+          const Text('Configuración de API Keys', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          _buildTextField(openaiCtrl, 'OpenAI API Key', obscure: true),
+          const SizedBox(height: 12),
+          _buildTextField(anthropicCtrl, 'Anthropic API Key', obscure: true),
+          const SizedBox(height: 12),
+          _buildTextField(deepseekCtrl, 'DeepSeek API Key', obscure: true),
+          const SizedBox(height: 12),
+          _buildTextField(geminiCtrl, 'Gemini API Key', obscure: true),
+          
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: aiProvider,
+                  dropdownColor: const Color(0xFF1E293B),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Proveedor IA', labelStyle: TextStyle(color: Colors.white70)),
+                  items: ['gemini', 'openai', 'claude', 'deepseek'].map((p) => DropdownMenuItem(value: p, child: Text(p.toUpperCase()))).toList(),
+                  onChanged: (v) { if (v != null) aiProvider = v; },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  initialValue: aiModel,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Modelo IA (ej. gpt-4o-mini)', labelStyle: TextStyle(color: Colors.white70)),
+                  onChanged: (v) => aiModel = v,
+                ),
+
+                const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () {
+              _saveAiKeys({
+                'openai_api_key': openaiCtrl.text,
+                'anthropic_api_key': anthropicCtrl.text,
+                'deepseek_api_key': deepseekCtrl.text,
+                'gemini_api_key': geminiCtrl.text,
+              });
+            },
+            child: const Text('Guardar Claves'),
+          )
+        ],
+      ),
     );
   }
 

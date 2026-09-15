@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, desc
 from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timedelta
 
 from backend.database import get_db
-from backend.models import Usuario, Tenant, SaaSPlan
+from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats
 from backend.auth import obtener_usuario_actual, hash_password
 
 router = APIRouter(prefix="/v1/admin", tags=["Administrador"])
@@ -38,6 +39,8 @@ class TenantDetailSchema(BaseModel):
     nombre_organizacion: str
     id_plan: int
     nombre_plan: str
+    ai_provider: str
+    ai_model: str
     email_admin: str
     perfil_jarvis: str
     tokens_consumidos: int
@@ -48,10 +51,14 @@ class TenantCreateSchema(BaseModel):
     password: str
     perfil_jarvis: str = "Mecanico"
     id_plan: int
+    ai_provider: str = "gemini"
+    ai_model: str = "gemini-3.6-flash"
 
 class TenantUpdateSchema(BaseModel):
     nombre_organizacion: Optional[str] = None
     id_plan: Optional[int] = None
+    ai_provider: Optional[str] = None
+    ai_model: Optional[str] = None
 
 
 # --- Endpoints Dashboard ---
@@ -69,6 +76,61 @@ def get_dashboard(
         total_agentes=total_agentes,
         tokens_consumidos=tokens
     )
+
+# --- Endpoints Configuraciones IA ---
+class AIKeysSchema(BaseModel):
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    deepseek_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+
+@router.get("/ai-keys", response_model=AIKeysSchema)
+def get_ai_keys(usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+    keys = db.query(SystemSettings).filter(SystemSettings.key.in_(["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "GEMINI_API_KEY"])).all()
+    result = {}
+    for k in keys:
+        result[k.key.lower()] = k.value
+    return AIKeysSchema(**result)
+
+@router.post("/ai-keys")
+def save_ai_keys(keys: AIKeysSchema, usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+    def update_or_create(key_name: str, value: str):
+        if not value: return
+        setting = db.query(SystemSettings).filter(SystemSettings.key == key_name).first()
+        if setting:
+            setting.value = value
+        else:
+            db.add(SystemSettings(key=key_name, value=value))
+            
+    update_or_create("OPENAI_API_KEY", keys.openai_api_key)
+    update_or_create("ANTHROPIC_API_KEY", keys.anthropic_api_key)
+    update_or_create("DEEPSEEK_API_KEY", keys.deepseek_api_key)
+    update_or_create("GEMINI_API_KEY", keys.gemini_api_key)
+    db.commit()
+    return {"message": "Claves actualizadas exitosamente"}
+
+@router.get("/ai-stats")
+def get_ai_stats(usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+    # Agrupar uso por proveedor
+    provider_stats = db.query(
+        AIUsageStats.proveedor,
+        func.sum(AIUsageStats.tokens_consumidos).label("tokens"),
+        func.sum(AIUsageStats.solicitudes_realizadas).label("requests")
+    ).group_by(AIUsageStats.proveedor).all()
+    
+    # Agrupar uso por tenant (Top 5)
+    tenant_stats = db.query(
+        Tenant.nombre_organizacion,
+        AIUsageStats.proveedor,
+        func.sum(AIUsageStats.tokens_consumidos).label("tokens")
+    ).join(Tenant, Tenant.id_tenant == AIUsageStats.id_tenant)\
+     .group_by(Tenant.nombre_organizacion, AIUsageStats.proveedor)\
+     .order_by(desc("tokens")).limit(10).all()
+
+    return {
+        "providers": [{"provider": p.proveedor, "tokens": p.tokens, "requests": p.requests} for p in provider_stats],
+        "tenants": [{"tenant": t.nombre_organizacion, "provider": t.proveedor, "tokens": t.tokens} for t in tenant_stats]
+    }
 
 # --- Endpoints Planes ---
 @router.get("/plans", response_model=List[SaaSPlanSchema])
@@ -143,6 +205,8 @@ def get_tenants(
             nombre_organizacion=t.nombre_organizacion,
             id_plan=t.id_plan,
             nombre_plan=plan.nombre_plan if plan else "Sin plan",
+            ai_provider=t.ai_provider,
+            ai_model=t.ai_model,
             email_admin=user.email if user else "Sin usuario",
             perfil_jarvis=user.perfil_jarvis if user else "N/A",
             tokens_consumidos=total_tokens,
@@ -171,6 +235,8 @@ def create_tenant(
     new_tenant = Tenant(
         nombre_organizacion=data.nombre_organizacion,
         id_plan=data.id_plan,
+        ai_provider=data.ai_provider,
+        ai_model=data.ai_model,
     )
     db.add(new_tenant)
     db.flush()  # Para obtener el id_tenant
@@ -192,6 +258,8 @@ def create_tenant(
         nombre_organizacion=new_tenant.nombre_organizacion,
         id_plan=new_tenant.id_plan,
         nombre_plan=plan.nombre_plan,
+        ai_provider=new_tenant.ai_provider,
+        ai_model=new_tenant.ai_model,
         email_admin=new_user.email,
         perfil_jarvis=new_user.perfil_jarvis,
         tokens_consumidos=0,
@@ -212,6 +280,10 @@ def update_tenant(
     
     if update_data.nombre_organizacion is not None:
         db_tenant.nombre_organizacion = update_data.nombre_organizacion
+    if update_data.ai_provider is not None:
+        db_tenant.ai_provider = update_data.ai_provider
+    if update_data.ai_model is not None:
+        db_tenant.ai_model = update_data.ai_model
     if update_data.id_plan is not None:
         plan = db.query(SaaSPlan).filter(SaaSPlan.id_plan == update_data.id_plan).first()
         if not plan:
@@ -232,6 +304,8 @@ def update_tenant(
         nombre_organizacion=db_tenant.nombre_organizacion,
         id_plan=db_tenant.id_plan,
         nombre_plan=plan.nombre_plan if plan else "Sin plan",
+        ai_provider=db_tenant.ai_provider,
+        ai_model=db_tenant.ai_model,
         email_admin=user.email if user else "Sin usuario",
         perfil_jarvis=user.perfil_jarvis if user else "N/A",
         tokens_consumidos=total_tokens,

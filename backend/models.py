@@ -47,6 +47,8 @@ class Tenant(Base):
     id_tenant = Column(Integer, primary_key=True, autoincrement=True)
     nombre_organizacion = Column(String(150), nullable=False)
     id_plan = Column(Integer, ForeignKey('saas_planes.id_plan'), nullable=False)
+    ai_provider = Column(String(50), default="gemini", nullable=False)
+    ai_model = Column(String(50), default="gemini-3.6-flash", nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -57,6 +59,25 @@ class Tenant(Base):
 
     def __repr__(self):
         return f"<Tenant {self.nombre_organizacion}>"
+
+class SystemSettings(Base):
+    __tablename__ = 'system_settings'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(100), unique=True, nullable=False)
+    value = Column(String(500), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+class AIUsageStats(Base):
+    __tablename__ = 'ai_usage_stats'
+    
+    id_stat = Column(Integer, primary_key=True, autoincrement=True)
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant'), nullable=False)
+    proveedor = Column(String(50), nullable=False)
+    tokens_consumidos = Column(Integer, default=0)
+    solicitudes_realizadas = Column(Integer, default=0)
+    fecha_registro = Column(DateTime, server_default=func.now(), nullable=False)
+
 
 
 # ============================================================
