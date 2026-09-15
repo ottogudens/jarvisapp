@@ -33,8 +33,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.database import get_db, inicializar_base_de_datos_remota
-from backend.auth import router as auth_router
-from backend.mikrotik import router as mikrotik_router, obtener_usuario_actual, requiere_feature
+from backend.auth import router as auth_router, obtener_usuario_actual, requiere_feature
+from backend.mikrotik import router as mikrotik_router
 from backend.models import OrdenTrabajo, ChatSession, ChatMessage
 from supabase import create_client, Client
 
