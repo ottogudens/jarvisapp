@@ -45,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('$kApiBaseUrl/auth/login'),
+        Uri.parse('$kApiBaseUrl/v1/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': _emailController.text.trim(),
