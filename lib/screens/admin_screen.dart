@@ -45,6 +45,40 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     if (mounted) setState(() => _isLoading = false);
   }
 
+  Future<void> _loadAiStats() async {
+    final token = await _getToken();
+    if (token == null) return;
+    try {
+      final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/ai-stats'), headers: {'Authorization': 'Bearer $token'});
+      if (res.statusCode == 200) _aiStats = jsonDecode(res.body);
+    } catch (e) { debugPrint("Error ai-stats: $e"); }
+  }
+
+  Future<void> _loadAiKeys() async {
+    final token = await _getToken();
+    if (token == null) return;
+    try {
+      final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/ai-keys'), headers: {'Authorization': 'Bearer $token'});
+      if (res.statusCode == 200) _aiKeys = jsonDecode(res.body);
+    } catch (e) { debugPrint("Error ai-keys: $e"); }
+  }
+
+  Future<void> _saveAiKeys(Map<String, String> newKeys) async {
+    final token = await _getToken();
+    if (token == null) return;
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/admin/ai-keys'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode(newKeys),
+      );
+      if (res.statusCode == 200) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Claves IA guardadas')));
+        _loadAiKeys();
+      }
+    } catch (e) { debugPrint("Error guardando ai keys: $e"); }
+  }
+
   Future<void> _loadDashboard() async {
     final token = await _getToken();
     if (token == null) return;
@@ -159,6 +193,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     final passCtrl = TextEditingController();
     String perfil = tenantToEdit?['perfil_jarvis'] ?? 'Mecanico';
     int? selectedPlanId = tenantToEdit?['id_plan'] ?? (_plans.isNotEmpty ? _plans[0]['id_plan'] : null);
+    String aiProvider = tenantToEdit?['ai_provider'] ?? 'gemini';
+    String aiModel = tenantToEdit?['ai_model'] ?? 'gemini-1.5-flash';
     final perfilOptions = ['Mecanico', 'Inspector_DGC', 'Enfermera_Paliativos', 'General'];
 
     showDialog(context: context, builder: (ctx) {
@@ -228,6 +264,22 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   }).toList(),
                   onChanged: (val) => setDialogState(() => selectedPlanId = val),
                 ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: aiProvider,
+                  dropdownColor: const Color(0xFF1E293B),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Proveedor IA', labelStyle: TextStyle(color: Colors.cyan)),
+                  items: ['gemini', 'openai', 'claude', 'deepseek'].map((p) => DropdownMenuItem(value: p, child: Text(p.toUpperCase()))).toList(),
+                  onChanged: (v) => setDialogState(() => aiProvider = v ?? aiProvider),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: TextEditingController(text: aiModel),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(labelText: 'Modelo IA (ej. gpt-4o-mini)', labelStyle: TextStyle(color: Colors.cyan)),
+                  onChanged: (v) => aiModel = v,
+                ),
               ],
             ),
           ),
@@ -252,6 +304,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                       'password': passCtrl.text,
                       'perfil_jarvis': perfil,
                       'id_plan': selectedPlanId,
+                      'ai_provider': aiProvider,
+                      'ai_model': aiModel,
                     }),
                   );
                   if (res.statusCode == 200) {
@@ -268,6 +322,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                     body: jsonEncode({
                       'nombre_organizacion': orgCtrl.text.trim(),
                       'id_plan': selectedPlanId,
+                      'ai_provider': aiProvider,
+                      'ai_model': aiModel,
                     }),
                   );
                   if (res.statusCode == 200) {
@@ -340,6 +396,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             Tab(icon: Icon(Icons.dashboard), text: "Dashboard"),
             Tab(icon: Icon(Icons.business), text: "Clientes"),
             Tab(icon: Icon(Icons.card_membership), text: "Planes"),
+            Tab(icon: Icon(Icons.memory), text: "IA (API Keys)"),
           ],
         ),
       ),
@@ -350,50 +407,10 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
               children: [
                 _buildDashboardTab(),
                 _buildTenantsTab(),
-          _buildAiKeysTab(),
                 _buildPlansTab(),
+                _buildAiKeysTab(),
               ],
             ),
-    );
-  }
-
-  
-  Widget _buildAiChart() {
-    if (_aiStats == null || _aiStats!['providers'] == null) return const SizedBox();
-    List<dynamic> providers = _aiStats!['providers'];
-    if (providers.isEmpty) return const SizedBox();
-    
-    return Container(
-      height: 200,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        children: [
-          const Text('Consumo por Proveedor IA (Tokens)', style: TextStyle(color: Colors.white)),
-          const SizedBox(height: 16),
-            _buildAiChart(),
-            const SizedBox(height: 16),
-          Expanded(
-            child: PieChart(
-              PieChartData(
-                sections: providers.map((p) {
-                  final providerName = p['provider'].toString().toLowerCase();
-                  Color c = Colors.blue;
-                  if (providerName == 'gemini') c = Colors.purple;
-                  if (providerName == 'openai') c = Colors.green;
-                  if (providerName == 'deepseek') c = Colors.orange;
-                  return PieChartSectionData(
-                    value: (p['tokens'] as int).toDouble(),
-                    title: p['provider'],
-                    color: c,
-                    radius: 50,
-                  );
-                }).toList(),
-              )
-            )
-          )
-        ],
-      )
     );
   }
 
@@ -412,13 +429,13 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             ],
           ),
           const SizedBox(height: 16),
-            _buildAiChart(),
-            const SizedBox(height: 16),
           Row(
             children: [
               Expanded(child: _buildMetricCard("Tokens Consumidos", _dashboardData!['tokens_consumidos'].toString(), Icons.token, color: Colors.orange)),
             ],
-          )
+          ),
+          const SizedBox(height: 16),
+          _buildAiChart(),
         ],
       ),
     );
@@ -544,61 +561,6 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
-  
-  Widget _buildAiKeysTab() {
-    final openaiCtrl = TextEditingController(text: _aiKeys['openai_api_key'] ?? '');
-    final anthropicCtrl = TextEditingController(text: _aiKeys['anthropic_api_key'] ?? '');
-    final deepseekCtrl = TextEditingController(text: _aiKeys['deepseek_api_key'] ?? '');
-    final geminiCtrl = TextEditingController(text: _aiKeys['gemini_api_key'] ?? '');
-    
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: ListView(
-        children: [
-          const Text('Configuración de API Keys', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          _buildTextField(openaiCtrl, 'OpenAI API Key', obscure: true),
-          const SizedBox(height: 12),
-          _buildTextField(anthropicCtrl, 'Anthropic API Key', obscure: true),
-          const SizedBox(height: 12),
-          _buildTextField(deepseekCtrl, 'DeepSeek API Key', obscure: true),
-          const SizedBox(height: 12),
-          _buildTextField(geminiCtrl, 'Gemini API Key', obscure: true),
-          
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: aiProvider,
-                  dropdownColor: const Color(0xFF1E293B),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Proveedor IA', labelStyle: TextStyle(color: Colors.white70)),
-                  items: ['gemini', 'openai', 'claude', 'deepseek'].map((p) => DropdownMenuItem(value: p, child: Text(p.toUpperCase()))).toList(),
-                  onChanged: (v) { if (v != null) aiProvider = v; },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  initialValue: aiModel,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Modelo IA (ej. gpt-4o-mini)', labelStyle: TextStyle(color: Colors.white70)),
-                  onChanged: (v) => aiModel = v,
-                ),
-
-                const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: () {
-              _saveAiKeys({
-                'openai_api_key': openaiCtrl.text,
-                'anthropic_api_key': anthropicCtrl.text,
-                'deepseek_api_key': deepseekCtrl.text,
-                'gemini_api_key': geminiCtrl.text,
-              });
-            },
-            child: const Text('Guardar Claves'),
-          )
-        ],
-      ),
-    );
-  }
-
   Widget _buildPlansTab() {
     return Column(
       children: [
@@ -636,6 +598,91 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           ),
         )
       ],
+    );
+  Widget _buildTextField(TextEditingController controller, String label, {bool obscure = false}) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscure,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.white70),
+        enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+        focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.cyanAccent)),
+      ),
+    );
+  }
+
+  Widget _buildAiChart() {
+    if (_aiStats == null || _aiStats!['providers'] == null) return const SizedBox();
+    List<dynamic> providers = _aiStats!['providers'];
+    if (providers.isEmpty) return const SizedBox();
+    
+    return Container(
+      height: 200,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          const Text('Consumo por Proveedor IA (Tokens)', style: TextStyle(color: Colors.white)),
+          const SizedBox(height: 16),
+          Expanded(
+            child: PieChart(
+              PieChartData(
+                sections: providers.map((p) {
+                  final providerName = p['provider'].toString().toLowerCase();
+                  Color c = Colors.blue;
+                  if (providerName == 'gemini') c = Colors.purple;
+                  if (providerName == 'openai') c = Colors.green;
+                  if (providerName == 'deepseek') c = Colors.orange;
+                  return PieChartSectionData(
+                    value: (p['tokens'] as int).toDouble(),
+                    title: p['provider'],
+                    color: c,
+                    radius: 50,
+                  );
+                }).toList(),
+              )
+            )
+          )
+        ],
+      )
+    );
+  }
+
+  Widget _buildAiKeysTab() {
+    final openaiCtrl = TextEditingController(text: _aiKeys['OPENAI_API_KEY'] ?? '');
+    final anthropicCtrl = TextEditingController(text: _aiKeys['ANTHROPIC_API_KEY'] ?? '');
+    final deepseekCtrl = TextEditingController(text: _aiKeys['DEEPSEEK_API_KEY'] ?? '');
+    final geminiCtrl = TextEditingController(text: _aiKeys['GEMINI_API_KEY'] ?? '');
+    
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: ListView(
+        children: [
+          const Text('Configuración de API Keys', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          _buildTextField(openaiCtrl, 'OpenAI API Key', obscure: true),
+          const SizedBox(height: 12),
+          _buildTextField(anthropicCtrl, 'Anthropic API Key', obscure: true),
+          const SizedBox(height: 12),
+          _buildTextField(deepseekCtrl, 'DeepSeek API Key', obscure: true),
+          const SizedBox(height: 12),
+          _buildTextField(geminiCtrl, 'Gemini API Key', obscure: true),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () {
+              _saveAiKeys({
+                'OPENAI_API_KEY': openaiCtrl.text,
+                'ANTHROPIC_API_KEY': anthropicCtrl.text,
+                'DEEPSEEK_API_KEY': deepseekCtrl.text,
+                'GEMINI_API_KEY': geminiCtrl.text,
+              });
+            },
+            child: const Text('Guardar Claves'),
+          )
+        ],
+      ),
     );
   }
 }
