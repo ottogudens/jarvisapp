@@ -12,6 +12,7 @@ import uuid
 from sqlalchemy import (
     Column, Integer, String, ForeignKey, DateTime, Text, Boolean, func, JSON
 )
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -224,3 +225,13 @@ class IoTConfig(Base):
 
     def __repr__(self):
         return f"<IoTConfig Usuario:{self.id_usuario}>"
+
+class DocumentChunk(Base):
+    __tablename__ = 'document_chunks'
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_mensaje = Column(String(36), ForeignKey('chat_messages.id_mensaje', ondelete='CASCADE'), index=True)
+    chunk_index = Column(Integer)
+    texto = Column(Text)
+    embedding = Column(Vector(768))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
