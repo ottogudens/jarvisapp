@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import '../utils/constants.dart';
-import '../services/auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'login_screen.dart';
+
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -36,7 +37,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Future<void> _loadDashboard() async {
-    final token = await AuthService.getToken();
+    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
     if (token == null) return;
     try {
       final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/dashboard'), headers: {
@@ -51,7 +52,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Future<void> _loadPlans() async {
-    final token = await AuthService.getToken();
+    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
     if (token == null) return;
     try {
       final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/plans'), headers: {
@@ -66,7 +67,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Future<void> _loadTenants() async {
-    final token = await AuthService.getToken();
+    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
     if (token == null) return;
     try {
       final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/tenants'), headers: {
@@ -81,7 +82,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Future<void> _updateTenantPlan(int tenantId, int newPlanId) async {
-    final token = await AuthService.getToken();
+    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
     if (token == null) return;
     try {
       final res = await http.put(
@@ -153,7 +154,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             ),
             ElevatedButton(
               onPressed: () async {
-                final token = await AuthService.getToken();
+                final token = (await SharedPreferences.getInstance()).getString('jwt_token');
                 final body = jsonEncode({
                   'nombre_plan': nameCtrl.text,
                   'permite_erp': pErp,
