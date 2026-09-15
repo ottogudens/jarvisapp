@@ -235,3 +235,16 @@ class DocumentChunk(Base):
     texto = Column(Text)
     embedding = Column(Vector(768))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class MikrotikRouter(Base):
+    __tablename__ = 'mikrotik_routers'
+
+    id_router = Column(Integer, primary_key=True, autoincrement=True)
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), nullable=False)
+    nombre = Column(String(100), nullable=False)
+    ip_address = Column(String(50), nullable=False)
+    api_port = Column(Integer, default=443)
+    username = Column(String(100), nullable=False)
+    password = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

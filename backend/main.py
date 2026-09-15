@@ -33,7 +33,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from backend.database import get_db, inicializar_base_de_datos_remota
-from backend.auth import router as auth_router, obtener_usuario_actual, requiere_feature
+from backend.auth import router as auth_router
+from backend.mikrotik import router as mikrotik_router, obtener_usuario_actual, requiere_feature
 from backend.models import OrdenTrabajo, ChatSession, ChatMessage
 from supabase import create_client, Client
 
@@ -71,6 +72,7 @@ app.add_middleware(
 
 # Fix #7: incluir router de autenticación
 app.include_router(auth_router)
+app.include_router(mikrotik_router)
 
 
 # Inicialización lazy: se crean al primer uso para evitar errores si
@@ -971,6 +973,17 @@ async def enviar_mensaje_chat(
                 return f"Fallo al guardar el documento: {str(e)}"
 
 
+        
+        # --- MikroTik Context Injection ---
+        from backend.models import Usuario, MikrotikRouter
+        user_db = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
+        if user_db:
+            routers = db.query(MikrotikRouter).filter(MikrotikRouter.id_tenant == user_db.id_tenant).all()
+            if routers:
+                routers_str = "\n".join([f"- ID: {r.id_router} | Nombre: {r.nombre} | IP: {r.ip_address}" for r in routers])
+                prompt_con_contexto += f"\n\n=== ROUTERS MIKROTIK DISPONIBLES ===\n{routers_str}\nPara comandos de red, usa el ID del router en las herramientas MikroTik."
+        # ----------------------------------
+
         contents = [prompt_con_contexto] + gemini_parts
         
         gr = _gc.models.generate_content(
@@ -987,9 +1000,17 @@ async def enviar_mensaje_chat(
         # En caso de tool call, procesar y re-invocar a Gemini para respuesta final
         if gr.function_calls:
             responses = []
-            for function_call in gr.function_calls:
+            from backend.mikrotik_tools import obtener_estado_red_mikrotik, listar_interfaces_mikrotik, ver_clientes_dhcp_mikrotik, comando_mikrotik_avanzado
+                
+                args = {}
+                if "args" in function_call:
+                    args = dict(function_call.args)
+                elif hasattr(function_call, "args"):
+                    args = dict(function_call.args)
+
                 fn_name = function_call.name
-                args = function_call.args
+                res = "Herramienta no encontrada"
+                
                 if fn_name == "obtener_estado_dispositivo":
                     res = obtener_estado_dispositivo(**args)
                 elif fn_name == "activar_dispositivo":
@@ -998,8 +1019,15 @@ async def enviar_mensaje_chat(
                     res = enviar_mensaje_mqtt(**args)
                 elif fn_name == "generar_documento":
                     res = generar_documento(**args)
-                else:
-                    res = "Herramienta no encontrada"
+                elif fn_name == "obtener_estado_red_mikrotik":
+                    res = obtener_estado_red_mikrotik(**args)
+                elif fn_name == "listar_interfaces_mikrotik":
+                    res = listar_interfaces_mikrotik(**args)
+                elif fn_name == "ver_clientes_dhcp_mikrotik":
+                    res = ver_clientes_dhcp_mikrotik(**args)
+                elif fn_name == "comando_mikrotik_avanzado":
+                    res = comando_mikrotik_avanzado(**args)
+
                 responses.append(types.Part.from_function_response(name=fn_name, response={"result": res}))
             
             # Segunda llamada
