@@ -1,3 +1,4 @@
+from typing import Optional
 """
 J.A.R.V.I.S. SaaS — Autenticación y Autorización
 
@@ -77,7 +78,7 @@ def crear_token_jwt(data: dict) -> str:
 class ProfileUpdate(BaseModel):
     nombre_organizacion: str
     email: str
-    password: str = None
+    password: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str
@@ -95,7 +96,7 @@ class TokenResponse(BaseModel):
 # Router de autenticación (Fix #7)
 # ---------------------------------------------------------------------------
 
-router = APIRouter(prefix="/auth", tags=["Autenticación"])
+router = APIRouter(prefix="/v1/auth", tags=["Autenticacion"])
 
 
 @router.post("/login", response_model=TokenResponse)
