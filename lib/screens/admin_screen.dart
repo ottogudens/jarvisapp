@@ -26,6 +26,10 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     _loadAllData();
   }
 
+  Future<String?> _getToken() async {
+    return (await SharedPreferences.getInstance()).getString('jwt_token');
+  }
+
   Future<void> _loadAllData() async {
     setState(() => _isLoading = true);
     await Future.wait([
@@ -37,7 +41,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Future<void> _loadDashboard() async {
-    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
+    final token = await _getToken();
     if (token == null) return;
     try {
       final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/dashboard'), headers: {
@@ -52,7 +56,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Future<void> _loadPlans() async {
-    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
+    final token = await _getToken();
     if (token == null) return;
     try {
       final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/plans'), headers: {
@@ -67,7 +71,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Future<void> _loadTenants() async {
-    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
+    final token = await _getToken();
     if (token == null) return;
     try {
       final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/tenants'), headers: {
@@ -81,26 +85,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     }
   }
 
-  Future<void> _updateTenantPlan(int tenantId, int newPlanId) async {
-    final token = (await SharedPreferences.getInstance()).getString('jwt_token');
-    if (token == null) return;
-    try {
-      final res = await http.put(
-        Uri.parse('$kApiBaseUrl/v1/admin/tenants/$tenantId'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json'
-        },
-        body: jsonEncode({'id_plan': newPlanId}),
-      );
-      if (res.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Plan actualizado correctamente")));
-        _loadTenants();
-      }
-    } catch (e) {
-      debugPrint("Error updating tenant: $e");
-    }
-  }
+  // ─── Plan Editor ────────────────────────────────────────────
 
   void _showPlanEditor({Map<String, dynamic>? planToEdit}) {
     final isNew = planToEdit == null;
@@ -124,37 +109,18 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(labelText: 'Nombre del Plan', labelStyle: TextStyle(color: Colors.cyan)),
                 ),
-                SwitchListTile(
-                  title: const Text('ERP', style: TextStyle(color: Colors.white)),
-                  value: pErp,
-                  onChanged: (val) => setDialogState(() => pErp = val),
-                ),
-                SwitchListTile(
-                  title: const Text('Inspección', style: TextStyle(color: Colors.white)),
-                  value: pIns,
-                  onChanged: (val) => setDialogState(() => pIns = val),
-                ),
-                SwitchListTile(
-                  title: const Text('IoT', style: TextStyle(color: Colors.white)),
-                  value: pIot,
-                  onChanged: (val) => setDialogState(() => pIot = val),
-                ),
-                SwitchListTile(
-                  title: const Text('MikroTik', style: TextStyle(color: Colors.white)),
-                  value: pMk,
-                  onChanged: (val) => setDialogState(() => pMk = val),
-                ),
+                SwitchListTile(title: const Text('ERP', style: TextStyle(color: Colors.white)), value: pErp, onChanged: (val) => setDialogState(() => pErp = val)),
+                SwitchListTile(title: const Text('Inspección', style: TextStyle(color: Colors.white)), value: pIns, onChanged: (val) => setDialogState(() => pIns = val)),
+                SwitchListTile(title: const Text('IoT', style: TextStyle(color: Colors.white)), value: pIot, onChanged: (val) => setDialogState(() => pIot = val)),
+                SwitchListTile(title: const Text('MikroTik', style: TextStyle(color: Colors.white)), value: pMk, onChanged: (val) => setDialogState(() => pMk = val)),
               ],
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
             ElevatedButton(
               onPressed: () async {
-                final token = (await SharedPreferences.getInstance()).getString('jwt_token');
+                final token = await _getToken();
                 final body = jsonEncode({
                   'nombre_plan': nameCtrl.text,
                   'permite_erp': pErp,
@@ -164,17 +130,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 });
                 
                 if (isNew) {
-                  await http.post(
-                    Uri.parse('$kApiBaseUrl/v1/admin/plans'),
-                    headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-                    body: body,
-                  );
+                  await http.post(Uri.parse('$kApiBaseUrl/v1/admin/plans'), headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}, body: body);
                 } else {
-                  await http.put(
-                    Uri.parse('$kApiBaseUrl/v1/admin/plans/${planToEdit['id_plan']}'),
-                    headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-                    body: body,
-                  );
+                  await http.put(Uri.parse('$kApiBaseUrl/v1/admin/plans/${planToEdit['id_plan']}'), headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}, body: body);
                 }
                 Navigator.pop(ctx);
                 _loadPlans();
@@ -186,6 +144,182 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
       });
     });
   }
+
+  // ─── Tenant/Client Editor ───────────────────────────────────
+
+  void _showTenantEditor({Map<String, dynamic>? tenantToEdit}) {
+    final isNew = tenantToEdit == null;
+    final orgCtrl = TextEditingController(text: tenantToEdit?['nombre_organizacion'] ?? '');
+    final emailCtrl = TextEditingController(text: tenantToEdit?['email_admin'] ?? '');
+    final passCtrl = TextEditingController();
+    String perfil = tenantToEdit?['perfil_jarvis'] ?? 'Mecanico';
+    int? selectedPlanId = tenantToEdit?['id_plan'] ?? (_plans.isNotEmpty ? _plans[0]['id_plan'] : null);
+    final perfilOptions = ['Mecanico', 'Inspector_DGC', 'Enfermera_Paliativos', 'General'];
+
+    showDialog(context: context, builder: (ctx) {
+      return StatefulBuilder(builder: (ctx, setDialogState) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: Text(isNew ? 'Agregar Cliente' : 'Editar Cliente', style: const TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: orgCtrl,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre de la Organización',
+                    labelStyle: TextStyle(color: Colors.cyan),
+                    prefixIcon: Icon(Icons.business, color: Colors.cyanAccent, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (isNew) ...[
+                  TextField(
+                    controller: emailCtrl,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Email del Administrador',
+                      labelStyle: TextStyle(color: Colors.cyan),
+                      prefixIcon: Icon(Icons.email, color: Colors.cyanAccent, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: passCtrl,
+                    obscureText: true,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Contraseña',
+                      labelStyle: TextStyle(color: Colors.cyan),
+                      prefixIcon: Icon(Icons.lock, color: Colors.cyanAccent, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: perfil,
+                    dropdownColor: const Color(0xFF1E293B),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Perfil J.A.R.V.I.S.',
+                      labelStyle: TextStyle(color: Colors.cyan),
+                    ),
+                    items: perfilOptions.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
+                    onChanged: (val) => setDialogState(() => perfil = val ?? perfil),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                DropdownButtonFormField<int>(
+                  value: selectedPlanId,
+                  dropdownColor: const Color(0xFF1E293B),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Plan',
+                    labelStyle: TextStyle(color: Colors.cyan),
+                  ),
+                  items: _plans.map<DropdownMenuItem<int>>((p) {
+                    return DropdownMenuItem<int>(value: p['id_plan'], child: Text(p['nombre_plan']));
+                  }).toList(),
+                  onChanged: (val) => setDialogState(() => selectedPlanId = val),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent, foregroundColor: Colors.black),
+              onPressed: () async {
+                final token = await _getToken();
+                if (isNew) {
+                  // Validar campos
+                  if (orgCtrl.text.isEmpty || emailCtrl.text.isEmpty || passCtrl.text.isEmpty || selectedPlanId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Todos los campos son requeridos')));
+                    return;
+                  }
+                  final res = await http.post(
+                    Uri.parse('$kApiBaseUrl/v1/admin/tenants'),
+                    headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'nombre_organizacion': orgCtrl.text.trim(),
+                      'email': emailCtrl.text.trim(),
+                      'password': passCtrl.text,
+                      'perfil_jarvis': perfil,
+                      'id_plan': selectedPlanId,
+                    }),
+                  );
+                  if (res.statusCode == 200) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente creado exitosamente'), backgroundColor: Colors.green));
+                  } else {
+                    final err = jsonDecode(res.body);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${err['detail'] ?? 'Desconocido'}')));
+                  }
+                } else {
+                  // Update
+                  final res = await http.put(
+                    Uri.parse('$kApiBaseUrl/v1/admin/tenants/${tenantToEdit['id_tenant']}'),
+                    headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'nombre_organizacion': orgCtrl.text.trim(),
+                      'id_plan': selectedPlanId,
+                    }),
+                  );
+                  if (res.statusCode == 200) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente actualizado'), backgroundColor: Colors.green));
+                  }
+                }
+                Navigator.pop(ctx);
+                _loadAllData();
+              },
+              child: Text(isNew ? 'Crear Cliente' : 'Guardar Cambios'),
+            )
+          ],
+        );
+      });
+    });
+  }
+
+  Future<void> _deleteTenant(int tenantId, String name) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Confirmar Eliminación', style: TextStyle(color: Colors.redAccent)),
+        content: Text('¿Estás seguro de eliminar al cliente "$name" y todos sus datos? Esta acción no se puede deshacer.',
+            style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final token = await _getToken();
+    try {
+      final res = await http.delete(
+        Uri.parse('$kApiBaseUrl/v1/admin/tenants/$tenantId'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente eliminado'), backgroundColor: Colors.green));
+        _loadAllData();
+      } else {
+        final err = jsonDecode(res.body);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${err['detail'] ?? 'Desconocido'}')));
+      }
+    } catch (e) {
+      debugPrint("Error deleting tenant: $e");
+    }
+  }
+
+  // ─── BUILD ─────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -262,37 +396,103 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   }
 
   Widget _buildTenantsTab() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _tenants.length,
-      itemBuilder: (ctx, i) {
-        final t = _tenants[i];
-        final planActual = _plans.firstWhere((p) => p['id_plan'] == t['id_plan'], orElse: () => {'nombre_plan': 'Desconocido'});
-        
-        return Card(
-          color: const Color(0xFF1E293B),
-          child: ListTile(
-            title: Text(t['nombre_organizacion'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: Text('Plan Actual: ${planActual['nombre_plan']}', style: const TextStyle(color: Colors.grey)),
-            trailing: DropdownButton<int>(
-              dropdownColor: const Color(0xFF1E293B),
-              value: t['id_plan'],
-              style: const TextStyle(color: Colors.cyanAccent),
-              items: _plans.map<DropdownMenuItem<int>>((p) {
-                return DropdownMenuItem<int>(
-                  value: p['id_plan'],
-                  child: Text(p['nombre_plan']),
-                );
-              }).toList(),
-              onChanged: (newPlanId) {
-                if (newPlanId != null) {
-                  _updateTenantPlan(t['id_tenant'], newPlanId);
-                }
-              },
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.cyanAccent,
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 50),
             ),
+            icon: const Icon(Icons.person_add),
+            label: const Text("Agregar Nuevo Cliente"),
+            onPressed: () => _showTenantEditor(),
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _tenants.length,
+            itemBuilder: (ctx, i) {
+              final t = _tenants[i];
+              return Card(
+                color: const Color(0xFF1E293B),
+                margin: const EdgeInsets.only(bottom: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              t['nombre_organizacion'] ?? 'Sin nombre',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.cyanAccent, size: 20),
+                                tooltip: 'Editar',
+                                onPressed: () => _showTenantEditor(tenantToEdit: t),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.redAccent, size: 20),
+                                tooltip: 'Eliminar',
+                                onPressed: () => _deleteTenant(t['id_tenant'], t['nombre_organizacion']),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const Divider(color: Colors.white12),
+                      Row(
+                        children: [
+                          const Icon(Icons.email, color: Colors.white38, size: 14),
+                          const SizedBox(width: 6),
+                          Text(t['email_admin'] ?? '', style: const TextStyle(color: Colors.white60, fontSize: 13)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.cyan.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(t['nombre_plan'] ?? 'Sin plan', style: const TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text('${t['perfil_jarvis'] ?? 'N/A'}', style: const TextStyle(color: Colors.orangeAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+                          ),
+                          const Spacer(),
+                          Text('${t['tokens_consumidos'] ?? 0} tokens', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

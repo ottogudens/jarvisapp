@@ -821,6 +821,17 @@ async def enviar_mensaje_chat(
         prompt_con_contexto += f"[CONOCIMIENTO DE DOCUMENTOS PREVIOS EN ESTA SESIÓN]{knowledge_from_history}\n\n"
     if doc_context:
         prompt_con_contexto += f"[DOCUMENTOS ADJUNTOS EN ESTE MENSAJE]\n(Instrucción: Analiza el siguiente contenido para generar la respuesta. No lo ignores.)\n{doc_context}\n\n"
+    if gemini_parts:
+        prompt_con_contexto += (
+            "[IMÁGENES ADJUNTAS]\n"
+            "(Instrucción IMPORTANTE: El usuario ha adjuntado una o más imágenes. "
+            "Analiza visualmente cada imagen en detalle. Extrae TODO el contenido relevante: "
+            "texto, números, tablas, diagramas, esquemas, gráficos, fórmulas, código, "
+            "etiquetas, señales, y cualquier otra información visible. "
+            "Si la imagen contiene un diagrama técnico o arquitectónico, describe su estructura. "
+            "Si contiene datos tabulares, organízalos en formato de tabla. "
+            "Incluye esta información extraída como parte de tu respuesta.)\n\n"
+        )
     for h in mensajes_hist[-12:]:
         prompt_con_contexto += f"{h.rol.capitalize()}: {h.contenido}\n"
     prompt_con_contexto += f"User: {mensaje if mensaje else '(sin texto adicional)'}\nJARVIS:"

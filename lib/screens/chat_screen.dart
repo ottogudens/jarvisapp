@@ -793,48 +793,113 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             if (fileUrls.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: fileUrls.map((url) {
-                    // Determinar tipo de archivo desde data URI
-                    IconData fileIcon = Icons.attach_file;
-                    String label = 'Archivo';
+                    // ─── Imagen base64: renderizar inline ───
                     if (url.startsWith('data:image/')) {
-                      fileIcon = Icons.image;
-                      label = 'Imagen';
-                    } else if (url.startsWith('data:audio/')) {
-                      fileIcon = Icons.mic;
-                      label = 'Audio';
-                    } else if (url.startsWith('data:application/pdf')) {
-                      fileIcon = Icons.picture_as_pdf;
-                      label = 'PDF';
-                    } else if (url.startsWith('data:text/')) {
-                      fileIcon = Icons.description;
-                      label = 'Documento';
+                      try {
+                        final b64Part = url.split('base64,')[1];
+                        final bytes = base64Decode(b64Part);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.memory(
+                              bytes,
+                              width: double.infinity,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => _buildFileChip(Icons.broken_image, 'Imagen no disponible'),
+                            ),
+                          ),
+                        );
+                      } catch (_) {
+                        return _buildFileChip(Icons.broken_image, 'Imagen (error)');
+                      }
                     }
-                    return Tooltip(
-                      message: label == 'Audio' ? 'Audio transcrito por J.A.R.V.I.S.' : 'Documento conocido por J.A.R.V.I.S.',
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black26,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(fileIcon, size: 14, color: Colors.cyanAccent),
-                            const SizedBox(width: 4),
-                            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
-                          ],
-                        ),
-                      ),
-                    );
+
+                    // ─── Audio base64: chip informativo ───
+                    if (url.startsWith('data:audio/')) {
+                      return _buildFileChip(Icons.mic, 'Audio transcrito');
+                    }
+
+                    // ─── PDF base64: chip clickeable ───
+                    if (url.startsWith('data:application/pdf')) {
+                      return GestureDetector(
+                        onTap: () {
+                          showDialog(context: context, builder: (ctx) => AlertDialog(
+                            backgroundColor: const Color(0xFF1E293B),
+                            title: const Text('Documento PDF', style: TextStyle(color: Colors.white)),
+                            content: const Text('El contenido del PDF ya fue procesado por J.A.R.V.I.S. y está incluido en el análisis del chat.', style: TextStyle(color: Colors.white70)),
+                            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: Colors.cyanAccent)))],
+                          ));
+                        },
+                        child: _buildFileChip(Icons.picture_as_pdf, 'PDF procesado'),
+                      );
+                    }
+
+                    // ─── Texto base64: chip clickeable con preview ───
+                    if (url.startsWith('data:text/')) {
+                      return GestureDetector(
+                        onTap: () {
+                          try {
+                            final b64Part = url.split('base64,')[1];
+                            final textContent = utf8.decode(base64Decode(b64Part));
+                            showDialog(context: context, builder: (ctx) => AlertDialog(
+                              backgroundColor: const Color(0xFF1E293B),
+                              title: const Text('Contenido del Documento', style: TextStyle(color: Colors.white)),
+                              content: SingleChildScrollView(
+                                child: SelectableText(textContent.length > 5000 ? '${textContent.substring(0, 5000)}...' : textContent,
+                                    style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                              ),
+                              actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: Colors.cyanAccent)))],
+                            ));
+                          } catch (_) {}
+                        },
+                        child: _buildFileChip(Icons.description, 'Documento (ver)'),
+                      );
+                    }
+
+                    // ─── URL externa (Supabase etc): link clickeable ───
+                    if (url.startsWith('http')) {
+                      return GestureDetector(
+                        onTap: () async {
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        child: _buildFileChip(Icons.open_in_new, 'Abrir archivo'),
+                      );
+                    }
+
+                    // ─── Fallback ───
+                    return _buildFileChip(Icons.attach_file, 'Archivo adjunto');
                   }).toList(),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileChip(IconData icon, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Colors.cyanAccent),
+            const SizedBox(width: 4),
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
           ],
         ),
       ),
