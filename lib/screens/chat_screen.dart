@@ -605,7 +605,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             onPressed: () async {
               setState(() => _handsFreeMode = !_handsFreeMode);
               final prefs = await SharedPreferences.getInstance();
-              prefs.setBool('jarvis_hands_free', _handsFreeMode);
+              // prefs.setBool('jarvis_hands_free', _handsFreeMode); // Obsoleta, se maneja desde settings
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
