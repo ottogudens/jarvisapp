@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'login_screen.dart'; // Contiene kApiBaseUrl
+import 'login_screen.dart';
+import 'admin_screen.dart'; // Contiene kApiBaseUrl
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -19,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoading = true;
   String _defaultPrompt = '';
   String _userId = '';
+  bool _isSuperAdmin = false;
   
   // Profile Config
   final _orgNameController = TextEditingController();
@@ -81,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (profileResp.statusCode == 200) {
           final data = jsonDecode(profileResp.body);
           _orgNameController.text = data['nombre_organizacion'] ?? '';
+        _isSuperAdmin = data['is_superadmin'] ?? false;
           _emailController.text = data['email'] ?? '';
         }
       } catch (e) {
