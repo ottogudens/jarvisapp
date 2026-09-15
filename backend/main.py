@@ -1001,7 +1001,8 @@ async def enviar_mensaje_chat(
         if gr.function_calls:
             responses = []
             from backend.mikrotik_tools import obtener_estado_red_mikrotik, listar_interfaces_mikrotik, ver_clientes_dhcp_mikrotik, comando_mikrotik_avanzado
-                
+            
+            for function_call in gr.function_calls:
                 args = {}
                 if "args" in function_call:
                     args = dict(function_call.args)
