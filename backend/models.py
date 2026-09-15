@@ -29,6 +29,8 @@ class SaaSPlan(Base):
     nombre_plan = Column(String(50), unique=True, nullable=False)
     permite_erp = Column(Boolean, default=False)
     permite_inspeccion = Column(Boolean, default=False)
+    permite_iot = Column(Boolean, default=False)
+    permite_mikrotik = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -69,6 +71,8 @@ class Usuario(Base):
     email = Column(String(100), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     perfil_jarvis = Column(String(50), nullable=False)  # 'Mecanico', 'Inspector_DGC', 'Enfermera_Paliativos'
+    is_superadmin = Column(Boolean, default=False, nullable=False)
+    tokens_consumidos = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

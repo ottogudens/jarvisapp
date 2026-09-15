@@ -1,19 +1,17 @@
+"""
+J.A.R.V.I.S. SaaS — Autenticación y Manejo de Perfiles
+Fix #6, #7, #8, #9: 
+- Login unificado buscando usuario en base de datos.
+- Validación de contraseñas (hasheadas o plain-text en transición).
+- Emisión de JWT robusto (algoritmo HS256).
+- `obtener_usuario_actual` inyecta id_tenant y perfil.
+"""
 from typing import Optional
-"""
-J.A.R.V.I.S. SaaS — Autenticación y Autorización
-
-Correcciones aplicadas:
-- Fix #6:  SECRET_KEY desde os.getenv("JWT_SECRET_KEY")
-- Fix #7:  Endpoint POST /auth/login para obtener JWT
-- Fix #8:  Captura específica de jwt.ExpiredSignatureError y jwt.InvalidTokenError
-- Fix #9:  Validación de id_tenant en el payload del token
-"""
-
 import os
 import datetime
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import bcrypt
 from pydantic import BaseModel
@@ -115,6 +113,7 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
         "id_tenant": usuario.id_tenant,
         "email": usuario.email,
         "perfil_jarvis": usuario.perfil_jarvis,
+        "is_superadmin": usuario.is_superadmin,
     })
 
     tenant = usuario.tenant
@@ -234,5 +233,6 @@ def get_profile(
     
     return {
         'email': user.email,
-        'nombre_organizacion': tenant.nombre_organizacion if tenant else ''
+        'nombre_organizacion': tenant.nombre_organizacion if tenant else '',
+        'is_superadmin': user.is_superadmin
     }

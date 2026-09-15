@@ -152,11 +152,23 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    String userId = '';
+    final token = prefs.getString('jwt_token');
+    if (token != null) {
+      try {
+        final parts = token.split('.');
+        if (parts.length == 3) {
+          final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+          userId = payload['id_usuario']?.toString() ?? '';
+        }
+      } catch (_) {}
+    }
+
     setState(() {
-      _voiceId = prefs.getString('jarvis_voice_id') ?? '';
-      _sarcasmLevel = prefs.getString('jarvis_sarcasm_level') ?? '';
-      _customPrompt = prefs.getString('jarvis_custom_prompt') ?? '';
-      _handsFreeMode = prefs.getBool('jarvis_hands_free') ?? false;
+      _voiceId = prefs.getString('jarvis_voice_id_$userId') ?? '';
+      _sarcasmLevel = prefs.getString('jarvis_sarcasm_level_$userId') ?? '';
+      _customPrompt = prefs.getString('jarvis_custom_prompt_$userId') ?? '';
+      _handsFreeMode = prefs.getBool('jarvis_hands_free_$userId') ?? false;
     });
   }
 
@@ -874,6 +886,11 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       child: SafeArea(
         child: Row(
           children: [
+            IconButton(
+              icon: const Icon(Icons.center_focus_strong, color: Colors.orangeAccent),
+              onPressed: _showFocusBottomSheet,
+              tooltip: 'Enfocar documentos',
+            ),
             IconButton(
               icon: const Icon(Icons.attach_file, color: Colors.cyanAccent),
               onPressed: _pickFiles,

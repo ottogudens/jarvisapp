@@ -14,6 +14,7 @@ Correcciones aplicadas:
 
 import os
 import base64
+import json
 import tempfile
 import hashlib
 import hmac
@@ -35,7 +36,8 @@ from sqlalchemy import func
 from backend.database import get_db, inicializar_base_de_datos_remota
 from backend.auth import router as auth_router, obtener_usuario_actual, requiere_feature
 from backend.mikrotik import router as mikrotik_router
-from backend.models import OrdenTrabajo, ChatSession, ChatMessage
+from backend.admin import router as admin_router
+from backend.models import OrdenTrabajo, ChatSession, ChatMessage, DocumentChunk, Usuario
 from supabase import create_client, Client
 
 
@@ -73,6 +75,7 @@ app.add_middleware(
 # Fix #7: incluir router de autenticación
 app.include_router(auth_router)
 app.include_router(mikrotik_router)
+app.include_router(admin_router)
 
 
 # Inicialización lazy: se crean al primer uso para evitar errores si
@@ -214,7 +217,6 @@ async def _pipeline_ia(
             config=types.GenerateContentConfig(**config_args),
         )
 
-        import json
         if response_format:
             parsed_data = response_format.model_validate_json(respuesta_gemini.text)
             respuesta_texto = getattr(parsed_data, "mensaje_para_usuario", "")
@@ -377,7 +379,6 @@ async def webhook_mp(request: Request):
         v1 = parts.get("v1", "")
 
         # Reconstruir el manifest para verificación
-        import json
         payload = json.loads(payload_bytes)
         data_id = str(payload.get("data", {}).get("id", ""))
         manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
@@ -389,7 +390,6 @@ async def webhook_mp(request: Request):
         if not hmac.compare_digest(v1, expected):
             raise HTTPException(status_code=403, detail="Firma de webhook inválida.")
     else:
-        import json
         payload = json.loads(payload_bytes)
 
     # Procesar evento de pago
@@ -513,29 +513,6 @@ async def listar_todos_archivos(
     }
 
 
-@app.post("/v1/jarvis/inspector/procesar-completo", response_model=JarvisResponse)
-async def pipeline_inspector(
-    audio_file: UploadFile = File(...),
-    usuario: dict = Depends(requiere_feature("modulo_inspeccion")),
-):
-    """Pipeline para perfil Inspector Fiscal DGC con extracción estructurada."""
-    contexto = (
-        "(IMPORTANTE: Extrae tipo de infracción, descripción del hallazgo, normativa aplicable, "
-        "gravedad (Leve/Grave/Gravísima) y acción recomendada. Genera un resumen profesional en 'mensaje_para_usuario'.)"
-    )
-    respuesta, parsed = await _pipeline_ia(audio_file, "Inspector_DGC", contexto, response_format=RespuestaInspector)
-    
-    if parsed:
-        respuesta.diagnostico_ia = (
-            f"Tipo: {parsed.tipo_infraccion}\n"
-            f"Hallazgo: {parsed.descripcion_hallazgo}\n"
-            f"Normativa: {parsed.normativa_aplicable}\n"
-            f"Gravedad: {parsed.gravedad}\n"
-            f"Acción: {parsed.accion_recomendada}"
-        )
-    
-    return respuesta
-
 @app.get("/v1/chat/sessions/{session_id}/messages")
 async def obtener_mensajes(
     session_id: str,
@@ -560,74 +537,6 @@ async def obtener_mensajes(
         }
         for m in mensajes
     ]
-
-
-# ============================================================
-# Endpoint: Enfermera Paliativos (Fix #17)
-# ============================================================
-
-@app.post("/v1/jarvis/enfermera/procesar-completo", response_model=JarvisResponse)
-async def pipeline_enfermera(
-    audio_file: UploadFile = File(...),
-    usuario: dict = Depends(requiere_feature("modulo_enfermeria")),
-):
-    """Pipeline para perfil Enfermera de Cuidados Paliativos."""
-    respuesta, _ = await _pipeline_ia(audio_file, "Enfermera_Paliativos")
-    return respuesta
-
-
-# ============================================================
-# Webhook MercadoPago (Fix #15: verificación de firma)
-# ============================================================
-
-MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "")
-
-
-@app.post("/v1/mercado-pago/webhook")
-async def webhook_mp(request: Request):
-    """
-    Recibe notificaciones de pago de MercadoPago.
-    Fix #15: valida la firma HMAC del webhook cuando MP_WEBHOOK_SECRET está configurado.
-    """
-    payload_bytes = await request.body()
-
-    if MP_WEBHOOK_SECRET:
-        # Extraer componentes de la firma
-        x_signature = request.headers.get("x-signature", "")
-        x_request_id = request.headers.get("x-request-id", "")
-
-        parts = {}
-        for item in x_signature.split(","):
-            if "=" in item:
-                k, v = item.strip().split("=", 1)
-                parts[k] = v
-
-        ts = parts.get("ts", "")
-        v1 = parts.get("v1", "")
-
-        # Reconstruir el manifest para verificación
-        import json
-        payload = json.loads(payload_bytes)
-        data_id = str(payload.get("data", {}).get("id", ""))
-        manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
-
-        expected = hmac.new(
-            MP_WEBHOOK_SECRET.encode(), manifest.encode(), hashlib.sha256,
-        ).hexdigest()
-
-        if not hmac.compare_digest(v1, expected):
-            raise HTTPException(status_code=403, detail="Firma de webhook inválida.")
-    else:
-        import json
-        payload = json.loads(payload_bytes)
-
-    # Procesar evento de pago
-    action = payload.get("action", "")
-    if action == "payment.created":
-        payment_id = payload.get("data", {}).get("id", "desconocido")
-        print(f"[MercadoPago] Pago creado: {payment_id}")
-
-    return Response(content="OK", status_code=200)
 
 
 # ============================================================
@@ -758,6 +667,7 @@ async def enviar_mensaje_chat(
     doc_context: str = ""
     transcripcion_audio: str = ""
     audio_parts: list = []
+    total_tokens = 0
 
     for file in files:
         if not file.filename:
@@ -816,7 +726,6 @@ async def enviar_mensaje_chat(
         ChatMessage.id_session == session_id
     ).order_by(ChatMessage.created_at.asc()).all()
 
-    import json
     focused_ids_list = []
     if focused_document_ids:
         try:
@@ -995,6 +904,8 @@ async def enviar_mensaje_chat(
             )
         )
         
+        if hasattr(gr, 'usage_metadata') and hasattr(gr.usage_metadata, 'total_token_count'):
+            total_tokens += gr.usage_metadata.total_token_count
         respuesta_jarvis = "Ejecuté sus órdenes en los sistemas domésticos, señor." if gr.function_calls else (gr.text or "Entendido.")
         
         # En caso de tool call, procesar y re-invocar a Gemini para respuesta final
@@ -1035,6 +946,8 @@ async def enviar_mensaje_chat(
             contents.append(gr.candidates[0].content) # el call
             contents.append(types.Content(parts=responses, role="user")) # los resultados
             gr2 = _gc.models.generate_content(model="gemini-3.6-flash", contents=contents)
+            if hasattr(gr2, 'usage_metadata') and hasattr(gr2.usage_metadata, 'total_token_count'):
+                total_tokens += gr2.usage_metadata.total_token_count
             respuesta_jarvis = gr2.text or respuesta_jarvis
             
     except Exception as e:
@@ -1048,6 +961,10 @@ async def enviar_mensaje_chat(
         sesion.titulo = texto_titulo[:35] + ("..." if len(texto_titulo) > 35 else "")
 
     sesion.updated_at = func.now()
+    if total_tokens > 0:
+        db_usuario = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
+        if db_usuario:
+            db_usuario.tokens_consumidos += total_tokens
     db.commit()
     db.refresh(msg_jarvis)
     db.refresh(msg_user)

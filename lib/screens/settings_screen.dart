@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'login_screen.dart';
-import 'admin_screen.dart'; // Contiene kApiBaseUrl
+import 'login_screen.dart'; // Contiene kApiBaseUrl
+import 'admin_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -61,7 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final parts = token.split('.');
         if (parts.length == 3) {
           final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
-          _userId = payload['sub']?.toString() ?? '';
+          _userId = payload['id_usuario']?.toString() ?? '';
         }
       } catch (_) {}
     }
@@ -308,6 +308,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildTextField(_emailController, 'Correo Electrónico', Icons.email),
                 const SizedBox(height: 10),
                 _buildTextField(_passwordController, 'Nueva Contraseña (Opcional)', Icons.lock, TextInputType.text, true),
+
+                if (_isSuperAdmin) ...[
+                  const SizedBox(height: 24),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFF97316), Color(0xFFEA580C)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListTile(
+                      leading: const Icon(Icons.admin_panel_settings, color: Colors.white, size: 28),
+                      title: const Text('Panel de Control (SuperAdmin)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen()));
+                      },
+                    ),
+                  ),
+                ],
                 
                 const SizedBox(height: 32),
                 _buildSectionTitle('Rol e Instrucciones del Agente'),
