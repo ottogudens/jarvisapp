@@ -18,6 +18,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   Map<String, dynamic>? _dashboardData;
   List<dynamic> _plans = [];
   List<dynamic> _tenants = [];
+  List<dynamic> _profiles = [];
   bool _isLoading = true;
   Map<String, dynamic>? _aiStats;
   Map<String, dynamic> _aiKeys = {};
@@ -25,7 +26,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _loadAllData();
   }
 
@@ -39,6 +40,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
       _loadDashboard(),
       _loadPlans(),
       _loadTenants(),
+      _loadProfiles(),
       _loadAiStats(),
       _loadAiKeys(),
     ]);
@@ -52,6 +54,15 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
       final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/ai-stats'), headers: {'Authorization': 'Bearer $token'});
       if (res.statusCode == 200) _aiStats = jsonDecode(res.body);
     } catch (e) { debugPrint("Error ai-stats: $e"); }
+  }
+
+  Future<void> _loadProfiles() async {
+    final token = await _getToken();
+    if (token == null) return;
+    try {
+      final res = await http.get(Uri.parse('$kApiBaseUrl/v1/admin/profiles'), headers: {'Authorization': 'Bearer $token'});
+      if (res.statusCode == 200) _profiles = jsonDecode(res.body);
+    } catch (e) { debugPrint("Error loading profiles: $e"); }
   }
 
   Future<void> _loadAiKeys() async {
@@ -189,13 +200,22 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   void _showTenantEditor({Map<String, dynamic>? tenantToEdit}) {
     final isNew = tenantToEdit == null;
     final orgCtrl = TextEditingController(text: tenantToEdit?['nombre_organizacion'] ?? '');
+    final contactoCtrl = TextEditingController(text: tenantToEdit?['nombre_contacto'] ?? '');
+    final telefonoCtrl = TextEditingController(text: tenantToEdit?['telefono'] ?? '');
     final emailCtrl = TextEditingController(text: tenantToEdit?['email_admin'] ?? '');
     final passCtrl = TextEditingController();
-    String perfil = tenantToEdit?['perfil_jarvis'] ?? 'Mecanico';
+    
+    // Convertir perfiles existentes a Set de IDs
+    Set<int> selectedProfiles = {};
+    if (!isNew && tenantToEdit?['perfiles'] != null) {
+      for (var p in tenantToEdit!['perfiles']) {
+        selectedProfiles.add(p['id_perfil']);
+      }
+    }
+    
     int? selectedPlanId = tenantToEdit?['id_plan'] ?? (_plans.isNotEmpty ? _plans[0]['id_plan'] : null);
     String aiProvider = tenantToEdit?['ai_provider'] ?? 'gemini';
     String aiModel = tenantToEdit?['ai_model'] ?? 'gemini-1.5-flash';
-    final perfilOptions = ['Mecanico', 'Inspector_DGC', 'Enfermera_Paliativos', 'General'];
 
     showDialog(context: context, builder: (ctx) {
       return StatefulBuilder(builder: (ctx, setDialogState) {
@@ -206,59 +226,58 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: orgCtrl,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre de la Organización',
-                    labelStyle: TextStyle(color: Colors.cyan),
-                    prefixIcon: Icon(Icons.business, color: Colors.cyanAccent, size: 20),
-                  ),
-                ),
+                _buildTextField(orgCtrl, 'Nombre de la Organización'),
+                const SizedBox(height: 12),
+                _buildTextField(contactoCtrl, 'Nombre de Contacto (Opcional)'),
+                const SizedBox(height: 12),
+                _buildTextField(telefonoCtrl, 'Teléfono (Opcional)'),
                 const SizedBox(height: 12),
                 if (isNew) ...[
-                  TextField(
-                    controller: emailCtrl,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Email del Administrador',
-                      labelStyle: TextStyle(color: Colors.cyan),
-                      prefixIcon: Icon(Icons.email, color: Colors.cyanAccent, size: 20),
-                    ),
-                  ),
+                  _buildTextField(emailCtrl, 'Email del Administrador'),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: passCtrl,
-                    obscureText: true,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Contraseña',
-                      labelStyle: TextStyle(color: Colors.cyan),
-                      prefixIcon: Icon(Icons.lock, color: Colors.cyanAccent, size: 20),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: perfil,
-                    dropdownColor: const Color(0xFF1E293B),
-                    style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      labelText: 'Perfil J.A.R.V.I.S.',
-                      labelStyle: TextStyle(color: Colors.cyan),
-                    ),
-                    items: perfilOptions.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
-                    onChanged: (val) => setDialogState(() => perfil = val ?? perfil),
-                  ),
+                  _buildTextField(passCtrl, 'Contraseña (Opcional)', obscure: true),
                   const SizedBox(height: 12),
                 ],
+                // Perfiles multi-select
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text("Perfiles Asignados:", style: TextStyle(color: Colors.cyan)),
+                ),
+                Container(
+                  height: 120,
+                  margin: const EdgeInsets.only(top: 8, bottom: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white24),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: ListView.builder(
+                    itemCount: _profiles.length,
+                    itemBuilder: (context, i) {
+                      final p = _profiles[i];
+                      final pId = p['id_perfil'];
+                      return CheckboxListTile(
+                        title: Text(p['nombre'], style: const TextStyle(color: Colors.white)),
+                        value: selectedProfiles.contains(pId),
+                        activeColor: Colors.cyanAccent,
+                        checkColor: Colors.black,
+                        onChanged: (val) {
+                          setDialogState(() {
+                            if (val == true) {
+                              selectedProfiles.add(pId);
+                            } else {
+                              selectedProfiles.remove(pId);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
+                ),
                 DropdownButtonFormField<int>(
                   value: selectedPlanId,
                   dropdownColor: const Color(0xFF1E293B),
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Plan',
-                    labelStyle: TextStyle(color: Colors.cyan),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Plan', labelStyle: TextStyle(color: Colors.cyan)),
                   items: _plans.map<DropdownMenuItem<int>>((p) {
                     return DropdownMenuItem<int>(value: p['id_plan'], child: Text(p['nombre_plan']));
                   }).toList(),
@@ -274,12 +293,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   onChanged: (v) => setDialogState(() => aiProvider = v ?? aiProvider),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: TextEditingController(text: aiModel),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Modelo IA (ej. gpt-4o-mini)', labelStyle: TextStyle(color: Colors.cyan)),
-                  onChanged: (v) => aiModel = v,
-                ),
+                _buildTextField(TextEditingController(text: aiModel), 'Modelo IA (ej. gpt-4o-mini)'),
               ],
             ),
           ),
@@ -290,9 +304,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
               onPressed: () async {
                 final token = await _getToken();
                 if (isNew) {
-                  // Validar campos
-                  if (orgCtrl.text.isEmpty || emailCtrl.text.isEmpty || passCtrl.text.isEmpty || selectedPlanId == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Todos los campos son requeridos')));
+                  if (orgCtrl.text.isEmpty || emailCtrl.text.isEmpty || selectedPlanId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nombre org, email y plan son requeridos')));
                     return;
                   }
                   final res = await http.post(
@@ -300,12 +313,14 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                     headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
                     body: jsonEncode({
                       'nombre_organizacion': orgCtrl.text.trim(),
+                      'nombre_contacto': contactoCtrl.text.trim(),
+                      'telefono': telefonoCtrl.text.trim(),
                       'email': emailCtrl.text.trim(),
-                      'password': passCtrl.text,
-                      'perfil_jarvis': perfil,
+                      'password': passCtrl.text.isNotEmpty ? passCtrl.text : null,
                       'id_plan': selectedPlanId,
                       'ai_provider': aiProvider,
                       'ai_model': aiModel,
+                      'perfiles_ids': selectedProfiles.toList(),
                     }),
                   );
                   if (res.statusCode == 200) {
@@ -315,22 +330,24 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${err['detail'] ?? 'Desconocido'}')));
                   }
                 } else {
-                  // Update
                   final res = await http.put(
                     Uri.parse('$kApiBaseUrl/v1/admin/tenants/${tenantToEdit['id_tenant']}'),
                     headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
                     body: jsonEncode({
                       'nombre_organizacion': orgCtrl.text.trim(),
+                      'nombre_contacto': contactoCtrl.text.trim(),
+                      'telefono': telefonoCtrl.text.trim(),
                       'id_plan': selectedPlanId,
                       'ai_provider': aiProvider,
                       'ai_model': aiModel,
+                      'perfiles_ids': selectedProfiles.toList(),
                     }),
                   );
                   if (res.statusCode == 200) {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente actualizado'), backgroundColor: Colors.green));
                   }
                 }
-                Navigator.pop(ctx);
+                if (mounted) Navigator.pop(ctx);
                 _loadAllData();
               },
               child: Text(isNew ? 'Crear Cliente' : 'Guardar Cambios'),
@@ -396,6 +413,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             Tab(icon: Icon(Icons.dashboard), text: "Dashboard"),
             Tab(icon: Icon(Icons.business), text: "Clientes"),
             Tab(icon: Icon(Icons.card_membership), text: "Planes"),
+            Tab(icon: Icon(Icons.person), text: "Perfiles"),
             Tab(icon: Icon(Icons.memory), text: "IA (API Keys)"),
           ],
         ),
@@ -408,6 +426,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 _buildDashboardTab(),
                 _buildTenantsTab(),
                 _buildPlansTab(),
+                _buildProfilesTab(),
                 _buildAiKeysTab(),
               ],
             ),
@@ -601,8 +620,124 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
+  Widget _buildProfilesTab() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: ElevatedButton.icon(
+            onPressed: () => _showProfileDialog(),
+            icon: const Icon(Icons.add),
+            label: const Text("Crear Perfil"),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent, foregroundColor: Colors.black),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: _profiles.length,
+            itemBuilder: (context, i) {
+              final p = _profiles[i];
+              return Card(
+                color: const Color(0xFF1E293B),
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: ListTile(
+                  title: Text(p['nombre'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: Text("ID: ${p['id_perfil']}", style: const TextStyle(color: Colors.white70)),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.blueAccent),
+                        onPressed: () => _showProfileDialog(profileToEdit: p),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.redAccent),
+                        onPressed: () => _deleteProfile(p['id_perfil']),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showProfileDialog({Map<String, dynamic>? profileToEdit}) {
+    final isEdit = profileToEdit != null;
+    final nameCtrl = TextEditingController(text: isEdit ? profileToEdit['nombre'] : '');
+    final instructionsCtrl = TextEditingController(text: isEdit ? profileToEdit['instrucciones_base'] : '');
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: Text(isEdit ? "Editar Perfil" : "Nuevo Perfil", style: const TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildTextField(nameCtrl, "Nombre"),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: instructionsCtrl,
+                  maxLines: 5,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: "Instrucciones Base",
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.cyanAccent)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancelar", style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final token = await _getToken();
+                final body = jsonEncode({
+                  "nombre": nameCtrl.text,
+                  "instrucciones_base": instructionsCtrl.text,
+                });
+                
+                try {
+                  if (isEdit) {
+                    await http.put(Uri.parse('$kApiBaseUrl/v1/admin/profiles/${profileToEdit['id_perfil']}'), headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}, body: body);
+                  } else {
+                    await http.post(Uri.parse('$kApiBaseUrl/v1/admin/profiles'), headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}, body: body);
+                  }
+                  if (mounted) Navigator.pop(context);
+                  _loadProfiles();
+                } catch (e) {
+                  debugPrint("Error save profile: $e");
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent, foregroundColor: Colors.black),
+              child: const Text("Guardar"),
+            ),
+          ],
+        );
+      }
+    );
+  }
+
+  Future<void> _deleteProfile(int id) async {
+    final token = await _getToken();
+    await http.delete(Uri.parse('$kApiBaseUrl/v1/admin/profiles/$id'), headers: {'Authorization': 'Bearer $token'});
+    _loadProfiles();
+  }
+
   Widget _buildTextField(TextEditingController controller, String label, {bool obscure = false}) {
-    return TextFormField(
+    return TextField(
       controller: controller,
       obscureText: obscure,
       style: const TextStyle(color: Colors.white),
@@ -652,11 +787,49 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
+  Widget _buildAiKeyRow(String providerName, TextEditingController controller) {
+    return Row(
+      children: [
+        Expanded(child: _buildTextField(controller, '$providerName API Key', obscure: true)),
+        const SizedBox(width: 8),
+        ElevatedButton(
+          onPressed: () => _testAiKey(providerName, controller.text),
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey, foregroundColor: Colors.white),
+          child: const Text('Test'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _testAiKey(String provider, String key) async {
+    if (key.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La clave no puede estar vacía')));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Probando $provider...')));
+    final token = await _getToken();
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/admin/ai-keys/test'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({"provider": provider.toLowerCase(), "api_key": key}),
+      );
+      if (res.statusCode == 200) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ $provider: Clave válida y funcionando'), backgroundColor: Colors.green));
+      } else {
+        final err = jsonDecode(res.body);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error en $provider: ${err["detail"]}'), backgroundColor: Colors.redAccent));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error de red: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
   Widget _buildAiKeysTab() {
-    final openaiCtrl = TextEditingController(text: _aiKeys['OPENAI_API_KEY'] ?? '');
-    final anthropicCtrl = TextEditingController(text: _aiKeys['ANTHROPIC_API_KEY'] ?? '');
-    final deepseekCtrl = TextEditingController(text: _aiKeys['DEEPSEEK_API_KEY'] ?? '');
-    final geminiCtrl = TextEditingController(text: _aiKeys['GEMINI_API_KEY'] ?? '');
+    final openaiCtrl = TextEditingController(text: _aiKeys['openai_api_key'] ?? '');
+    final anthropicCtrl = TextEditingController(text: _aiKeys['anthropic_api_key'] ?? '');
+    final deepseekCtrl = TextEditingController(text: _aiKeys['deepseek_api_key'] ?? '');
+    final geminiCtrl = TextEditingController(text: _aiKeys['gemini_api_key'] ?? '');
     
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -664,21 +837,21 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         children: [
           const Text('Configuración de API Keys', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          _buildTextField(openaiCtrl, 'OpenAI API Key', obscure: true),
+          _buildAiKeyRow('OpenAI', openaiCtrl),
           const SizedBox(height: 12),
-          _buildTextField(anthropicCtrl, 'Anthropic API Key', obscure: true),
+          _buildAiKeyRow('Anthropic', anthropicCtrl),
           const SizedBox(height: 12),
-          _buildTextField(deepseekCtrl, 'DeepSeek API Key', obscure: true),
+          _buildAiKeyRow('DeepSeek', deepseekCtrl),
           const SizedBox(height: 12),
-          _buildTextField(geminiCtrl, 'Gemini API Key', obscure: true),
+          _buildAiKeyRow('Gemini', geminiCtrl),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () {
               _saveAiKeys({
-                'OPENAI_API_KEY': openaiCtrl.text,
-                'ANTHROPIC_API_KEY': anthropicCtrl.text,
-                'DEEPSEEK_API_KEY': deepseekCtrl.text,
-                'GEMINI_API_KEY': geminiCtrl.text,
+                'openai_api_key': openaiCtrl.text,
+                'anthropic_api_key': anthropicCtrl.text,
+                'deepseek_api_key': deepseekCtrl.text,
+                'gemini_api_key': geminiCtrl.text,
               });
             },
             child: const Text('Guardar Claves'),

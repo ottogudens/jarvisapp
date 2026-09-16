@@ -77,6 +77,30 @@ def inicializar_base_de_datos_remota():
             conn.commit()
     except Exception:
         pass
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN nombre_contacto VARCHAR(150)'))
+            conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN telefono VARCHAR(50)'))
+            conn.commit()
+    except Exception:
+        pass
+        
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE usuarios ALTER COLUMN perfil_jarvis DROP NOT NULL'))
+            conn.execute(text('ALTER TABLE usuarios ADD COLUMN active_profile_id INTEGER'))
+            conn.commit()
+    except Exception:
+        pass
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE mikrotik_routers ADD COLUMN is_connected BOOLEAN DEFAULT FALSE'))
+            conn.execute(text('ALTER TABLE mikrotik_routers ADD COLUMN last_error VARCHAR(255)'))
+            conn.commit()
+    except Exception:
+        pass
         
     Base.metadata.create_all(bind=engine)
 

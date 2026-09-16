@@ -46,6 +46,8 @@ class Tenant(Base):
 
     id_tenant = Column(Integer, primary_key=True, autoincrement=True)
     nombre_organizacion = Column(String(150), nullable=False)
+    nombre_contacto = Column(String(150), nullable=True)
+    telefono = Column(String(50), nullable=True)
     id_plan = Column(Integer, ForeignKey('saas_planes.id_plan'), nullable=False)
     ai_provider = Column(String(50), default="gemini", nullable=False)
     ai_model = Column(String(50), default="gemini-3.6-flash", nullable=False)
@@ -56,6 +58,7 @@ class Tenant(Base):
     plan = relationship("SaaSPlan", back_populates="tenants")
     usuarios = relationship("Usuario", back_populates="tenant", cascade="all, delete-orphan")
     clientes = relationship("Cliente", back_populates="tenant", cascade="all, delete-orphan")
+    perfiles_asignados = relationship("TenantProfile", back_populates="tenant", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Tenant {self.nombre_organizacion}>"
@@ -81,6 +84,33 @@ class AIUsageStats(Base):
 
 
 # ============================================================
+# Perfiles Dinámicos de IA
+# ============================================================
+
+class JarvisProfile(Base):
+    __tablename__ = 'jarvis_profiles'
+
+    id_perfil = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(100), unique=True, nullable=False)
+    instrucciones_base = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<JarvisProfile {self.nombre}>"
+
+class TenantProfile(Base):
+    __tablename__ = 'tenant_profiles'
+
+    id_tenant_profile = Column(Integer, primary_key=True, autoincrement=True)
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), nullable=False)
+    id_perfil = Column(Integer, ForeignKey('jarvis_profiles.id_perfil', ondelete='CASCADE'), nullable=False)
+    instrucciones_extra = Column(Text, default="", nullable=True)
+
+    # Relaciones
+    tenant = relationship("Tenant", back_populates="perfiles_asignados")
+    perfil = relationship("JarvisProfile")
+
+# ============================================================
 # Usuarios
 # ============================================================
 
@@ -91,7 +121,8 @@ class Usuario(Base):
     id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), nullable=False)
     email = Column(String(100), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    perfil_jarvis = Column(String(50), nullable=False)  # 'Mecanico', 'Inspector_DGC', 'Enfermera_Paliativos'
+    perfil_jarvis = Column(String(50), nullable=True)  # Deprecado, se usa active_profile_id
+    active_profile_id = Column(Integer, ForeignKey('jarvis_profiles.id_perfil', ondelete='SET NULL'), nullable=True)
     is_superadmin = Column(Boolean, default=False, nullable=False)
     tokens_consumidos = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
@@ -272,4 +303,6 @@ class MikrotikRouter(Base):
     api_port = Column(Integer, default=443)
     username = Column(String(100), nullable=False)
     password = Column(String(255), nullable=False)
+    is_connected = Column(Boolean, default=False)
+    last_error = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

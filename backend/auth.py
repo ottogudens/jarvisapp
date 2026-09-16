@@ -77,6 +77,7 @@ class ProfileUpdate(BaseModel):
     nombre_organizacion: str
     email: str
     password: Optional[str] = None
+    active_profile_id: Optional[int] = None
 
 class LoginRequest(BaseModel):
     email: str
@@ -215,6 +216,9 @@ def update_profile(
         import bcrypt
         user.password_hash = bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
+    if data.active_profile_id is not None:
+        user.active_profile_id = data.active_profile_id
+        
     db.commit()
     return {'message': 'Perfil actualizado correctamente'}
 
@@ -224,15 +228,20 @@ def get_profile(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import Tenant
+    from backend.models import Tenant, TenantProfile
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
         raise HTTPException(status_code=404, detail='Usuario no encontrado')
         
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
     
+    tp_list = db.query(TenantProfile).filter(TenantProfile.id_tenant == user.id_tenant).all()
+    perfiles = [{"id_perfil": tp.perfil.id_perfil, "nombre": tp.perfil.nombre, "instrucciones_extra": tp.instrucciones_extra} for tp in tp_list]
+    
     return {
         'email': user.email,
         'nombre_organizacion': tenant.nombre_organizacion if tenant else '',
-        'is_superadmin': user.is_superadmin
+        'is_superadmin': user.is_superadmin,
+        'active_profile_id': user.active_profile_id,
+        'perfiles': perfiles
     }

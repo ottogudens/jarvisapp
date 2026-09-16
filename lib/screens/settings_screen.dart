@@ -43,6 +43,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _mqttUserController = TextEditingController();
   final _mqttPasswordController = TextEditingController();
 
+  List<dynamic> _perfiles = [];
+  int? _activeProfileId;
+
   final List<String> _sarcasmOptions = ['Bajo', 'Medio', 'Alto', 'Extremo'];
 
   @override
@@ -83,8 +86,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (profileResp.statusCode == 200) {
           final data = jsonDecode(profileResp.body);
           _orgNameController.text = data['nombre_organizacion'] ?? '';
-        _isSuperAdmin = data['is_superadmin'] ?? false;
+          _isSuperAdmin = data['is_superadmin'] ?? false;
           _emailController.text = data['email'] ?? '';
+          _activeProfileId = data['active_profile_id'];
+          _perfiles = data['perfiles'] ?? [];
         }
       } catch (e) {
         debugPrint('Error perfil: $e');
@@ -208,6 +213,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _connectMikrotik(int id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final response = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/mikrotik/routers/$id/connect'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        _loadMikrotikRouters();
+      }
+    } catch (e) {
+      debugPrint('Error connecting mikrotik: $e');
+    }
+  }
+
+  Future<void> _disconnectMikrotik(int id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final response = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/mikrotik/routers/$id/disconnect'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        _loadMikrotikRouters();
+      }
+    } catch (e) {
+      debugPrint('Error disconnecting mikrotik: $e');
+    }
+  }
+
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('jarvis_voice_id_$_userId', _voiceIdController.text.trim());
@@ -252,6 +291,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'nombre_organizacion': _orgNameController.text.trim(),
             'email': _emailController.text.trim(),
             'password': _passwordController.text.isNotEmpty ? _passwordController.text : null,
+            if (_activeProfileId != null) 'active_profile_id': _activeProfileId,
           }),
         );
       } catch (e) {
@@ -284,6 +324,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _voiceIdController.dispose();
     _promptController.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveProfileInstructions(int idPerfil, String? instruccionesExtra) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    
+    try {
+      final res = await http.put(
+        Uri.parse('$kApiBaseUrl/v1/admin/tenant/profiles'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'id_perfil': idPerfil,
+          'instrucciones_extra': instruccionesExtra ?? ''
+        }),
+      );
+      if (res.statusCode == 200) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Instrucciones guardadas'), backgroundColor: Colors.green));
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al guardar instrucciones'), backgroundColor: Colors.redAccent));
+      }
+    } catch (e) {
+      debugPrint('Error saving profile instructions: $e');
+    }
   }
 
   @override
@@ -366,6 +430,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: const Text('Restaurar rol predeterminado', style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
                   ),
                 ),
+                
+                if (_perfiles.isNotEmpty) ...[
+                  const SizedBox(height: 32),
+                  _buildSectionTitle('Perfiles J.A.R.V.I.S. Asignados'),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Instrucciones extra aplicadas al rol de estos perfiles.',
+                    style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  if (_perfiles.length > 1) ...[
+                    DropdownButtonFormField<int>(
+                      value: _activeProfileId,
+                      dropdownColor: const Color(0xFF1E293B),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Perfil Activo Actual',
+                        labelStyle: TextStyle(color: Colors.cyanAccent.withOpacity(0.8)),
+                        filled: true,
+                        fillColor: const Color(0xFF0F172A),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: Colors.cyan.withOpacity(0.2)),
+                        ),
+                      ),
+                      items: _perfiles.map<DropdownMenuItem<int>>((p) {
+                        return DropdownMenuItem<int>(
+                          value: p['id_perfil'],
+                          child: Text(p['nombre']),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setState(() {
+                          _activeProfileId = val;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  ..._perfiles.map((p) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: ExpansionTile(
+                      title: Text(p['nombre'], style: const TextStyle(color: Colors.cyanAccent)),
+                      iconColor: Colors.cyanAccent,
+                      collapsedIconColor: Colors.cyanAccent,
+                      collapsedBackgroundColor: const Color(0xFF1E293B),
+                      backgroundColor: const Color(0xFF1E293B),
+                      childrenPadding: const EdgeInsets.all(12),
+                      children: [
+                        TextField(
+                          controller: TextEditingController(text: p['instrucciones_extra'] ?? ''),
+                          maxLines: 4,
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          decoration: InputDecoration(
+                            labelText: 'Instrucciones Extra',
+                            labelStyle: TextStyle(color: Colors.cyanAccent.withOpacity(0.8)),
+                            filled: true,
+                            fillColor: const Color(0xFF0F172A),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: Colors.cyan.withOpacity(0.2)),
+                            ),
+                          ),
+                          onChanged: (val) {
+                            p['instrucciones_extra'] = val;
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: ElevatedButton(
+                            onPressed: () => _saveProfileInstructions(p['id_perfil'], p['instrucciones_extra']),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.black),
+                            child: const Text('Guardar Instrucciones'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+                ],
 
                 const SizedBox(height: 24),
                 _buildSectionTitle('Voz y Audio'),
@@ -476,15 +620,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildSectionTitle('Integración de Red (MikroTik)'),
                 const SizedBox(height: 14),
                 if (_mikrotikRouters.isNotEmpty)
-                  ..._mikrotikRouters.map((r) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(r['nombre'], style: const TextStyle(color: Colors.white)),
-                    subtitle: Text('${r['ip_address']}:${r['api_port']}', style: TextStyle(color: Colors.white54)),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () => _deleteMikrotikRouter(r['id_router']),
-                    ),
-                  )),
+                  ..._mikrotikRouters.map((r) {
+                    final bool isConnected = r['is_connected'] ?? false;
+                    final String? lastError = r['last_error'];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.circle,
+                        color: isConnected ? Colors.greenAccent : Colors.redAccent,
+                        size: 14,
+                      ),
+                      title: Text(r['nombre'], style: const TextStyle(color: Colors.white)),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${r['ip_address']}:${r['api_port']}', style: const TextStyle(color: Colors.white54)),
+                          if (!isConnected && lastError != null)
+                            Text('Error: $lastError', style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!isConnected)
+                            IconButton(
+                              icon: const Icon(Icons.link, color: Colors.cyanAccent),
+                              tooltip: 'Conectar',
+                              onPressed: () => _connectMikrotik(r['id_router']),
+                            )
+                          else
+                            IconButton(
+                              icon: const Icon(Icons.link_off, color: Colors.orangeAccent),
+                              tooltip: 'Desconectar',
+                              onPressed: () => _disconnectMikrotik(r['id_router']),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.redAccent),
+                            onPressed: () => _deleteMikrotikRouter(r['id_router']),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
                 const SizedBox(height: 10),
                 ExpansionTile(
                   title: const Text('Agregar Nuevo Router', style: TextStyle(color: Colors.cyanAccent)),

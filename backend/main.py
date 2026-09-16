@@ -786,16 +786,35 @@ async def enviar_mensaje_chat(
         except Exception as e:
             print(f"Error generando embeddings: {e}")
 
-    perfil = usuario.get("perfil_jarvis", "Mecanico")
+    is_superadmin = usuario.get("is_superadmin", False)
+    sys_prompt = "Eres J.A.R.V.I.S., asistente virtual."
+    
+    if is_superadmin:
+        sys_prompt = "Eres un administrador global nivel Dios. Tienes acceso total a todas las herramientas, bases de datos y configuraciones. Puedes gestionar cualquier módulo del ERP, inspecciones, IoT y MikroTik."
+    else:
+        active_id = usuario.get("active_profile_id")
+        if active_id:
+            from backend.models import JarvisProfile, TenantProfile
+            jp = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == active_id).first()
+            if jp:
+                sys_prompt = jp.instrucciones_base
+                tp = db.query(TenantProfile).filter(
+                    TenantProfile.id_tenant == usuario["id_tenant"],
+                    TenantProfile.id_perfil == active_id
+                ).first()
+                if tp and tp.instrucciones_extra:
+                    sys_prompt += f"\n\n[Instrucciones Adicionales del Cliente]:\n{tp.instrucciones_extra}"
+
+    # Override temporal de la sesión (ej. de la app móvil)
     prompt_personalizado = custom_prompt
     if not prompt_personalizado and x_custom_prompt:
         try:
             prompt_personalizado = base64.b64decode(x_custom_prompt).decode("utf-8")
         except Exception:
             prompt_personalizado = x_custom_prompt
-
-    sys_prompt = (prompt_personalizado.strip() if prompt_personalizado and prompt_personalizado.strip()
-                  else SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"]))
+            
+    if prompt_personalizado and prompt_personalizado.strip():
+        sys_prompt = prompt_personalizado.strip()
 
     prompt_con_contexto = f"Instrucción del sistema: {sys_prompt}\n"
     if x_sarcasm_level:

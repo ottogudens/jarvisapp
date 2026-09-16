@@ -22,9 +22,11 @@ class RouterResponse(BaseModel):
     ip_address: str
     api_port: int
     username: str
+    is_connected: bool = False
+    last_error: str | None = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 @router.get("/routers", response_model=List[RouterResponse])
 def listar_routers(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
@@ -72,3 +74,47 @@ def eliminar_router(id_router: int, usuario: dict = Depends(obtener_usuario_actu
     db.delete(router_db)
     db.commit()
     return {"message": "Router eliminado correctamente"}
+
+@router.post("/routers/{id_router}/connect")
+def connect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import Usuario
+    from backend.mikrotik_service import MikrotikService
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    router_obj = db.query(MikrotikRouter).filter(MikrotikRouter.id_router == id_router, MikrotikRouter.id_tenant == user.id_tenant).first()
+    if not router_obj:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    try:
+        service = MikrotikService(router_obj.ip_address, router_obj.username, router_obj.password, router_obj.api_port)
+        response = service._request('GET', '/system/identity')
+        if 'error' in response:
+            router_obj.is_connected = False
+            router_obj.last_error = str(response['error'])
+        else:
+            router_obj.is_connected = True
+            router_obj.last_error = None
+    except Exception as e:
+        router_obj.is_connected = False
+        router_obj.last_error = str(e)
+    
+    db.commit()
+    return {"message": "Prueba de conexión completada", "is_connected": router_obj.is_connected, "last_error": router_obj.last_error}
+
+@router.post("/routers/{id_router}/disconnect")
+def disconnect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import Usuario
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    router_obj = db.query(MikrotikRouter).filter(MikrotikRouter.id_router == id_router, MikrotikRouter.id_tenant == user.id_tenant).first()
+    if not router_obj:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    router_obj.is_connected = False
+    router_obj.last_error = None
+    db.commit()
+    return {"message": "Router desconectado"}

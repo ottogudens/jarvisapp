@@ -249,14 +249,22 @@ def call_llm_with_tools(
     except Exception as e:
         respuesta_jarvis = f"Señor, he experimentado un fallo en la IA ({ai_provider}): {str(e)}"
 
-    # Registrar estadísticas
     if total_tokens > 0:
-        stat = AIUsageStats(
-            id_tenant=tenant.id_tenant,
-            proveedor=ai_provider,
-            tokens_consumidos=total_tokens,
-            solicitudes_realizadas=1
-        )
-        db.add(stat)
+        stat = db.query(AIUsageStats).filter(
+            AIUsageStats.id_tenant == user_db.id_tenant,
+            AIUsageStats.proveedor == ai_provider
+        ).first()
+        if stat:
+            stat.tokens_consumidos += total_tokens
+            stat.solicitudes_realizadas += 1
+        else:
+            stat = AIUsageStats(
+                id_tenant=user_db.id_tenant,
+                proveedor=ai_provider,
+                tokens_consumidos=total_tokens,
+                solicitudes_realizadas=1
+            )
+            db.add(stat)
+        db.commit()
 
     return respuesta_jarvis, total_tokens
