@@ -5,12 +5,12 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class MikrotikService:
-    def __init__(self, ip: str, username: str, password: str, port: int = 443):
+    def __init__(self, ip: str, username: str, password: str, port: int = 80):
         self.ip = ip
         self.username = username
         self.password = password
         self.port = port
-        self.base_url = f"https://{self.ip}:{self.port}/rest"
+        self.base_url = f"http://{self.ip}:{self.port}/rest"
 
     def _request(self, method: str, path: str, data=None):
         url = f"{self.base_url}{path}"

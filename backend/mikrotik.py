@@ -12,7 +12,7 @@ router = APIRouter(prefix="/v1/mikrotik", tags=["MikroTik"])
 class RouterCreate(BaseModel):
     nombre: str
     ip_address: str
-    api_port: int = 443
+    api_port: int = 80
     username: str
     password: str
 

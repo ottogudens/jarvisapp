@@ -186,7 +186,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (response.statusCode == 200) {
         _mkNameController.clear();
         _mkIpController.clear();
-        _mkPortController.text = '443';
+        _mkPortController.text = '80';
         _mkUserController.clear();
         _mkPasswordController.clear();
         _loadMikrotikRouters();
@@ -283,7 +283,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   r['id_router'],
                   nameCtrl.text.trim(),
                   ipCtrl.text.trim(),
-                  int.tryParse(portCtrl.text) ?? 443,
+                  int.tryParse(portCtrl.text) ?? 80,
                   userCtrl.text.trim(),
                   passCtrl.text.trim(),
                 );
@@ -763,7 +763,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 10),
                     _buildTextField(_mkIpController, 'IP Address', Icons.computer),
                     const SizedBox(height: 10),
-                    _buildTextField(_mkPortController, 'Puerto API REST (Por defecto 443)', Icons.settings_ethernet, TextInputType.number),
+                    _buildTextField(_mkPortController, 'Puerto API REST (Por defecto 80)', Icons.settings_ethernet, TextInputType.number),
                     const SizedBox(height: 10),
                     _buildTextField(_mkUserController, 'Usuario', Icons.person),
                     const SizedBox(height: 10),
