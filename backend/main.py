@@ -816,6 +816,15 @@ async def enviar_mensaje_chat(
     if prompt_personalizado and prompt_personalizado.strip():
         sys_prompt = prompt_personalizado.strip()
 
+    from backend.models import MikrotikRouter
+    routers = db.query(MikrotikRouter).filter(MikrotikRouter.id_tenant == usuario["id_tenant"]).all()
+    if routers:
+        sys_prompt += "\n\n[ROUTERS MIKROTIK DISPONIBLES PARA GESTIÓN]\n"
+        sys_prompt += "Instrucción de Red: Eres proactivo. Si el usuario reporta lentitud, fallas de red, o pide revisar el internet, DEBES usar las herramientas de red pasándole el 'id_router' correspondiente (ej. revisar CPU, luego interfaces, luego DHCP) para diagnosticar de forma autónoma.\n"
+        for r in routers:
+            estado = "Online" if r.is_connected else f"Offline (Error: {r.last_error})"
+            sys_prompt += f"- ID Router: {r.id_router} | Nombre: {r.nombre} | IP: {r.ip_address} | Estado: {estado}\n"
+
     prompt_con_contexto = f"Instrucción del sistema: {sys_prompt}\n"
     if x_sarcasm_level:
         prompt_con_contexto += f"Nota: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n"

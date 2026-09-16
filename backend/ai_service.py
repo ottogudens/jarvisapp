@@ -78,7 +78,8 @@ LITELLM_TOOLS = [
                 "properties": {
                     "id_router": {"type": "integer", "description": "ID del router."},
                     "ping_target": {"type": "string", "description": "Dirección IP o dominio a hacer ping."}
-                }
+                },
+                "required": ["id_router"]
             }
         }
     },
@@ -92,7 +93,8 @@ LITELLM_TOOLS = [
                 "properties": {
                     "id_router": {"type": "integer", "description": "ID del router."},
                     "filter_name": {"type": "string", "description": "Filtrar por nombre de interfaz."}
-                }
+                },
+                "required": ["id_router"]
             }
         }
     },
@@ -103,7 +105,8 @@ LITELLM_TOOLS = [
             "description": "Obtiene la lista de clientes conectados (DHCP Leases) en un router MikroTik.",
             "parameters": {
                 "type": "object",
-                "properties": {"id_router": {"type": "integer"}}
+                "properties": {"id_router": {"type": "integer", "description": "ID del router"}},
+                "required": ["id_router"]
             }
         }
     },
@@ -206,45 +209,42 @@ def call_llm_with_tools(
 
     total_tokens = 0
     try:
-        response = litellm.completion(
-            model=model_name,
-            messages=messages,
-            tools=LITELLM_TOOLS,
-            temperature=0.7
-        )
-        if response.usage:
-            total_tokens += response.usage.total_tokens
-
-        message = response.choices[0].message
+        MAX_ITERATIONS = 5
+        iteration = 0
         
-        # Tool call detectado
-        if message.tool_calls:
-            messages.append(message) # Agregar el mensaje con el tool call
-            
-            for tool_call in message.tool_calls:
-                fn_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments)
-                res = ejecutar_herramienta(fn_name, args)
-                
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": fn_name,
-                    "content": res
-                })
-            
-            # Segunda llamada para que el modelo responda con el resultado
-            response2 = litellm.completion(
+        while iteration < MAX_ITERATIONS:
+            response = litellm.completion(
                 model=model_name,
                 messages=messages,
+                tools=LITELLM_TOOLS,
                 temperature=0.7
             )
-            if response2.usage:
-                total_tokens += response2.usage.total_tokens
+            if response.usage:
+                total_tokens += response.usage.total_tokens
+
+            message = response.choices[0].message
             
-            respuesta_jarvis = response2.choices[0].message.content or "Ejecuté sus órdenes, señor."
-        else:
-            respuesta_jarvis = message.content or "Entendido."
+            if message.tool_calls:
+                messages.append(message)
+                
+                for tool_call in message.tool_calls:
+                    fn_name = tool_call.function.name
+                    args = json.loads(tool_call.function.arguments)
+                    res = ejecutar_herramienta(fn_name, args)
+                    
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": fn_name,
+                        "content": str(res)
+                    })
+                iteration += 1
+            else:
+                respuesta_jarvis = message.content or "Entendido."
+                break
+                
+        if iteration >= MAX_ITERATIONS:
+            respuesta_jarvis = "He analizado demasiados datos técnicos y me he detenido por seguridad. " + (message.content or "")
 
     except Exception as e:
         respuesta_jarvis = f"Señor, he experimentado un fallo en la IA ({ai_provider}): {str(e)}"
