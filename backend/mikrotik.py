@@ -92,13 +92,13 @@ def connect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actua
         response = service._request('GET', '/system/identity')
         if 'error' in response:
             router_obj.is_connected = False
-            router_obj.last_error = str(response['error'])
+            router_obj.last_error = str(response['error'])[:255]
         else:
             router_obj.is_connected = True
             router_obj.last_error = None
     except Exception as e:
         router_obj.is_connected = False
-        router_obj.last_error = str(e)
+        router_obj.last_error = str(e)[:255]
     
     db.commit()
     return {"message": "Prueba de conexión completada", "is_connected": router_obj.is_connected, "last_error": router_obj.last_error}
