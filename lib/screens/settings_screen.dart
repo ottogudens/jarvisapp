@@ -213,6 +213,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _updateMikrotikRouter(int id, String nombre, String ip, int port, String user, String pass) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final body = {
+        'nombre': nombre,
+        'ip_address': ip,
+        'api_port': port,
+        'username': user,
+      };
+      if (pass.isNotEmpty) {
+        body['password'] = pass;
+      }
+      final response = await http.put(
+        Uri.parse('$kApiBaseUrl/v1/mikrotik/routers/$id'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      );
+      if (response.statusCode == 200) {
+        _loadMikrotikRouters();
+      }
+    } catch (e) {
+      debugPrint('Error updating mikrotik: $e');
+    }
+  }
+
+  void _showEditMikrotikDialog(Map<String, dynamic> r) {
+    final nameCtrl = TextEditingController(text: r['nombre']);
+    final ipCtrl = TextEditingController(text: r['ip_address']);
+    final portCtrl = TextEditingController(text: r['api_port'].toString());
+    final userCtrl = TextEditingController(text: r['username']);
+    final passCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text('Editar Router', style: TextStyle(color: Colors.cyanAccent)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildTextField(nameCtrl, 'Nombre', Icons.router),
+                const SizedBox(height: 10),
+                _buildTextField(ipCtrl, 'IP Address', Icons.computer),
+                const SizedBox(height: 10),
+                _buildTextField(portCtrl, 'Puerto API', Icons.settings_ethernet, TextInputType.number),
+                const SizedBox(height: 10),
+                _buildTextField(userCtrl, 'Usuario', Icons.person),
+                const SizedBox(height: 10),
+                _buildTextField(passCtrl, 'Contraseña (en blanco para no cambiar)', Icons.password, TextInputType.text, true),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _updateMikrotikRouter(
+                  r['id_router'],
+                  nameCtrl.text.trim(),
+                  ipCtrl.text.trim(),
+                  int.tryParse(portCtrl.text) ?? 443,
+                  userCtrl.text.trim(),
+                  passCtrl.text.trim(),
+                );
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
+              child: const Text('Guardar', style: TextStyle(color: Colors.black)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _connectMikrotik(int id) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -654,6 +739,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               tooltip: 'Desconectar',
                               onPressed: () => _disconnectMikrotik(r['id_router']),
                             ),
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.amberAccent),
+                            tooltip: 'Editar',
+                            onPressed: () => _showEditMikrotikDialog(r),
+                          ),
                           IconButton(
                             icon: const Icon(Icons.delete, color: Colors.redAccent),
                             onPressed: () => _deleteMikrotikRouter(r['id_router']),

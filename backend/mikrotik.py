@@ -16,6 +16,13 @@ class RouterCreate(BaseModel):
     username: str
     password: str
 
+class RouterUpdate(BaseModel):
+    nombre: str | None = None
+    ip_address: str | None = None
+    api_port: int | None = None
+    username: str | None = None
+    password: str | None = None
+
 class RouterResponse(BaseModel):
     id_router: int
     nombre: str
@@ -57,6 +64,36 @@ def crear_router(data: RouterCreate, usuario: dict = Depends(obtener_usuario_act
     db.commit()
     db.refresh(nuevo_router)
     return nuevo_router
+
+@router.put("/routers/{id_router}", response_model=RouterResponse)
+def actualizar_router(id_router: int, data: RouterUpdate, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import Usuario
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    router_db = db.query(MikrotikRouter).filter(
+        MikrotikRouter.id_router == id_router,
+        MikrotikRouter.id_tenant == user.id_tenant
+    ).first()
+    
+    if not router_db:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+        
+    if data.nombre is not None:
+        router_db.nombre = data.nombre
+    if data.ip_address is not None:
+        router_db.ip_address = data.ip_address
+    if data.api_port is not None:
+        router_db.api_port = data.api_port
+    if data.username is not None:
+        router_db.username = data.username
+    if data.password is not None and data.password != "":
+        router_db.password = data.password
+        
+    db.commit()
+    db.refresh(router_db)
+    return router_db
 
 @router.delete("/routers/{id_router}")
 def eliminar_router(id_router: int, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
