@@ -61,8 +61,23 @@ def inicializar_base_de_datos_remota():
             conn.execute(text('CREATE EXTENSION IF NOT EXISTS vector;'))
             conn.commit()
     except Exception as e:
-        print(f"Error creando extensión pgvector: {e}")
+        print(f"Error inicializando vector: {e}")
 
+    # Migración manual para nuevas columnas de IA (Transacciones separadas)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN ai_provider VARCHAR DEFAULT \'gemini\''))
+            conn.commit()
+    except Exception:
+        pass
+        
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN ai_model VARCHAR DEFAULT \'gemini-1.5-flash\''))
+            conn.commit()
+    except Exception:
+        pass
+        
     Base.metadata.create_all(bind=engine)
 
 
