@@ -62,6 +62,11 @@ def comando_mikrotik_avanzado(id_router: int, comando: str, parametros: dict = N
     ese comando al usuario en texto claro y esperar su aprobación explícita antes de
     volver a llamar esta misma función con confirmar=True.
     """
+    if comando.startswith("/rest"):
+        comando = comando[5:]
+        if not comando.startswith("/"):
+            comando = "/" + comando
+            
     svc, err = _get_service(id_router)
     if err:
         return err
