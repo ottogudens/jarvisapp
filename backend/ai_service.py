@@ -114,12 +114,26 @@ LITELLM_TOOLS = [
         "type": "function",
         "function": {
             "name": "comando_mikrotik_avanzado",
-            "description": "Ejecuta un comando raw específico en la API del router (ej: /ip/address/print).",
+            "description": (
+                "Ejecuta un comando raw en la API REST del router MikroTik (ej: /ip/address/print). "
+                "Si el comando MODIFICA el router (rutas terminadas en /add, /set, /remove, /enable, "
+                "/disable, /move, o acciones como /reboot, /shutdown, /backup/load, "
+                "/routerboard/upgrade), la primera llamada SIEMPRE devuelve una vista previa "
+                "sin ejecutar nada. Debes mostrar el comando exacto al usuario, esperar su "
+                "confirmación explícita en el chat, y solo entonces volver a llamar esta función "
+                "con confirmar=true para ejecutarlo de verdad. Nunca pases confirmar=true sin que "
+                "el usuario haya aprobado explícitamente el comando en su mensaje anterior."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "comando": {"type": "string", "description": "Comando API (ej. /ip/route/print)"},
-                    "id_router": {"type": "integer"}
+                    "id_router": {"type": "integer"},
+                    "parametros": {"type": "object", "description": "Body/filtros del comando, si aplica"},
+                    "confirmar": {
+                        "type": "boolean",
+                        "description": "Solo true si el usuario ya aprobó explícitamente ejecutar este comando destructivo. Por defecto false."
+                    }
                 },
                 "required": ["comando"]
             }
@@ -138,6 +152,7 @@ def load_ai_keys(db: Session):
 def call_llm_with_tools(
     db: Session,
     user_db,
+    sys_prompt: str,
     prompt_con_contexto: str,
     uploaded_urls: list,
     generated_urls: list
@@ -163,7 +178,14 @@ def call_llm_with_tools(
         if url.startswith("data:image/"):
             content_list.append({"type": "image_url", "image_url": {"url": url}})
     
-    messages = [{"role": "user", "content": content_list}]
+    # Fix #tokens-2: el system prompt va en su propio mensaje "system", separado
+    # del contenido variable del turno. Esto permite que Gemini/Anthropic/OpenAI
+    # cacheen ese prefijo estable entre turnos de la misma sesión en vez de
+    # retokenizarlo completo cada vez (prompt/context caching nativo del proveedor).
+    messages = [
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": content_list},
+    ]
 
     iot_service = IoTService(db, user_db.id_usuario)
 
@@ -217,7 +239,8 @@ def call_llm_with_tools(
                 model=model_name,
                 messages=messages,
                 tools=LITELLM_TOOLS,
-                temperature=0.7
+                temperature=0.7,
+                max_tokens=1500,  # Fix #tokens-1: techo de costo por respuesta
             )
             if response.usage:
                 total_tokens += response.usage.total_tokens

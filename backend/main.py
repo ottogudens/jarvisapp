@@ -104,20 +104,20 @@ def get_elevenlabs_client() -> ElevenLabsClient:
 
 SYSTEM_PROMPTS = {
     "Mecanico": (
-        "Eres J.A.R.V.I.S., asistente virtual. "
-        "Tienes una personalidad relajada, amigable y masculina, con un toque latino, pero mantienes una notable cuota de sarcasmo e ironía sutil cuando es oportuno. Dirígete al usuario de forma respetuosa pero cercana. "
-        "Tu especialidad incluye integraciones IoT y asistencia general.\n"
-        "Responde de forma MUY concisa y directa, sin rodeos. Sé conversacional, amigable y fluido, ideal para voz hablada."
-    ),
-    "Inspector_DGC": (
-        "Eres J.A.R.V.I.S., asistente virtual de inspección fiscal para la Dirección General de Consumo. "
-        "Eres británico, educado, implacable y sutilmente irónico. Dirígete al usuario como 'Señor Inspector'. "
-        "Tu especialidad incluye:\n"
-        "- Verificación de cumplimiento normativo en establecimientos comerciales\n"
-        "- Redacción de actas de inspección y observaciones\n"
-        "- Consulta de regulaciones vigentes\n"
-        "- Seguimiento de procesos sancionatorios\n"
-        "Responde de forma MUY concisa, directa y con rigor legal. Usa ironía cuando menciones faltas graves o excusas de los infractores."
+        "Eres J.A.R.V.I.S., asistente virtual de un mecánico automotriz. Tienes una "
+        "personalidad relajada, amigable, con un toque latino y sarcasmo sutil cuando "
+        "es oportuno. Dirígete al usuario de forma respetuosa pero cercana.\n"
+        "Tu función es asistir en el DIAGNÓSTICO de problemas del vehículo a partir de "
+        "la descripción hablada del mecánico (síntomas, ruidos, códigos de falla) y en "
+        "la BÚSQUEDA DE REPUESTOS necesarios para la reparación.\n"
+        "Al procesar cada consulta, siempre debes extraer y dejar explícito: "
+        "(1) diagnóstico técnico probable (causa raíz, no solo el síntoma), "
+        "(2) lista de repuestos/insumos requeridos para resolverlo, y "
+        "(3) estado sugerido para la orden de trabajo (ej. 'Esperando repuesto', "
+        "'Listo para reparar', 'Requiere diagnóstico adicional').\n"
+        "Si el repuesto mencionado admite variantes (marca, OEM vs. genérico, año/motorización "
+        "del vehículo), pregunta lo mínimo necesario para no pedir la pieza equivocada. "
+        "Responde de forma MUY concisa y directa, ideal para voz hablada — nada de rodeos."
     ),
     "Enfermera_Paliativos": (
         "Eres J.A.R.V.I.S., asistente virtual de enfermería en cuidados paliativos. "
@@ -152,16 +152,6 @@ class RespuestaMecanico(BaseModel):
     estado_sugerido: str
     mensaje_para_usuario: str
 
-
-class RespuestaInspector(BaseModel):
-    """Esquema de extracción estructurada para el perfil Inspector DGC."""
-    transcripcion_usuario: str
-    tipo_infraccion: str
-    descripcion_hallazgo: str
-    normativa_aplicable: str
-    gravedad: str  # Leve, Grave, Gravísima
-    accion_recomendada: str
-    mensaje_para_usuario: str
 
 
 # ============================================================
@@ -304,34 +294,6 @@ async def pipeline_mecanico(
         db.commit()
         respuesta.diagnostico_ia = orden.diagnostico_ia
 
-    return respuesta
-
-
-# ============================================================
-# Endpoint: Inspector DGC (Fix #17)
-# ============================================================
-
-@app.post("/v1/jarvis/inspector/procesar-completo", response_model=JarvisResponse)
-async def pipeline_inspector(
-    audio_file: UploadFile = File(...),
-    usuario: dict = Depends(requiere_feature("modulo_inspeccion")),
-):
-    """Pipeline para perfil Inspector Fiscal DGC con extracción estructurada."""
-    contexto = (
-        "(IMPORTANTE: Extrae tipo de infracción, descripción del hallazgo, normativa aplicable, "
-        "gravedad (Leve/Grave/Gravísima) y acción recomendada. Genera un resumen profesional en 'mensaje_para_usuario'.)"
-    )
-    respuesta, parsed = await _pipeline_ia(audio_file, "Inspector_DGC", contexto, response_format=RespuestaInspector)
-    
-    if parsed:
-        respuesta.diagnostico_ia = (
-            f"Tipo: {parsed.tipo_infraccion}\n"
-            f"Hallazgo: {parsed.descripcion_hallazgo}\n"
-            f"Normativa: {parsed.normativa_aplicable}\n"
-            f"Gravedad: {parsed.gravedad}\n"
-            f"Acción: {parsed.accion_recomendada}"
-        )
-    
     return respuesta
 
 
@@ -738,23 +700,38 @@ async def enviar_mensaje_chat(
     focused_knowledge = ""
     if focused_ids_list:
         try:
-            # 1. Embed user query
-            _gc = get_gemini_client()
-            q_emb_resp = _gc.models.embed_content(
-                model="text-embedding-004",
-                contents=mensaje if mensaje else "Resumen del documento"
-            )
-            q_vec = q_emb_resp.embeddings[0].values
-            
-            # 2. Retrieve top chunks
-            chunks = db.query(DocumentChunk).filter(
-                DocumentChunk.id_mensaje.in_(focused_ids_list)
-            ).order_by(
-                DocumentChunk.embedding.cosine_distance(q_vec)
-            ).limit(4).all()
-            
-            if chunks:
-                focused_knowledge = "\n".join([f"- {c.texto}" for c in chunks])
+            # Fix (seguridad): validar que los id_mensaje pedidos pertenezcan a una
+            # sesión del propio usuario ANTES de usarlos en la query de embeddings.
+            # Sin esto, cualquier usuario autenticado podía pasar el UUID de un
+            # mensaje de otro tenant y el RAG le devolvía sus fragmentos privados.
+            mis_session_ids = [s.id_session for s in db.query(ChatSession).filter(
+                ChatSession.id_usuario == usuario["id_usuario"]
+            ).all()]
+            ids_propios = [
+                m.id_mensaje for m in db.query(ChatMessage).filter(
+                    ChatMessage.id_mensaje.in_(focused_ids_list),
+                    ChatMessage.id_session.in_(mis_session_ids),
+                ).all()
+            ]
+
+            if ids_propios:
+                # 1. Embed user query
+                _gc = get_gemini_client()
+                q_emb_resp = _gc.models.embed_content(
+                    model="text-embedding-004",
+                    contents=mensaje if mensaje else "Resumen del documento"
+                )
+                q_vec = q_emb_resp.embeddings[0].values
+
+                # 2. Retrieve top chunks — solo entre los ids que sí son del usuario
+                chunks = db.query(DocumentChunk).filter(
+                    DocumentChunk.id_mensaje.in_(ids_propios)
+                ).order_by(
+                    DocumentChunk.embedding.cosine_distance(q_vec)
+                ).limit(4).all()
+
+                if chunks:
+                    focused_knowledge = "\n".join([f"- {c.texto}" for c in chunks])
         except Exception as e:
             print(f"Error en RAG retrieval: {e}")
 
@@ -816,19 +793,37 @@ async def enviar_mensaje_chat(
     if prompt_personalizado and prompt_personalizado.strip():
         sys_prompt = prompt_personalizado.strip()
 
-    from backend.models import MikrotikRouter
-    routers = db.query(MikrotikRouter).filter(MikrotikRouter.id_tenant == usuario["id_tenant"]).all()
-    if routers:
-        sys_prompt += "\n\n[ROUTERS MIKROTIK DISPONIBLES PARA GESTIÓN]\n"
-        sys_prompt += "Instrucción de Red: Eres proactivo. Si el usuario reporta lentitud, fallas de red, o pide revisar el internet, DEBES usar las herramientas de red pasándole el 'id_router' correspondiente (ej. revisar CPU, luego interfaces, luego DHCP) para diagnosticar de forma autónoma.\n"
-        for r in routers:
-            estado = "Online" if r.is_connected else f"Offline (Error: {r.last_error})"
-            sys_prompt += f"- ID Router: {r.id_router} | Nombre: {r.nombre} | IP: {r.ip_address} | Estado: {estado}\n"
+    # Fix #tokens-3: la lista de routers (y las instrucciones de red asociadas)
+    # solo se agrega al contexto si el mensaje del turno actual parece ser sobre
+    # red/conectividad. Antes se inyectaba en TODOS los mensajes de todos los
+    # tenants con routers configurados, aunque el usuario preguntara algo sin
+    # relación — pagando esos tokens en cada turno casual del chat.
+    _texto_para_clasificar = (mensaje or "") + " " + (transcripcion_audio or "")
+    _texto_para_clasificar = _texto_para_clasificar.lower()
+    _KEYWORDS_RED = (
+        "red", "internet", "router", "mikrotik", "wifi", "wi-fi", "conexion",
+        "conexión", "lento", "lenta", "cae", "caido", "caído", "desconect",
+        "ping", "señal", "senal", "velocidad", "network", "enlace", "pppoe",
+        "firewall", "ip ", "dhcp", "vlan",
+    )
+    _menciona_red = any(kw in _texto_para_clasificar for kw in _KEYWORDS_RED)
 
-    prompt_con_contexto = f"Instrucción del sistema: {sys_prompt}\n"
+    from backend.models import MikrotikRouter
+    if _menciona_red:
+        routers = db.query(MikrotikRouter).filter(MikrotikRouter.id_tenant == usuario["id_tenant"]).all()
+        if routers:
+            sys_prompt += "\n\n[ROUTERS MIKROTIK DISPONIBLES PARA GESTIÓN]\n"
+            sys_prompt += "Instrucción de Red: Eres proactivo. Si el usuario reporta lentitud, fallas de red, o pide revisar el internet, DEBES usar las herramientas de red pasándole el 'id_router' correspondiente (ej. revisar CPU, luego interfaces, luego DHCP) para diagnosticar de forma autónoma.\n"
+            for r in routers:
+                estado = "Online" if r.is_connected else f"Offline (Error: {r.last_error})"
+                sys_prompt += f"- ID Router: {r.id_router} | Nombre: {r.nombre} | IP: {r.ip_address} | Estado: {estado}\n"
+
+    # Fix #tokens-2: sys_prompt ya NO se concatena al contenido del turno — se
+    # pasa por separado a call_llm_with_tools() como mensaje de rol "system",
+    # habilitando prompt caching nativo del proveedor entre turnos de la sesión.
     if x_sarcasm_level:
-        prompt_con_contexto += f"Nota: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n"
-    prompt_con_contexto += "\n"
+        sys_prompt += f"\nNota: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n"
+    prompt_con_contexto = ""
     if focused_knowledge:
         prompt_con_contexto += f"[DOCUMENTOS SELECCIONADOS COMO FOCO PRINCIPAL]\n(Instrucción: El usuario te pide que te enfoques PRINCIPALMENTE en estos documentos para responder)\n{focused_knowledge}\n\n"
     if knowledge_from_history:
@@ -855,7 +850,7 @@ async def enviar_mensaje_chat(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     from backend.ai_service import call_llm_with_tools
-    respuesta_jarvis, t_tokens = call_llm_with_tools(db, user_db, prompt_con_contexto, uploaded_urls, generated_urls)
+    respuesta_jarvis, t_tokens = call_llm_with_tools(db, user_db, sys_prompt, prompt_con_contexto, uploaded_urls, generated_urls)
     total_tokens += t_tokens
 
     msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls)

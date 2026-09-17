@@ -6,13 +6,14 @@ from typing import List
 from backend.database import get_db
 from backend.models import MikrotikRouter
 from backend.auth import obtener_usuario_actual
+from backend.crypto_utils import encrypt_secret
 
 router = APIRouter(prefix="/v1/mikrotik", tags=["MikroTik"])
 
 class RouterCreate(BaseModel):
     nombre: str
     ip_address: str
-    api_port: int = 80
+    api_port: int = 443
     username: str
     password: str
 
@@ -58,7 +59,7 @@ def crear_router(data: RouterCreate, usuario: dict = Depends(obtener_usuario_act
         ip_address=data.ip_address,
         api_port=data.api_port,
         username=data.username,
-        password=data.password
+        password=encrypt_secret(data.password)
     )
     db.add(nuevo_router)
     db.commit()
@@ -89,7 +90,7 @@ def actualizar_router(id_router: int, data: RouterUpdate, usuario: dict = Depend
     if data.username is not None:
         router_db.username = data.username
     if data.password is not None and data.password != "":
-        router_db.password = data.password
+        router_db.password = encrypt_secret(data.password)
         
     db.commit()
     db.refresh(router_db)
@@ -125,7 +126,8 @@ def connect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actua
         raise HTTPException(status_code=404, detail="Router no encontrado")
 
     try:
-        service = MikrotikService(router_obj.ip_address, router_obj.username, router_obj.password, router_obj.api_port)
+        from backend.crypto_utils import decrypt_secret
+        service = MikrotikService(router_obj.ip_address, router_obj.username, decrypt_secret(router_obj.password), router_obj.api_port)
         response = service._request('GET', '/system/identity')
         if 'error' in response:
             router_obj.is_connected = False
