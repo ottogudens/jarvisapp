@@ -1,10 +1,10 @@
 """
-J.A.R.V.I.S. SaaS — Autenticación y Manejo de Perfiles
-Fix #6, #7, #8, #9: 
-- Login unificado buscando usuario en base de datos.
-- Validación de contraseñas (hasheadas o plain-text en transición).
-- Emisión de JWT robusto (algoritmo HS256).
-- `obtener_usuario_actual` inyecta id_tenant y perfil.
+J.A.R.V.I.S. SaaS — Autenticación y Control de Acceso por Roles (RBAC)
+
+Roles del sistema:
+  - superadmin : Dueño del sistema. Acceso total.
+  - admin      : Co-administrador. Mismo acceso que superadmin.
+  - cliente    : Usuario de un tenant. Solo chat y funciones de su perfil de IA.
 """
 from typing import Optional
 import os
@@ -18,10 +18,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models import Usuario
+from backend.models import Usuario, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
 
 # ---------------------------------------------------------------------------
-# Configuración (Fix #6: nunca hardcodear la secret key)
+# Configuración
 # ---------------------------------------------------------------------------
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
@@ -38,12 +38,10 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRY_HOURS = 24
 
 # ---------------------------------------------------------------------------
-# Hashing de contraseñas (bcrypt directo, sin passlib)
+# Hashing de contraseñas
 # ---------------------------------------------------------------------------
 
-
 def verificar_password(plain_password: str, hashed_password: str) -> bool:
-    """Compara una contraseña en texto plano contra su hash bcrypt."""
     return bcrypt.checkpw(
         plain_password.encode("utf-8"),
         hashed_password.encode("utf-8"),
@@ -51,7 +49,6 @@ def verificar_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def hash_password(password: str) -> str:
-    """Genera el hash bcrypt de una contraseña."""
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
@@ -61,7 +58,6 @@ def hash_password(password: str) -> str:
 # ---------------------------------------------------------------------------
 
 def crear_token_jwt(data: dict) -> str:
-    """Genera un token JWT firmado con expiración."""
     payload = data.copy()
     payload["exp"] = datetime.datetime.utcnow() + datetime.timedelta(hours=TOKEN_EXPIRY_HOURS)
     payload["iat"] = datetime.datetime.utcnow()
@@ -72,12 +68,12 @@ def crear_token_jwt(data: dict) -> str:
 # Schemas Pydantic
 # ---------------------------------------------------------------------------
 
-
 class ProfileUpdate(BaseModel):
     nombre_organizacion: str
     email: str
     password: Optional[str] = None
     active_profile_id: Optional[int] = None
+
 
 class LoginRequest(BaseModel):
     email: str
@@ -89,10 +85,11 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     perfil_jarvis: str
     nombre_organizacion: str
+    rol: str
 
 
 # ---------------------------------------------------------------------------
-# Router de autenticación (Fix #7)
+# Router de autenticación
 # ---------------------------------------------------------------------------
 
 router = APIRouter(prefix="/v1/auth", tags=["Autenticacion"])
@@ -102,31 +99,36 @@ router = APIRouter(prefix="/v1/auth", tags=["Autenticacion"])
 async def login(body: LoginRequest, db: Session = Depends(get_db)):
     """
     Autentica un usuario con email + contraseña y retorna un JWT.
-    El token contiene: id_usuario, id_tenant, email, perfil_jarvis.
+    El token contiene: id_usuario, id_tenant, email, perfil_jarvis, rol, is_superadmin.
     """
     usuario = db.query(Usuario).filter(Usuario.email == body.email).first()
 
     if not usuario or not verificar_password(body.password, usuario.password_hash):
         raise HTTPException(status_code=401, detail="Credenciales inválidas.")
 
+    # Sincronizar is_superadmin con el campo rol (compatibilidad)
+    rol_usuario = usuario.rol or (ROL_SUPERADMIN if usuario.is_superadmin else ROL_CLIENTE)
+
     token = crear_token_jwt({
         "id_usuario": usuario.id_usuario,
         "id_tenant": usuario.id_tenant,
         "email": usuario.email,
         "perfil_jarvis": usuario.perfil_jarvis,
-        "is_superadmin": usuario.is_superadmin,
+        "rol": rol_usuario,
+        "is_superadmin": rol_usuario in ROLS_STAFF,  # True para admin y superadmin
     })
 
     tenant = usuario.tenant
     return TokenResponse(
         access_token=token,
-        perfil_jarvis=usuario.perfil_jarvis,
+        perfil_jarvis=usuario.perfil_jarvis or "",
         nombre_organizacion=tenant.nombre_organizacion if tenant else "N/A",
+        rol=rol_usuario,
     )
 
 
 # ---------------------------------------------------------------------------
-# Dependencies de seguridad (Fix #8, #9)
+# Dependencies de seguridad
 # ---------------------------------------------------------------------------
 
 security = HTTPBearer()
@@ -138,9 +140,6 @@ async def obtener_usuario_actual(
     """
     Dependency de FastAPI: decodifica el JWT del header Authorization
     y retorna el payload como dict.
-
-    Fix #8: captura excepciones JWT específicas.
-    Fix #9: valida que id_tenant exista en el payload.
     """
     token = credentials.credentials
     try:
@@ -150,22 +149,53 @@ async def obtener_usuario_actual(
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Token inválido.")
 
-    # Fix #9: garantizar que el tenant esté presente
     if "id_usuario" not in payload or "id_tenant" not in payload:
         raise HTTPException(status_code=401, detail="Token con payload incompleto.")
 
+    # Garantizar que el campo 'rol' siempre esté presente (tokens emitidos antes del RBAC)
+    if "rol" not in payload:
+        payload["rol"] = ROL_SUPERADMIN if payload.get("is_superadmin") else ROL_CLIENTE
+
+    return payload
+
+
+async def requiere_staff(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """
+    Requiere rol 'superadmin' o 'admin'.
+    Usado para proteger el panel de administración completo.
+    """
+    payload = await obtener_usuario_actual(credentials)
+    if payload.get("rol") not in ROLS_STAFF:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. Se requiere rol Admin o SuperAdmin.",
+        )
+    return payload
+
+
+async def requiere_superadmin(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """
+    Requiere específicamente rol 'superadmin'.
+    Para operaciones solo del dueño del sistema (ej. gestionar otros admins).
+    """
+    payload = await obtener_usuario_actual(credentials)
+    if payload.get("rol") != ROL_SUPERADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso denegado. Requiere privilegios de SuperAdmin.",
+        )
     return payload
 
 
 def requiere_feature(feature_requerido: str):
     """
-    Factory de dependencia: retorna un callable que verifica que el usuario
-    autenticado tenga acceso al módulo/feature solicitado según su perfil.
-
-    Uso:
-        @app.post("/endpoint")
-        async def mi_endpoint(usuario: dict = Depends(requiere_feature("modulo_erp"))):
-            ...
+    Factory de dependencia: verifica acceso a un módulo específico según el rol.
+    Staff (admin/superadmin) tiene acceso a todo.
+    Clientes solo acceden si su perfil_jarvis está en la lista permitida.
     """
     PERMISOS = {
         "modulo_erp": ["Mecanico"],
@@ -177,8 +207,12 @@ def requiere_feature(feature_requerido: str):
         credentials: HTTPAuthorizationCredentials = Depends(security),
     ) -> dict:
         payload = await obtener_usuario_actual(credentials)
-        perfil = payload.get("perfil_jarvis", "")
 
+        # Staff siempre tiene acceso
+        if payload.get("rol") in ROLS_STAFF:
+            return payload
+
+        perfil = payload.get("perfil_jarvis", "")
         perfiles_permitidos = PERMISOS.get(feature_requerido, [])
         if perfiles_permitidos and perfil not in perfiles_permitidos:
             raise HTTPException(
@@ -190,6 +224,10 @@ def requiere_feature(feature_requerido: str):
     return _verificar
 
 
+# ---------------------------------------------------------------------------
+# Endpoints de perfil propio
+# ---------------------------------------------------------------------------
+
 @router.put('/profile')
 def update_profile(
     data: ProfileUpdate,
@@ -200,25 +238,23 @@ def update_profile(
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
         raise HTTPException(status_code=404, detail='Usuario no encontrado')
-        
+
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
     if tenant:
         tenant.nombre_organizacion = data.nombre_organizacion
-        
-    # Check if email is being changed and is already taken
+
     if user.email != data.email:
         existing = db.query(Usuario).filter(Usuario.email == data.email).first()
         if existing:
-            raise HTTPException(status_code=400, detail='El email ya est en uso')
+            raise HTTPException(status_code=400, detail='El email ya está en uso')
         user.email = data.email
-        
+
     if data.password:
-        import bcrypt
         user.password_hash = bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        
+
     if data.active_profile_id is not None:
         user.active_profile_id = data.active_profile_id
-        
+
     db.commit()
     return {'message': 'Perfil actualizado correctamente'}
 
@@ -232,16 +268,17 @@ def get_profile(
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
         raise HTTPException(status_code=404, detail='Usuario no encontrado')
-        
+
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
-    
+
     tp_list = db.query(TenantProfile).filter(TenantProfile.id_tenant == user.id_tenant).all()
     perfiles = [{"id_perfil": tp.perfil.id_perfil, "nombre": tp.perfil.nombre, "instrucciones_extra": tp.instrucciones_extra} for tp in tp_list]
-    
+
     return {
         'email': user.email,
         'nombre_organizacion': tenant.nombre_organizacion if tenant else '',
-        'is_superadmin': user.is_superadmin,
+        'rol': user.rol or (ROL_SUPERADMIN if user.is_superadmin else ROL_CLIENTE),
+        'is_superadmin': user.rol in ROLS_STAFF if user.rol else user.is_superadmin,
         'active_profile_id': user.active_profile_id,
-        'perfiles': perfiles
+        'perfiles': perfiles,
     }

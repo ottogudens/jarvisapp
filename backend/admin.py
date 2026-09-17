@@ -3,19 +3,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime
+import bcrypt
 
 from backend.database import get_db
-from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats
-from backend.auth import obtener_usuario_actual, hash_password
+from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
+from backend.auth import obtener_usuario_actual, hash_password, requiere_staff, requiere_superadmin
 
 router = APIRouter(prefix="/v1/admin", tags=["Administrador"])
-
-# --- Dependencia ---
-def requiere_superadmin(usuario: dict = Depends(obtener_usuario_actual)):
-    if not usuario.get("is_superadmin", False):
-        raise HTTPException(status_code=403, detail="Acceso denegado. Requiere privilegios de Superadmin.")
-    return usuario
 
 
 # --- Schemas ---
@@ -77,11 +72,28 @@ class TenantUpdateSchema(BaseModel):
     ai_model: Optional[str] = None
     perfiles_ids: Optional[List[int]] = None
 
+class UsuarioSchema(BaseModel):
+    id_usuario: int
+    email: str
+    rol: str
+    active_profile_id: Optional[int] = None
+
+class UsuarioCreateSchema(BaseModel):
+    email: str
+    password: str
+    rol: str = ROL_CLIENTE
+    active_profile_id: Optional[int] = None
+
+class UsuarioUpdateSchema(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+    rol: Optional[str] = None
+    active_profile_id: Optional[int] = None
 
 # --- Endpoints Dashboard ---
 @router.get("/dashboard", response_model=DashboardStats)
 def get_dashboard(
-    usuario: dict = Depends(requiere_superadmin),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     total_clientes = db.query(Tenant).count()
@@ -102,7 +114,7 @@ class AIKeysSchema(BaseModel):
     gemini_api_key: Optional[str] = None
 
 @router.get("/ai-keys", response_model=AIKeysSchema)
-def get_ai_keys(usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+def get_ai_keys(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
     keys = db.query(SystemSettings).filter(SystemSettings.key.in_(["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "GEMINI_API_KEY"])).all()
     result = {}
     for k in keys:
@@ -110,7 +122,7 @@ def get_ai_keys(usuario: dict = Depends(requiere_superadmin), db: Session = Depe
     return AIKeysSchema(**result)
 
 @router.post("/ai-keys")
-def save_ai_keys(keys: AIKeysSchema, usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+def save_ai_keys(keys: AIKeysSchema, usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
     def update_or_create(key_name: str, value: str):
         if not value: return
         setting = db.query(SystemSettings).filter(SystemSettings.key == key_name).first()
@@ -126,71 +138,10 @@ def save_ai_keys(keys: AIKeysSchema, usuario: dict = Depends(requiere_superadmin
     db.commit()
     return {"message": "Claves actualizadas exitosamente"}
 
-class AITestRequest(BaseModel):
-    provider: str
-    api_key: str
-
-@router.post("/ai-keys/test")
-def test_ai_key(data: AITestRequest, usuario: dict = Depends(requiere_superadmin)):
-    import litellm
-    import os
-    
-    provider = data.provider.lower()
-    
-    if provider == "gemini":
-        os.environ["GEMINI_API_KEY"] = data.api_key
-        model = "gemini/gemini-1.5-flash"
-    elif provider == "openai":
-        os.environ["OPENAI_API_KEY"] = data.api_key
-        model = "gpt-3.5-turbo"
-    elif provider == "anthropic":
-        os.environ["ANTHROPIC_API_KEY"] = data.api_key
-        model = "claude-3-haiku-20240307"
-    elif provider == "deepseek":
-        os.environ["DEEPSEEK_API_KEY"] = data.api_key
-        model = "deepseek/deepseek-chat"
-    else:
-        raise HTTPException(status_code=400, detail="Proveedor no soportado")
-        
-    try:
-        response = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": "Test"}],
-            max_tokens=5
-        )
-        if response and response.choices:
-            return {"message": "Clave válida"}
-        raise HTTPException(status_code=400, detail="Sin respuesta")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.get("/ai-stats")
-def get_ai_stats(usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
-    # Agrupar uso por proveedor
-    provider_stats = db.query(
-        AIUsageStats.proveedor,
-        func.sum(AIUsageStats.tokens_consumidos).label("tokens"),
-        func.sum(AIUsageStats.solicitudes_realizadas).label("requests")
-    ).group_by(AIUsageStats.proveedor).all()
-    
-    # Agrupar uso por tenant (Top 5)
-    tenant_stats = db.query(
-        Tenant.nombre_organizacion,
-        AIUsageStats.proveedor,
-        func.sum(AIUsageStats.tokens_consumidos).label("tokens")
-    ).join(Tenant, Tenant.id_tenant == AIUsageStats.id_tenant)\
-     .group_by(Tenant.nombre_organizacion, AIUsageStats.proveedor)\
-     .order_by(desc("tokens")).limit(10).all()
-
-    return {
-        "providers": [{"provider": p.proveedor, "tokens": p.tokens, "requests": p.requests} for p in provider_stats],
-        "tenants": [{"tenant": t.nombre_organizacion, "provider": t.proveedor, "tokens": t.tokens} for t in tenant_stats]
-    }
-
 # --- Endpoints Planes ---
 @router.get("/plans", response_model=List[SaaSPlanSchema])
 def get_plans(
-    usuario: dict = Depends(requiere_superadmin),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     planes = db.query(SaaSPlan).all()
@@ -199,7 +150,7 @@ def get_plans(
 @router.post("/plans", response_model=SaaSPlanSchema)
 def create_plan(
     plan: SaaSPlanSchema,
-    usuario: dict = Depends(requiere_superadmin),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     db_plan = SaaSPlan(
@@ -218,7 +169,7 @@ def create_plan(
 def update_plan(
     id_plan: int,
     plan: SaaSPlanSchema,
-    usuario: dict = Depends(requiere_superadmin),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     db_plan = db.query(SaaSPlan).filter(SaaSPlan.id_plan == id_plan).first()
@@ -239,12 +190,12 @@ def update_plan(
 # Endpoints Perfiles JARVIS
 # ============================================================
 @router.get("/profiles", response_model=List[JarvisProfileSchema])
-def get_profiles(usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+def get_profiles(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
     from backend.models import JarvisProfile
     return db.query(JarvisProfile).all()
 
 @router.post("/profiles", response_model=JarvisProfileSchema)
-def create_profile(data: JarvisProfileSchema, usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+def create_profile(data: JarvisProfileSchema, usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
     from backend.models import JarvisProfile
     nuevo = JarvisProfile(nombre=data.nombre, instrucciones_base=data.instrucciones_base)
     db.add(nuevo)
@@ -253,7 +204,7 @@ def create_profile(data: JarvisProfileSchema, usuario: dict = Depends(requiere_s
     return nuevo
 
 @router.put("/profiles/{id_perfil}", response_model=JarvisProfileSchema)
-def update_profile(id_perfil: int, data: JarvisProfileSchema, usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+def update_profile(id_perfil: int, data: JarvisProfileSchema, usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
     from backend.models import JarvisProfile
     perfil = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == id_perfil).first()
     if not perfil: raise HTTPException(status_code=404, detail="Perfil no encontrado")
@@ -276,7 +227,7 @@ def delete_profile(id_perfil: int, usuario: dict = Depends(requiere_superadmin),
 
 @router.get("/tenants", response_model=List[TenantDetailSchema])
 def get_tenants(
-    usuario: dict = Depends(requiere_superadmin),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     from backend.models import TenantProfile
@@ -315,7 +266,7 @@ def get_tenants(
 @router.post("/tenants", response_model=TenantDetailSchema)
 def create_tenant(
     data: TenantCreateSchema,
-    usuario: dict = Depends(requiere_superadmin),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     from backend.models import TenantProfile
@@ -352,6 +303,8 @@ def create_tenant(
         id_tenant=new_tenant.id_tenant,
         email=data.email,
         password_hash=hash_password(pwd),
+        rol=ROL_CLIENTE,
+        is_superadmin=False
     )
     if data.perfiles_ids:
         new_user.active_profile_id = data.perfiles_ids[0]
@@ -362,11 +315,12 @@ def create_tenant(
     tenants = get_tenants(usuario, db)
     return [t for t in tenants if t.id_tenant == new_tenant.id_tenant][0]
 
+
 @router.put("/tenants/{id_tenant}", response_model=TenantDetailSchema)
 def update_tenant(
     id_tenant: int,
     update_data: TenantUpdateSchema,
-    usuario: dict = Depends(requiere_superadmin),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     from backend.models import TenantProfile
@@ -401,29 +355,6 @@ def update_tenant(
     tenants = get_tenants(usuario, db)
     return [t for t in tenants if t.id_tenant == id_tenant][0]
 
-class UpdateInstruccionesSchema(BaseModel):
-    id_perfil: int
-    instrucciones_extra: str
-
-@router.put("/tenant/profiles", response_model=dict)
-def update_tenant_profile_instructions(
-    data: UpdateInstruccionesSchema,
-    usuario: dict = Depends(obtener_usuario_actual),
-    db: Session = Depends(get_db)
-):
-    from backend.models import TenantProfile
-    tp = db.query(TenantProfile).filter(
-        TenantProfile.id_tenant == usuario["id_tenant"],
-        TenantProfile.id_perfil == data.id_perfil
-    ).first()
-    
-    if not tp:
-        raise HTTPException(status_code=404, detail="Perfil no asignado al cliente")
-        
-    tp.instrucciones_extra = data.instrucciones_extra
-    db.commit()
-    return {"message": "Instrucciones actualizadas"}
-
 
 @router.delete("/tenants/{id_tenant}")
 def delete_tenant(
@@ -439,7 +370,7 @@ def delete_tenant(
     # No permitir eliminar el tenant del superadmin
     superadmin_user = db.query(Usuario).filter(
         Usuario.id_tenant == id_tenant,
-        Usuario.is_superadmin == True
+        Usuario.rol == 'superadmin'
     ).first()
     if superadmin_user:
         raise HTTPException(status_code=400, detail="No se puede eliminar el tenant del SuperAdmin")
@@ -447,3 +378,138 @@ def delete_tenant(
     db.delete(db_tenant)
     db.commit()
     return {"message": f"Cliente '{db_tenant.nombre_organizacion}' eliminado correctamente"}
+
+# ============================================================
+# Endpoints Usuarios (Clientes por Tenant)
+# ============================================================
+
+@router.get("/tenants/{id_tenant}/users", response_model=List[UsuarioSchema])
+def get_tenant_users(
+    id_tenant: int,
+    usuario: dict = Depends(requiere_staff),
+    db: Session = Depends(get_db)
+):
+    usuarios = db.query(Usuario).filter(Usuario.id_tenant == id_tenant).all()
+    return [UsuarioSchema(
+        id_usuario=u.id_usuario,
+        email=u.email,
+        rol=u.rol,
+        active_profile_id=u.active_profile_id
+    ) for u in usuarios]
+
+
+@router.post("/tenants/{id_tenant}/users", response_model=UsuarioSchema)
+def create_tenant_user(
+    id_tenant: int,
+    data: UsuarioCreateSchema,
+    usuario: dict = Depends(requiere_staff),
+    db: Session = Depends(get_db)
+):
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == id_tenant).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    existing = db.query(Usuario).filter(Usuario.email == data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="El email ya está en uso")
+
+    if data.rol not in [ROL_ADMIN, ROL_CLIENTE]:
+        if not (data.rol == ROL_SUPERADMIN and usuario.get("rol") == ROL_SUPERADMIN):
+            raise HTTPException(status_code=400, detail="Rol inválido")
+
+    nuevo_usuario = Usuario(
+        id_tenant=id_tenant,
+        email=data.email,
+        password_hash=hash_password(data.password),
+        rol=data.rol,
+        is_superadmin=(data.rol == ROL_SUPERADMIN),
+        active_profile_id=data.active_profile_id
+    )
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+
+    return UsuarioSchema(
+        id_usuario=nuevo_usuario.id_usuario,
+        email=nuevo_usuario.email,
+        rol=nuevo_usuario.rol,
+        active_profile_id=nuevo_usuario.active_profile_id
+    )
+
+
+@router.put("/tenants/{id_tenant}/users/{id_usuario}", response_model=UsuarioSchema)
+def update_tenant_user(
+    id_tenant: int,
+    id_usuario: int,
+    data: UsuarioUpdateSchema,
+    usuario: dict = Depends(requiere_staff),
+    db: Session = Depends(get_db)
+):
+    target_user = db.query(Usuario).filter(
+        Usuario.id_usuario == id_usuario,
+        Usuario.id_tenant == id_tenant
+    ).first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Solo un superadmin puede modificar roles de superadmin,
+    # un admin no puede auto-elevarse a superadmin ni bajar a un superadmin.
+    if target_user.rol == ROL_SUPERADMIN and usuario.get("rol") != ROL_SUPERADMIN:
+        raise HTTPException(status_code=403, detail="No tienes permisos para modificar un SuperAdmin")
+
+    if data.email:
+        if data.email != target_user.email:
+            existing = db.query(Usuario).filter(Usuario.email == data.email).first()
+            if existing:
+                raise HTTPException(status_code=400, detail="El email ya está en uso")
+        target_user.email = data.email
+
+    if data.password:
+        target_user.password_hash = hash_password(data.password)
+
+    if data.rol:
+        if data.rol == ROL_SUPERADMIN and usuario.get("rol") != ROL_SUPERADMIN:
+            raise HTTPException(status_code=403, detail="Solo un superadmin puede asignar el rol de superadmin")
+        target_user.rol = data.rol
+        target_user.is_superadmin = (data.rol == ROL_SUPERADMIN)
+
+    if data.active_profile_id is not None:
+        target_user.active_profile_id = data.active_profile_id
+
+    db.commit()
+    db.refresh(target_user)
+
+    return UsuarioSchema(
+        id_usuario=target_user.id_usuario,
+        email=target_user.email,
+        rol=target_user.rol,
+        active_profile_id=target_user.active_profile_id
+    )
+
+
+@router.delete("/tenants/{id_tenant}/users/{id_usuario}")
+def delete_tenant_user(
+    id_tenant: int,
+    id_usuario: int,
+    usuario: dict = Depends(requiere_staff),
+    db: Session = Depends(get_db)
+):
+    target_user = db.query(Usuario).filter(
+        Usuario.id_usuario == id_usuario,
+        Usuario.id_tenant == id_tenant
+    ).first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Evitar borrar admin si no soy superadmin
+    if target_user.rol in ROLS_STAFF and usuario.get("rol") != ROL_SUPERADMIN:
+        raise HTTPException(status_code=403, detail="No puedes eliminar a un usuario de nivel administrador")
+
+    if target_user.id_usuario == usuario.get("id_usuario"):
+        raise HTTPException(status_code=400, detail="No puedes eliminarte a ti mismo")
+
+    db.delete(target_user)
+    db.commit()
+    return {"message": "Usuario eliminado correctamente"}

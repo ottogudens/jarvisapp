@@ -11,11 +11,11 @@ sys.path.insert(0, project_root)
 load_dotenv(os.path.join(project_root, ".env"))
 
 from backend.database import engine, get_db
-from backend.models import Base, SaaSPlan, Tenant, Usuario, Cliente, Vehiculo, OrdenTrabajo
+from backend.models import Base, SaaSPlan, Tenant, Usuario, ROL_SUPERADMIN
 from backend.auth import hash_password
 
 def seed_db():
-    print("Iniciando Seed de Base de Datos...")
+    print("Iniciando Seed Limpio de Base de Datos (Solo SuperAdmin)...")
     
     # Asegurarnos de que el esquema existe si no corrimos alembic
     Base.metadata.create_all(bind=engine)
@@ -27,28 +27,31 @@ def seed_db():
         from sqlalchemy import text
         try:
             db.execute(text("ALTER TABLE saas_planes ADD COLUMN IF NOT EXISTS permite_inspeccion BOOLEAN DEFAULT FALSE;"))
+            db.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol VARCHAR(20) DEFAULT 'cliente';"))
+            db.execute(text("UPDATE usuarios SET rol = 'superadmin' WHERE is_superadmin = TRUE;"))
             db.commit()
-            print("Migración: Columna permite_inspeccion validada.")
+            print("Migración: Estructura de BD validada (permite_inspeccion, rol).")
         except Exception as e:
             db.rollback()
             print(f"Nota de migración: {e}")
 
-        # 1. Crear SaaS Plan
-        plan = db.query(SaaSPlan).filter_by(nombre_plan="Plan Pro Auto").first()
+        # 1. Crear SaaS Plan Base
+        plan = db.query(SaaSPlan).filter_by(nombre_plan="Plan Starter").first()
         if not plan:
-            plan = SaaSPlan(nombre_plan="Plan Pro Auto", permite_erp=True)
+            plan = SaaSPlan(nombre_plan="Plan Starter")
             db.add(plan)
             db.commit()
             db.refresh(plan)
             print(f"Creado SaaSPlan: {plan.nombre_plan}")
         else:
-            print("SaaSPlan ya existe.")
+            print("SaaSPlan 'Plan Starter' ya existe.")
 
-        # 2. Crear Tenant
-        tenant = db.query(Tenant).filter_by(nombre_organizacion="Taller Los Hermanos").first()
+        # 2. Crear Tenant Base para el sistema
+        tenant = db.query(Tenant).filter_by(nombre_organizacion="Skale IA").first()
         if not tenant:
             tenant = Tenant(
-                nombre_organizacion="Taller Los Hermanos",
+                nombre_organizacion="Skale IA",
+                nombre_contacto="Administrador del Sistema",
                 id_plan=plan.id_plan,
             )
             db.add(tenant)
@@ -56,136 +59,29 @@ def seed_db():
             db.refresh(tenant)
             print(f"Creado Tenant: {tenant.nombre_organizacion}")
         else:
-            print("Tenant ya existe.")
+            print("Tenant 'Skale IA' ya existe.")
 
-        # 3. Crear Usuario (Mecánico)
-        usuario = db.query(Usuario).filter_by(email="mecanico@skale.cl").first()
-        # También buscar el email antiguo para actualizar si existe
-        usuario_old = db.query(Usuario).filter_by(email="mecanico@loshermanos.com").first()
-        if usuario_old and not usuario:
-            usuario_old.email = "mecanico@skale.cl"
-            usuario_old.password_hash = hash_password("Admin123!")
-            db.commit()
-            db.refresh(usuario_old)
-            usuario = usuario_old
-            print(f"Actualizado Usuario: {usuario.email}")
-        elif not usuario:
+        # 3. Crear Usuario SuperAdmin
+        admin_email = "admin@skale.cl"
+        usuario = db.query(Usuario).filter_by(email=admin_email).first()
+        if not usuario:
             usuario = Usuario(
                 id_tenant=tenant.id_tenant,
-                email="mecanico@skale.cl",
+                email=admin_email,
                 password_hash=hash_password("Admin123!"),
-                perfil_jarvis="Mecanico"
+                rol=ROL_SUPERADMIN,
+                is_superadmin=True
             )
             db.add(usuario)
             db.commit()
             db.refresh(usuario)
-            print(f"Creado Usuario: {usuario.email}")
+            print(f"Creado Usuario SuperAdmin: {usuario.email}")
         else:
-            print("Usuario Mecánico ya existe.")
-
-        # 4. Crear Cliente y Vehículo
-        cliente = db.query(Cliente).filter_by(email="juan.perez@email.com").first()
-        if not cliente:
-            cliente = Cliente(
-                id_tenant=tenant.id_tenant,
-                rut="12345678-9",
-                nombre="Juan Perez",
-                telefono="555-1234",
-                email="juan.perez@email.com"
-            )
-            db.add(cliente)
+            print("Usuario SuperAdmin ya existe.")
+            # Asegurar que tenga el rol y permisos correctos aunque ya exista
+            usuario.rol = ROL_SUPERADMIN
+            usuario.is_superadmin = True
             db.commit()
-            db.refresh(cliente)
-            print(f"Creado Cliente: {cliente.nombre}")
-        else:
-            print("Cliente ya existe.")
-
-        vehiculo = db.query(Vehiculo).filter_by(patente="AB123CD").first()
-        if not vehiculo:
-            vehiculo = Vehiculo(
-                id_tenant=tenant.id_tenant,
-                id_cliente=cliente.id_cliente,
-                patente="AB123CD",
-                marca="Toyota",
-                modelo="Corolla"
-            )
-            db.add(vehiculo)
-            db.commit()
-            db.refresh(vehiculo)
-            print(f"Creado Vehiculo: {vehiculo.marca} {vehiculo.modelo}")
-        else:
-            print("Vehiculo ya existe.")
-
-        # 5. Crear Orden de Trabajo inicial
-        orden = db.query(OrdenTrabajo).filter_by(id_vehiculo=vehiculo.id_vehiculo).first()
-        if not orden:
-            orden = OrdenTrabajo(
-                id_tenant=tenant.id_tenant,
-                id_vehiculo=vehiculo.id_vehiculo,
-                folio_ot="OT-0001",
-                estado="Recepción",
-                diagnostico_ia="El cliente reporta pérdida de líquido refrigerante. Requiere revisión."
-            )
-            db.add(orden)
-            db.commit()
-            db.refresh(orden)
-            print(f"Creada Orden de Trabajo: ID {orden.id_orden}")
-        else:
-            print("Orden de Trabajo ya existe.")
-            
-        # ============================================================
-        # 6. Seed para perfil Inspector DGC
-        # ============================================================
-        
-        # Plan Inspector
-        plan_inspector = db.query(SaaSPlan).filter_by(nombre_plan="Plan Inspector DGC").first()
-        if not plan_inspector:
-            plan_inspector = SaaSPlan(nombre_plan="Plan Inspector DGC", permite_inspeccion=True)
-            db.add(plan_inspector)
-            db.commit()
-            db.refresh(plan_inspector)
-            print(f"Creado SaaSPlan: {plan_inspector.nombre_plan}")
-        else:
-            print("SaaSPlan Inspector ya existe.")
-
-        # Tenant Municipalidad
-        tenant_muni = db.query(Tenant).filter_by(nombre_organizacion="Municipalidad de Santiago").first()
-        if not tenant_muni:
-            tenant_muni = Tenant(
-                nombre_organizacion="Municipalidad de Santiago",
-                id_plan=plan_inspector.id_plan,
-            )
-            db.add(tenant_muni)
-            db.commit()
-            db.refresh(tenant_muni)
-            print(f"Creado Tenant: {tenant_muni.nombre_organizacion}")
-        else:
-            print("Tenant Municipalidad ya existe.")
-
-        # Usuario Inspector
-        inspector = db.query(Usuario).filter_by(email="inspector@skale.cl").first()
-        # También buscar el email antiguo para actualizar si existe
-        inspector_old = db.query(Usuario).filter_by(email="inspector@municipalidad.cl").first()
-        if inspector_old and not inspector:
-            inspector_old.email = "inspector@skale.cl"
-            inspector_old.password_hash = hash_password("Admin123!")
-            db.commit()
-            db.refresh(inspector_old)
-            inspector = inspector_old
-            print(f"Actualizado Usuario: {inspector.email}")
-        elif not inspector:
-            inspector = Usuario(
-                id_tenant=tenant_muni.id_tenant,
-                email="inspector@skale.cl",
-                password_hash=hash_password("Admin123!"),
-                perfil_jarvis="Inspector_DGC"
-            )
-            db.add(inspector)
-            db.commit()
-            db.refresh(inspector)
-            print(f"Creado Usuario Inspector: {inspector.email}")
-        else:
-            print("Usuario Inspector ya existe.")
 
         print("Seed completado exitosamente.")
 

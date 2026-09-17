@@ -17,6 +17,12 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+# Roles disponibles en el sistema
+ROL_SUPERADMIN = "superadmin"
+ROL_ADMIN = "admin"
+ROL_CLIENTE = "cliente"
+ROLS_STAFF = (ROL_SUPERADMIN, ROL_ADMIN)  # Acceso total al panel admin
+
 
 # ============================================================
 # SaaS Core: Planes y Tenants
@@ -123,7 +129,8 @@ class Usuario(Base):
     password_hash = Column(String(255), nullable=False)
     perfil_jarvis = Column(String(50), nullable=True)  # Deprecado, se usa active_profile_id
     active_profile_id = Column(Integer, ForeignKey('jarvis_profiles.id_perfil', ondelete='SET NULL'), nullable=True)
-    is_superadmin = Column(Boolean, default=False, nullable=False)
+    rol = Column(String(20), nullable=False, default=ROL_CLIENTE)  # 'superadmin', 'admin', 'cliente'
+    is_superadmin = Column(Boolean, default=False, nullable=False)  # Alias de compatibilidad: rol == 'superadmin'
     tokens_consumidos = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
