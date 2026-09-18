@@ -598,7 +598,7 @@ async def subir_conocimiento(
         for i, chunk in enumerate(chunks):
             try:
                 emb_res = await aembedding(model=emb_model, input=[chunk], **kwargs)
-                embedding = emb_res.data[0]['embedding']
+                embedding = emb_res.data[0]["embedding"] if isinstance(emb_res.data[0], dict) else emb_res.data[0].embedding
                 
                 if i == 0:
                     # Crear documento principal
@@ -968,6 +968,7 @@ async def enviar_mensaje_chat(
                 from backend.ai_service import load_ai_keys
                 load_ai_keys(db)
 
+                from backend.models import Tenant
                 tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
                 ai_provider = tenant.ai_provider if tenant else "gemini"
                 
@@ -984,7 +985,7 @@ async def enviar_mensaje_chat(
                     input=[mensaje if mensaje else "Resumen del documento"],
                     **kwargs
                 )
-                q_vec = q_emb_resp.data[0]['embedding']
+                q_vec = q_emb_resp.data[0]["embedding"] if isinstance(q_emb_resp.data[0], dict) else q_emb_resp.data[0].embedding
 
                 # 2. Retrieve top chunks — solo entre los ids que sí son del usuario
                 chunks = db.query(DocumentChunk).filter(
@@ -1014,6 +1015,7 @@ async def enviar_mensaje_chat(
             from backend.ai_service import load_ai_keys
             load_ai_keys(db)
 
+            from backend.models import Tenant
             tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
             ai_provider = tenant.ai_provider if tenant else "gemini"
             
@@ -1031,7 +1033,7 @@ async def enviar_mensaje_chat(
                     input=[chunk_text],
                     **kwargs
                 )
-                vec = emb_resp.data[0]['embedding']
+                vec = emb_resp.data[0]["embedding"] if isinstance(emb_resp.data[0], dict) else emb_resp.data[0].embedding
                 db.add(DocumentChunk(
                     id_mensaje=msg_user.id_mensaje,
                     chunk_index=i,
