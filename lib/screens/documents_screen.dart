@@ -15,14 +15,16 @@ class DocumentsScreen extends StatefulWidget {
 class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = true;
   List<Map<String, dynamic>> _documentos = [];
+  List<Map<String, dynamic>> _conocimiento = [];
   String _searchQuery = '';
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _cargarDocumentos();
+    _cargarConocimiento();
   }
   
   @override
@@ -52,6 +54,27 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _cargarConocimiento() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? '';
+      final resp = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/all'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as List;
+        if (mounted) {
+          setState(() => _conocimiento = data.map((e) => Map<String, dynamic>.from(e)).toList());
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error cargando conocimiento: $e')));
+      }
     }
   }
 
@@ -92,6 +115,53 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
           setState(() => _documentos.removeWhere((d) => d['id_mensaje'] == idMensaje));
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Documento eliminado'), backgroundColor: Colors.green),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _eliminarConocimiento(String idDocument) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Eliminar memoria', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Este documento será eliminado permanentemente de la memoria RAG y J.A.R.V.I.S. dejará de tenerlo como conocimiento.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? '';
+      final resp = await http.delete(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/$idDocument'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (resp.statusCode == 200) {
+        if (mounted) {
+          setState(() => _conocimiento.removeWhere((d) => d['id_document'] == idDocument));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Conocimiento eliminado'), backgroundColor: Colors.green),
           );
         }
       }
@@ -227,6 +297,48 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     );
   }
 
+  Widget _buildKnowledgeList() {
+    if (_conocimiento.isEmpty) {
+      return const Center(child: Text('La memoria de JARVIS está vacía', style: TextStyle(color: Colors.white54)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _conocimiento.length,
+      itemBuilder: (context, i) {
+        final doc = _conocimiento[i];
+        return Card(
+          color: const Color(0xFF1E293B),
+          margin: const EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withOpacity(0.05)),
+          ),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.purple.withOpacity(0.2),
+              child: const Icon(Icons.memory, color: Colors.purpleAccent),
+            ),
+            title: Text(
+              doc['nombre'] ?? 'Documento RAG',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              'Fecha de almacenamiento: ${doc['created_at']?.split('T')[0] ?? ''}',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              onPressed: () => _eliminarConocimiento(doc['id_document']),
+              tooltip: 'Olvidar',
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final subidos = _documentos.where((d) => d['rol'] == 'user').toList();
@@ -246,6 +358,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
           tabs: const [
             Tab(icon: Icon(Icons.upload_file), text: 'Subidos'),
             Tab(icon: Icon(Icons.auto_awesome), text: 'Generados por JARVIS'),
+            Tab(icon: Icon(Icons.memory), text: 'Memoria JARVIS'),
           ],
         ),
       ),
@@ -256,6 +369,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               children: [
                 _buildList(subidos),
                 _buildList(generados),
+                _buildKnowledgeList(),
               ],
             ),
     );

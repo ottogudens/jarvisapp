@@ -512,6 +512,44 @@ async def obtener_prompt_agente(
     return {"perfil": perfil, "prompt": prompt, "todos_los_prompts": SYSTEM_PROMPTS}
 
 
+# ── Gestión de Memoria y Conocimiento (RAG) ──────────────
+
+@app.get("/v1/knowledge/all")
+async def listar_conocimiento(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import KnowledgeDocument
+    documentos = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_tenant == usuario["id_tenant"]
+    ).order_by(KnowledgeDocument.created_at.desc()).all()
+    
+    return [{
+        "id_document": d.id_document,
+        "nombre": d.nombre,
+        "created_at": d.created_at.isoformat() if d.created_at else None
+    } for d in documentos]
+
+@app.delete("/v1/knowledge/{id_document}")
+async def eliminar_conocimiento(
+    id_document: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import KnowledgeDocument
+    doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_document == id_document,
+        KnowledgeDocument.id_tenant == usuario["id_tenant"]
+    ).first()
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado o sin permisos")
+        
+    db.delete(doc)
+    db.commit()
+    return {"message": "Documento eliminado de la memoria"}
+
+
 # ── Gestión de documentos / mensajes con archivos ──────────────
 
 @app.get("/v1/chat/sessions/documents/all")
@@ -629,6 +667,7 @@ async def enviar_mensaje_chat(
     doc_context: str = ""
     transcripcion_audio: str = ""
     audio_parts: list = []
+    raw_documents: list = []
     total_tokens = 0
 
     for file in files:
@@ -649,21 +688,25 @@ async def enviar_mensaje_chat(
 
         elif (file_type in ("application/pdf",) or file_type.startswith("text/")
               or file.filename.lower().endswith((".pdf", ".txt", ".csv", ".md"))):
-            try:
-                if file_type == "application/pdf":
+                is_pdf = file_type == "application/pdf" or file.filename.lower().endswith(".pdf")
+                if is_pdf:
                     try:
                         import fitz
                         import io as _io
                         pdf_doc = fitz.open(stream=_io.BytesIO(file_bytes), filetype="pdf")
                         text = "\n".join(page.get_text() for page in pdf_doc)
                         pdf_doc.close()
-                    except ImportError:
-                        text = file_bytes.decode("utf-8", errors="ignore")
+                        if not text.strip():
+                            text = "[El PDF fue procesado pero no contiene texto extraíble. Puede ser un documento escaneado como imagen.]"
+                    except Exception as e:
+                        text = f"[Error interno al leer el PDF: {str(e)}]"
                 else:
                     text = file_bytes.decode("utf-8", errors="ignore")
                 doc_context += f"\n\n=== DOCUMENTO: {file.filename} ===\n{text[:20000]}"
-            except Exception:
-                pass
+                raw_documents.append({"filename": file.filename, "text": text})
+            except Exception as outer_e:
+                doc_context += f"\n\n=== DOCUMENTO: {file.filename} ===\n[Error al procesar el archivo: {str(outer_e)}]"
+                raw_documents.append({"filename": file.filename, "text": ""})
 
     # FIX #1 – Transcribir audio con Gemini
     if audio_parts:
@@ -823,6 +866,15 @@ async def enviar_mensaje_chat(
     # habilitando prompt caching nativo del proveedor entre turnos de la sesión.
     if x_sarcasm_level:
         sys_prompt += f"\nNota: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n"
+        
+    sys_prompt += (
+        "\n[RAG Y GESTIÓN DE DOCUMENTOS]:\n"
+        "Si el usuario sube un archivo y te pide guardarlo, almacenarlo, o aprenderlo como conocimiento, "
+        "DEBES llamar a la herramienta `almacenar_conocimiento(nombre_documento)` para guardarlo permanentemente. "
+        "Tú mismo debes inferir un nombre descriptivo basado en el contenido, a menos que el usuario especifique uno. "
+        "Si el usuario te hace una pregunta y no sabes la respuesta o parece depender de documentos previos, usa "
+        "la herramienta `buscar_conocimiento(consulta)` para recuperar la información de su memoria permanente.\n"
+    )
     prompt_con_contexto = ""
     if focused_knowledge:
         prompt_con_contexto += f"[DOCUMENTOS SELECCIONADOS COMO FOCO PRINCIPAL]\n(Instrucción: El usuario te pide que te enfoques PRINCIPALMENTE en estos documentos para responder)\n{focused_knowledge}\n\n"
@@ -850,7 +902,7 @@ async def enviar_mensaje_chat(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     from backend.ai_service import call_llm_with_tools
-    respuesta_jarvis, t_tokens = call_llm_with_tools(db, user_db, sys_prompt, prompt_con_contexto, uploaded_urls, generated_urls)
+    respuesta_jarvis, t_tokens = call_llm_with_tools(db, user_db, sys_prompt, prompt_con_contexto, uploaded_urls, generated_urls, raw_documents)
     total_tokens += t_tokens
 
     msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls)

@@ -138,6 +138,34 @@ LITELLM_TOOLS = [
                 "required": ["comando"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "almacenar_conocimiento",
+            "description": "Almacena el texto extraído de los archivos subidos en este turno como un documento en la memoria RAG del agente. Úsalo SIEMPRE que el usuario envíe un archivo y te pida explícitamente guardarlo, o cuando creas que es un documento importante que debe persistir para futuras consultas. Se almacenará el texto completo de todos los archivos enviados en este mensaje bajo el nombre que indiques.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre_documento": {"type": "string", "description": "Nombre o título para guardar el documento. Usa el nombre solicitado por el usuario o infiere uno a partir del contenido."}
+                },
+                "required": ["nombre_documento"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "buscar_conocimiento",
+            "description": "Busca fragmentos de información en la memoria de documentos previamente guardada por el cliente. Úsalo si el usuario pregunta sobre algo que no sabes, pero que pudo haber sido subido como documento o minuta en el pasado.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "consulta": {"type": "string", "description": "Pregunta detallada o palabras clave para buscar por similitud semántica en la base de documentos del cliente."}
+                },
+                "required": ["consulta"]
+            }
+        }
     }
 ]
 
@@ -155,7 +183,8 @@ def call_llm_with_tools(
     sys_prompt: str,
     prompt_con_contexto: str,
     uploaded_urls: list,
-    generated_urls: list
+    generated_urls: list,
+    raw_documents: list = None
 ):
     # Cargar keys
     load_ai_keys(db)
@@ -231,6 +260,88 @@ def call_llm_with_tools(
             return ver_clientes_dhcp_mikrotik(**args)
         elif fn_name == "comando_mikrotik_avanzado":
             return comando_mikrotik_avanzado(**args)
+        elif fn_name == "almacenar_conocimiento":
+            from backend.models import KnowledgeDocument, DocumentChunk
+            nombre_doc = args.get("nombre_documento", "Documento sin título")
+            if not raw_documents:
+                return "Error: No se encontró ningún archivo subido en este mensaje para almacenar."
+            
+            texto_completo = "\n\n".join([d['text'] for d in raw_documents if d['text']])
+            if not texto_completo.strip() or texto_completo.startswith("[Error"):
+                return "Error: El archivo subido no contenía texto extraíble."
+
+            try:
+                nuevo_doc = KnowledgeDocument(
+                    id_tenant=user_db.id_tenant,
+                    id_usuario=user_db.id_usuario,
+                    nombre=nombre_doc
+                )
+                db.add(nuevo_doc)
+                db.commit()
+                db.refresh(nuevo_doc)
+                
+                import textwrap
+                partes = textwrap.wrap(texto_completo, width=1000, replace_whitespace=False)
+                
+                for idx, parte in enumerate(partes):
+                    from litellm import embedding
+                    try:
+                        emb_model = "text-embedding-3-small"
+                        if ai_provider.lower() == "gemini":
+                            emb_model = "gemini/text-embedding-004"
+                        emb_res = embedding(model=emb_model, input=[parte])
+                        vector = emb_res.data[0]['embedding']
+                    except Exception as e:
+                        return f"Error al generar vector de embeddings: {str(e)}"
+                    
+                    chk = DocumentChunk(
+                        id_document=nuevo_doc.id_document,
+                        chunk_index=idx,
+                        texto=parte,
+                        embedding=vector
+                    )
+                    db.add(chk)
+                
+                db.commit()
+                return f"Éxito: Documento '{nombre_doc}' almacenado correctamente en la base de conocimiento permanente con {len(partes)} fragmentos."
+            except Exception as e:
+                db.rollback()
+                return f"Error al almacenar el conocimiento: {str(e)}"
+                
+        elif fn_name == "buscar_conocimiento":
+            from backend.models import DocumentChunk, KnowledgeDocument
+            consulta = args.get("consulta", "")
+            if not consulta: return "Error: consulta vacía."
+            
+            from litellm import embedding
+            try:
+                emb_model = "text-embedding-3-small"
+                if ai_provider.lower() == "gemini":
+                    emb_model = "gemini/text-embedding-004"
+                emb_res = embedding(model=emb_model, input=[consulta])
+                vector_q = emb_res.data[0]['embedding']
+            except Exception as e:
+                return f"Error al generar embedding para la consulta: {str(e)}"
+                
+            try:
+                resultados = db.query(DocumentChunk, KnowledgeDocument.nombre).join(
+                    KnowledgeDocument, DocumentChunk.id_document == KnowledgeDocument.id_document
+                ).filter(
+                    KnowledgeDocument.id_tenant == user_db.id_tenant
+                ).order_by(
+                    DocumentChunk.embedding.cosine_distance(vector_q)
+                ).limit(5).all()
+                
+                if not resultados:
+                    return "No se encontraron documentos relevantes en la base de conocimiento."
+                
+                resp = "Resultados encontrados en la memoria de conocimiento:\n\n"
+                for i, (chunk, nombre_doc) in enumerate(resultados):
+                    resp += f"--- Extracto de: {nombre_doc} ---\n{chunk.texto}\n\n"
+                return resp
+            except Exception as e:
+                return f"Error en la base de datos al buscar: {str(e)}"
+
         return "Herramienta desconocida"
 
     total_tokens = 0
