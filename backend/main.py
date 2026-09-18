@@ -592,7 +592,7 @@ async def subir_conocimiento(
                 # Crear chunk
                 nuevo_chunk = DocumentChunk(
                     id_document=nuevo_doc.id_document,
-                    contenido=chunk,
+                    texto=chunk,
                     embedding=embedding
                 )
                 db.add(nuevo_chunk)
