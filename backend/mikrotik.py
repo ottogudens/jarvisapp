@@ -127,11 +127,12 @@ def connect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actua
 
     try:
         from backend.crypto_utils import decrypt_secret
-        service = MikrotikService(router_obj.ip_address, router_obj.username, decrypt_secret(router_obj.password), router_obj.api_port)
+        use_https = False if router_obj.api_port in (80, 8080) else True
+        service = MikrotikService(router_obj.ip_address, router_obj.username, decrypt_secret(router_obj.password), router_obj.api_port, use_https=use_https)
         response = service._request('GET', '/system/identity')
-        if 'error' in response:
+        if isinstance(response, dict) and response.get('error'):
             router_obj.is_connected = False
-            router_obj.last_error = str(response['error'])[:255]
+            router_obj.last_error = str(response.get('detail', 'Error desconocido'))[:255]
         else:
             router_obj.is_connected = True
             router_obj.last_error = None

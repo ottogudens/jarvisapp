@@ -10,12 +10,13 @@ def _get_service(id_router: int):
         if not router:
             return None, {"error": "Router no encontrado"}
         password = decrypt_secret(router.password)
+        use_https = False if router.api_port in (80, 8080) else True
         svc = MikrotikService(
             router.ip_address,
             router.username,
             password,
             router.api_port,
-            use_https=router.use_https if hasattr(router, "use_https") else True,
+            use_https=use_https,
         )
         return svc, None
 
@@ -28,7 +29,10 @@ def obtener_estado_red_mikrotik(id_router: int, ping_target: str = None) -> dict
     resultado = svc.get_system_resource()
     if ping_target:
         ping = svc.execute_raw("/ping", {"address": ping_target, "count": "4"})
-        resultado = {"system_resource": resultado, "ping": ping}
+        if isinstance(resultado, list):
+            resultado = {"system_resource": resultado, "ping": ping}
+        elif isinstance(resultado, dict):
+            resultado["ping"] = ping
     return resultado
 
 
