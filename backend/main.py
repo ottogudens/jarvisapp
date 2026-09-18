@@ -573,8 +573,7 @@ async def subir_conocimiento(
             try:
                 emb_res = _gc.models.embed_content(
                     model="models/embedding-001",
-                    contents=chunk,
-                    task_type="RETRIEVAL_DOCUMENT"
+                    contents=chunk
                 )
                 embedding = emb_res.embeddings[0].values
                 
