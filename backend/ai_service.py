@@ -301,7 +301,7 @@ def call_llm_with_tools(
                     try:
                         emb_model = "text-embedding-3-small"
                         if ai_provider.lower() == "gemini":
-                            emb_model = "gemini/embedding-001"
+                            emb_model = "gemini/text-embedding-004"
                         emb_res = embedding(model=emb_model, input=[parte])
                         vector = emb_res.data[0]['embedding']
                     except Exception as e:
@@ -330,7 +330,7 @@ def call_llm_with_tools(
             try:
                 emb_model = "text-embedding-3-small"
                 if ai_provider.lower() == "gemini":
-                    emb_model = "gemini/embedding-001"
+                    emb_model = "gemini/text-embedding-004"
                 emb_res = embedding(model=emb_model, input=[consulta])
                 vector_q = emb_res.data[0]['embedding']
             except Exception as e:

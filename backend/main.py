@@ -572,7 +572,7 @@ async def subir_conocimiento(
         for i, chunk in enumerate(chunks):
             try:
                 emb_res = _gc.models.embed_content(
-                    model="models/embedding-001",
+                    model="text-embedding-004",
                     contents=chunk
                 )
                 embedding = emb_res.embeddings[0].values
@@ -943,7 +943,7 @@ async def enviar_mensaje_chat(
                 # 1. Embed user query
                 _gc = get_gemini_client()
                 q_emb_resp = _gc.models.embed_content(
-                    model="models/embedding-001",
+                    model="text-embedding-004",
                     contents=mensaje if mensaje else "Resumen del documento"
                 )
                 q_vec = q_emb_resp.embeddings[0].values
@@ -975,7 +975,7 @@ async def enviar_mensaje_chat(
             _gc = get_gemini_client()
             for i, chunk_text in enumerate(text_chunks):
                 emb_resp = _gc.models.embed_content(
-                    model="models/embedding-001",
+                    model="text-embedding-004",
                     contents=chunk_text
                 )
                 vec = emb_resp.embeddings[0].values
