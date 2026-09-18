@@ -102,15 +102,15 @@ def inicializar_base_de_datos_remota():
     except Exception:
         pass
         
+    Base.metadata.create_all(bind=engine)
+
+    # Migraciones que dependen de tablas creadas en create_all
     try:
         with engine.connect() as conn:
             conn.execute(text('ALTER TABLE knowledge_documents ADD COLUMN id_folder VARCHAR(36) REFERENCES knowledge_folders(id_folder) ON DELETE SET NULL'))
             conn.commit()
     except Exception:
         pass
-        
-    Base.metadata.create_all(bind=engine)
-
 
 def get_db():
     """Dependency de FastAPI: genera una sesión de BD por request."""
