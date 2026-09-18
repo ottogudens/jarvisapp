@@ -423,7 +423,7 @@ def test_ai_key(data: AIKeyTest, usuario: dict = Depends(requiere_superadmin)):
     elif provider == "anthropic" or provider == "claude":
         model = "anthropic/claude-3-haiku-20240307"
     elif provider == "gemini":
-        model = "gemini/gemini-1.5-flash-latest"
+        model = "gemini/gemini-1.5-flash"
     elif provider == "deepseek":
         model = "deepseek/deepseek-chat"
     else:
