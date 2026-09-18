@@ -521,12 +521,18 @@ async def subir_conocimiento(
     db: Session = Depends(get_db)
 ):
     import uuid, fitz, io as _io
-    from backend.models import KnowledgeDocument, DocumentChunk
+    from backend.models import KnowledgeDocument, DocumentChunk, Tenant
+    from backend.ai_service import load_ai_keys
+    import base64
+    from litellm import completion, embedding as lite_embedding
 
     if not files:
         raise HTTPException(status_code=400, detail="No se enviaron archivos")
     
-    _gc = get_gemini_client()
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    ai_provider = tenant.ai_provider if tenant else "gemini"
+    load_ai_keys(db)
+    
     nombres_procesados = []
 
     for file in files:
@@ -549,14 +555,26 @@ async def subir_conocimiento(
             text = file_bytes.decode("utf-8", errors="ignore")
         elif file_type.startswith("image/") or file.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
             try:
-                from google.genai import types
-                prompt_vision = "Analiza detalladamente esta imagen. Extrae cualquier texto legible (OCR), describe los gráficos, tablas, facturas o datos importantes que contenga, y proporciona una transcripción/resumen completo de su contenido para almacenarlo como base de datos de conocimiento."
-                part = types.Part.from_bytes(data=file_bytes, mime_type=file_type if file_type.startswith("image/") else "image/jpeg")
-                resp = _gc.models.generate_content(
-                    model="gemini-1.5-flash",
-                    contents=[part, prompt_vision]
-                )
-                text = resp.text if resp.text else ""
+                b64_image = base64.b64encode(file_bytes).decode("utf-8")
+                img_url = f"data:{file_type if file_type.startswith('image/') else 'image/jpeg'};base64,{b64_image}"
+                
+                vision_model = "gpt-4o-mini"
+                if ai_provider.lower() == "gemini":
+                    vision_model = "gemini/gemini-1.5-flash"
+                elif ai_provider.lower() == "anthropic":
+                    vision_model = "anthropic/claude-3-haiku-20240307"
+
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Analiza detalladamente esta imagen. Extrae cualquier texto legible (OCR), describe los gráficos, tablas, facturas o datos importantes que contenga, y proporciona una transcripción/resumen completo de su contenido para almacenarlo como base de datos de conocimiento."},
+                            {"type": "image_url", "image_url": {"url": img_url}}
+                        ]
+                    }
+                ]
+                resp = completion(model=vision_model, messages=messages)
+                text = resp.choices[0].message.content or ""
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error analizando imagen con IA: {e}")
         else:
@@ -569,13 +587,18 @@ async def subir_conocimiento(
         chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
         
         # Generar embeddings
+        emb_model = "text-embedding-3-small"
+        if ai_provider.lower() == "gemini":
+            emb_model = "gemini/text-embedding-004"
+            
+        kwargs = {}
+        if ai_provider.lower() != "gemini":
+            kwargs["dimensions"] = 768
+
         for i, chunk in enumerate(chunks):
             try:
-                emb_res = _gc.models.embed_content(
-                    model="text-embedding-004",
-                    contents=chunk
-                )
-                embedding = emb_res.embeddings[0].values
+                emb_res = lite_embedding(model=emb_model, input=[chunk], **kwargs)
+                embedding = emb_res.data[0]['embedding']
                 
                 if i == 0:
                     # Crear documento principal
@@ -941,12 +964,27 @@ async def enviar_mensaje_chat(
 
             if ids_propios:
                 # 1. Embed user query
-                _gc = get_gemini_client()
-                q_emb_resp = _gc.models.embed_content(
-                    model="text-embedding-004",
-                    contents=mensaje if mensaje else "Resumen del documento"
+                from litellm import embedding as lite_embedding
+                from backend.ai_service import load_ai_keys
+                load_ai_keys(db)
+
+                tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+                ai_provider = tenant.ai_provider if tenant else "gemini"
+                
+                emb_model = "text-embedding-3-small"
+                if ai_provider.lower() == "gemini":
+                    emb_model = "gemini/text-embedding-004"
+                
+                kwargs = {}
+                if ai_provider.lower() != "gemini":
+                    kwargs["dimensions"] = 768
+
+                q_emb_resp = lite_embedding(
+                    model=emb_model,
+                    input=[mensaje if mensaje else "Resumen del documento"],
+                    **kwargs
                 )
-                q_vec = q_emb_resp.embeddings[0].values
+                q_vec = q_emb_resp.data[0]['embedding']
 
                 # 2. Retrieve top chunks — solo entre los ids que sí son del usuario
                 chunks = db.query(DocumentChunk).filter(
@@ -972,13 +1010,28 @@ async def enviar_mensaje_chat(
             chunk_size = 1000
             text_chunks = [doc_context[i:i+chunk_size] for i in range(0, len(doc_context), chunk_size)]
             
-            _gc = get_gemini_client()
+            from litellm import embedding as lite_embedding
+            from backend.ai_service import load_ai_keys
+            load_ai_keys(db)
+
+            tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+            ai_provider = tenant.ai_provider if tenant else "gemini"
+            
+            emb_model = "text-embedding-3-small"
+            if ai_provider.lower() == "gemini":
+                emb_model = "gemini/text-embedding-004"
+            
+            kwargs = {}
+            if ai_provider.lower() != "gemini":
+                kwargs["dimensions"] = 768
+
             for i, chunk_text in enumerate(text_chunks):
-                emb_resp = _gc.models.embed_content(
-                    model="text-embedding-004",
-                    contents=chunk_text
+                emb_resp = lite_embedding(
+                    model=emb_model,
+                    input=[chunk_text],
+                    **kwargs
                 )
-                vec = emb_resp.embeddings[0].values
+                vec = emb_resp.data[0]['embedding']
                 db.add(DocumentChunk(
                     id_mensaje=msg_user.id_mensaje,
                     chunk_index=i,
