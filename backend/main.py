@@ -674,6 +674,9 @@ async def enviar_mensaje_chat(
         if not file.filename:
             continue
         file_bytes = await file.read()
+        if len(file_bytes) > 15 * 1024 * 1024:  # Límite estricto de 15 MB
+            raise HTTPException(status_code=413, detail=f"El archivo {file.filename} excede el límite permitido de 15 MB.")
+        
         file_type = file.content_type or "application/octet-stream"
         b64 = base64.b64encode(file_bytes).decode("utf-8")
         data_uri = f"data:{file_type};base64,{b64}"
