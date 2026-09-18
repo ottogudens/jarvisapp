@@ -171,6 +171,10 @@ def call_llm_with_tools(
         model_name = f"gemini/{model_name}"
     elif ai_provider.lower() == "deepseek" and not model_name.startswith("deepseek/"):
         model_name = f"deepseek/{model_name}"
+    elif (ai_provider.lower() == "anthropic" or ai_provider.lower() == "claude") and not model_name.startswith("anthropic/"):
+        model_name = f"anthropic/{model_name}"
+    elif ai_provider.lower() == "openai" and not model_name.startswith("openai/"):
+        model_name = f"openai/{model_name}"
 
     # Construir mensajes
     content_list = [{"type": "text", "text": prompt_con_contexto}]

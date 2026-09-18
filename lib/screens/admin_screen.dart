@@ -215,7 +215,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     
     int? selectedPlanId = tenantToEdit?['id_plan'] ?? (_plans.isNotEmpty ? _plans[0]['id_plan'] : null);
     String aiProvider = tenantToEdit?['ai_provider'] ?? 'gemini';
-    String aiModel = tenantToEdit?['ai_model'] ?? 'gemini-1.5-flash';
+    if (aiProvider == 'claude') aiProvider = 'anthropic';
+    final aiModelCtrl = TextEditingController(text: tenantToEdit?['ai_model'] ?? 'gemini-1.5-flash');
 
     showDialog(context: context, builder: (ctx) {
       return StatefulBuilder(builder: (ctx, setDialogState) {
@@ -289,11 +290,11 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   dropdownColor: const Color(0xFF1E293B),
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(labelText: 'Proveedor IA', labelStyle: TextStyle(color: Colors.cyan)),
-                  items: ['gemini', 'openai', 'claude', 'deepseek'].map((p) => DropdownMenuItem(value: p, child: Text(p.toUpperCase()))).toList(),
+                  items: ['gemini', 'openai', 'anthropic', 'deepseek'].map((p) => DropdownMenuItem(value: p, child: Text(p.toUpperCase()))).toList(),
                   onChanged: (v) => setDialogState(() => aiProvider = v ?? aiProvider),
                 ),
                 const SizedBox(height: 12),
-                _buildTextField(TextEditingController(text: aiModel), 'Modelo IA (ej. gpt-4o-mini)'),
+                _buildTextField(aiModelCtrl, 'Modelo IA (ej. gpt-4o-mini)'),
               ],
             ),
           ),
@@ -319,7 +320,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                       'password': passCtrl.text.isNotEmpty ? passCtrl.text : null,
                       'id_plan': selectedPlanId,
                       'ai_provider': aiProvider,
-                      'ai_model': aiModel,
+                      'ai_model': aiModelCtrl.text.trim(),
                       'perfiles_ids': selectedProfiles.toList(),
                     }),
                   );
@@ -339,7 +340,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                       'telefono': telefonoCtrl.text.trim(),
                       'id_plan': selectedPlanId,
                       'ai_provider': aiProvider,
-                      'ai_model': aiModel,
+                      'ai_model': aiModelCtrl.text.trim(),
                       'perfiles_ids': selectedProfiles.toList(),
                     }),
                   );
