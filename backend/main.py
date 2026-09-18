@@ -524,7 +524,7 @@ async def subir_conocimiento(
     from backend.models import KnowledgeDocument, DocumentChunk, Tenant
     from backend.ai_service import load_ai_keys
     import base64
-    from litellm import completion, embedding as lite_embedding
+    from litellm import acompletion, aembedding
 
     if not files:
         raise HTTPException(status_code=400, detail="No se enviaron archivos")
@@ -573,7 +573,7 @@ async def subir_conocimiento(
                         ]
                     }
                 ]
-                resp = completion(model=vision_model, messages=messages)
+                resp = await acompletion(model=vision_model, messages=messages)
                 text = resp.choices[0].message.content or ""
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error analizando imagen con IA: {e}")
@@ -597,7 +597,7 @@ async def subir_conocimiento(
 
         for i, chunk in enumerate(chunks):
             try:
-                emb_res = lite_embedding(model=emb_model, input=[chunk], **kwargs)
+                emb_res = await aembedding(model=emb_model, input=[chunk], **kwargs)
                 embedding = emb_res.data[0]['embedding']
                 
                 if i == 0:
@@ -964,7 +964,7 @@ async def enviar_mensaje_chat(
 
             if ids_propios:
                 # 1. Embed user query
-                from litellm import embedding as lite_embedding
+                from litellm import aembedding
                 from backend.ai_service import load_ai_keys
                 load_ai_keys(db)
 
@@ -979,7 +979,7 @@ async def enviar_mensaje_chat(
                 if ai_provider.lower() != "gemini":
                     kwargs["dimensions"] = 768
 
-                q_emb_resp = lite_embedding(
+                q_emb_resp = await aembedding(
                     model=emb_model,
                     input=[mensaje if mensaje else "Resumen del documento"],
                     **kwargs
@@ -1010,7 +1010,7 @@ async def enviar_mensaje_chat(
             chunk_size = 1000
             text_chunks = [doc_context[i:i+chunk_size] for i in range(0, len(doc_context), chunk_size)]
             
-            from litellm import embedding as lite_embedding
+            from litellm import aembedding
             from backend.ai_service import load_ai_keys
             load_ai_keys(db)
 
@@ -1026,7 +1026,7 @@ async def enviar_mensaje_chat(
                 kwargs["dimensions"] = 768
 
             for i, chunk_text in enumerate(text_chunks):
-                emb_resp = lite_embedding(
+                emb_resp = await aembedding(
                     model=emb_model,
                     input=[chunk_text],
                     **kwargs
