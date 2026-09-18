@@ -548,11 +548,23 @@ async def subir_conocimiento(
                 raise HTTPException(status_code=500, detail=f"Error leyendo PDF: {e}")
         elif file_type.startswith("text/") or file.filename.lower().endswith((".txt", ".md", ".csv")):
             text = file_bytes.decode("utf-8", errors="ignore")
+        elif file_type.startswith("image/") or file.filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+            try:
+                from google.genai import types
+                prompt_vision = "Analiza detalladamente esta imagen. Extrae cualquier texto legible (OCR), describe los gráficos, tablas, facturas o datos importantes que contenga, y proporciona una transcripción/resumen completo de su contenido para almacenarlo como base de datos de conocimiento."
+                part = types.Part.from_bytes(data=file_bytes, mime_type=file_type if file_type.startswith("image/") else "image/jpeg")
+                resp = _gc.models.generate_content(
+                    model="gemini-3.6-flash",
+                    contents=[part, prompt_vision]
+                )
+                text = resp.text if resp.text else ""
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error analizando imagen con IA: {e}")
         else:
             raise HTTPException(status_code=400, detail=f"Formato no soportado para RAG: {file.filename}")
 
         if not text.strip():
-            raise HTTPException(status_code=400, detail=f"El archivo {file.filename} no contiene texto extraíble.")
+            raise HTTPException(status_code=400, detail=f"El archivo {file.filename} no contiene datos o texto extraíble.")
 
         # Dividir texto en chunks de ~1000 caracteres
         chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]

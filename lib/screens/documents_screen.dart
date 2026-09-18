@@ -344,7 +344,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'csv', 'md'],
+        allowedExtensions: ['pdf', 'txt', 'csv', 'md', 'png', 'jpg', 'jpeg', 'webp'],
       );
 
       if (result != null && result.files.isNotEmpty) {
