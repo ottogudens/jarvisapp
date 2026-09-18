@@ -192,7 +192,7 @@ def call_llm_with_tools(
     # Determinar proveedor y modelo
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user_db.id_tenant).first()
     ai_provider = tenant.ai_provider if tenant else "gemini"
-    ai_model = tenant.ai_model if tenant else "gemini-3.6-flash"
+    ai_model = tenant.ai_model if tenant else "gemini-1.5-flash"
     
     # Adaptar prefijos de modelo para litellm
     model_name = ai_model

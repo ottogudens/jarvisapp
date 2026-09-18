@@ -60,7 +60,7 @@ class TenantCreateSchema(BaseModel):
     password: Optional[str] = None
     id_plan: int
     ai_provider: str = "gemini"
-    ai_model: str = "gemini-3.6-flash"
+    ai_model: str = "gemini-1.5-flash"
     perfiles_ids: List[int] = []
 
 class TenantUpdateSchema(BaseModel):
@@ -423,7 +423,7 @@ def test_ai_key(data: AIKeyTest, usuario: dict = Depends(requiere_superadmin)):
     elif provider == "anthropic" or provider == "claude":
         model = "anthropic/claude-3-haiku-20240307"
     elif provider == "gemini":
-        model = "gemini/gemini-1.5-flash"
+        model = "gemini/gemini-1.5-flash-latest"
     elif provider == "deepseek":
         model = "deepseek/deepseek-chat"
     else:

@@ -202,7 +202,7 @@ async def _pipeline_ia(
             config_args["response_schema"] = response_format
 
         respuesta_gemini = client.models.generate_content(
-            model='gemini-3.6-flash',
+            model='gemini-1.5-flash',
             contents=[audio_part, prompt_text],
             config=types.GenerateContentConfig(**config_args),
         )
@@ -554,7 +554,7 @@ async def subir_conocimiento(
                 prompt_vision = "Analiza detalladamente esta imagen. Extrae cualquier texto legible (OCR), describe los gráficos, tablas, facturas o datos importantes que contenga, y proporciona una transcripción/resumen completo de su contenido para almacenarlo como base de datos de conocimiento."
                 part = types.Part.from_bytes(data=file_bytes, mime_type=file_type if file_type.startswith("image/") else "image/jpeg")
                 resp = _gc.models.generate_content(
-                    model="gemini-3.6-flash",
+                    model="gemini-1.5-flash",
                     contents=[part, prompt_vision]
                 )
                 text = resp.text if resp.text else ""
@@ -808,7 +808,7 @@ async def enviar_mensaje_chat(
         try:
             _gc = get_gemini_client()
             tr = _gc.models.generate_content(
-                model="gemini-3.6-flash",
+                model="gemini-1.5-flash",
                 contents=audio_parts + [
                     "Transcribe EXACTAMENTE lo que se dice en el audio adjunto. "
                     "Responde SOLO con el texto transcrito, sin ninguna explicación."
