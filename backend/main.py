@@ -688,6 +688,7 @@ async def enviar_mensaje_chat(
 
         elif (file_type in ("application/pdf",) or file_type.startswith("text/")
               or file.filename.lower().endswith((".pdf", ".txt", ".csv", ".md"))):
+            try:
                 is_pdf = file_type == "application/pdf" or file.filename.lower().endswith(".pdf")
                 if is_pdf:
                     try:
