@@ -235,23 +235,23 @@ def call_llm_with_tools(
         elif fn_name == "enviar_mensaje_mqtt":
             return iot_service.publicar_mensaje_mqtt(**args)
         elif fn_name == "generar_documento":
-            import os, uuid
-            from supabase import create_client, Client
+            import base64
             try:
-                url = os.getenv("SUPABASE_URL")
-                key = os.getenv("SUPABASE_KEY")
-                if not url or not key: return "Error: Supabase no está configurado."
-                supabase: Client = create_client(url, key)
-                filename = f"{uuid.uuid4()}.{args.get('formato', 'txt')}"
-                path = f"/tmp/{filename}"
-                with open(path, "w", encoding="utf-8") as file:
-                    file.write(args.get("contenido", ""))
-                with open(path, "rb") as file:
-                    supabase.storage.from_("jarvis-files").upload(filename, file)
-                public_url = supabase.storage.from_("jarvis-files").get_public_url(filename)
-                generated_urls.append(public_url)
-                return f"Documento '{args.get('titulo')}' generado. URL: {public_url}"
-            except Exception as e: return f"Error al generar documento: {str(e)}"
+                contenido = args.get("contenido", "")
+                formato = args.get("formato", "txt").lower()
+                titulo = args.get("titulo", "Documento")
+                
+                mime_type = "text/plain"
+                if formato == "csv": mime_type = "text/csv"
+                elif formato == "md": mime_type = "text/markdown"
+                elif formato == "html": mime_type = "text/html"
+                
+                b64 = base64.b64encode(contenido.encode("utf-8")).decode("utf-8")
+                data_uri = f"data:{mime_type};base64,{b64}"
+                generated_urls.append(data_uri)
+                return f"Documento '{titulo}' generado exitosamente."
+            except Exception as e:
+                return f"Error al generar documento: {str(e)}"
         elif fn_name == "obtener_estado_red_mikrotik":
             return obtener_estado_red_mikrotik(**args)
         elif fn_name == "listar_interfaces_mikrotik":

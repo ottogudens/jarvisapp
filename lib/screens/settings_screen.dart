@@ -478,43 +478,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
                 
-                const SizedBox(height: 32),
-                _buildSectionTitle('Rol e Instrucciones del Agente'),
-                const SizedBox(height: 8),
-                Text(
-                  'Personaliza cómo debe pensar y actuar J.A.R.V.I.S. Puedes redefinir su rol completo a continuación:',
-                  style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 13),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _promptController,
-                  maxLines: 8,
-                  style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
-                  decoration: InputDecoration(
-                    labelText: 'Instrucciones del Sistema (Rol Actual)',
-                    alignLabelWithHint: true,
-                    labelStyle: TextStyle(color: Colors.cyanAccent.withOpacity(0.8)),
-                    filled: true,
-                    fillColor: const Color(0xFF1E293B),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.cyan.withOpacity(0.2)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Colors.cyanAccent),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: _restoreDefaultPrompt,
-                    icon: const Icon(Icons.restore, color: Colors.cyanAccent, size: 16),
-                    label: const Text('Restaurar rol predeterminado', style: TextStyle(color: Colors.cyanAccent, fontSize: 12)),
-                  ),
-                ),
+                
                 
                 if (_perfiles.isNotEmpty) ...[
                   const SizedBox(height: 32),

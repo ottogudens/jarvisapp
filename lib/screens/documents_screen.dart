@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 
 class DocumentsScreen extends StatefulWidget {
@@ -339,6 +340,53 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     );
   }
 
+  Future<void> _subirDocumentoRAG() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'txt', 'csv', 'md'],
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.size > 15 * 1024 * 1024) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El archivo excede el límite de 15 MB')));
+          return;
+        }
+
+        setState(() => _isLoading = true);
+
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('jwt_token') ?? '';
+        
+        var request = http.MultipartRequest('POST', Uri.parse('$kApiBaseUrl/v1/knowledge/upload'));
+        request.headers['Authorization'] = 'Bearer $token';
+
+        if (file.bytes != null) {
+          request.files.add(http.MultipartFile.fromBytes('files', file.bytes!, filename: file.name));
+        } else if (file.path != null) {
+          request.files.add(await http.MultipartFile.fromPath('files', file.path!));
+        }
+
+        var response = await request.send();
+        
+        if (response.statusCode == 200) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Documento subido a la memoria RAG exitosamente'), backgroundColor: Colors.green));
+            _cargarConocimiento();
+          }
+        } else {
+          final respStr = await response.stream.bytesToString();
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al subir: $respStr'), backgroundColor: Colors.redAccent));
+        }
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final subidos = _documentos.where((d) => d['rol'] == 'user').toList();
@@ -372,6 +420,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                 _buildKnowledgeList(),
               ],
             ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _subirDocumentoRAG,
+        backgroundColor: Colors.cyanAccent,
+        icon: const Icon(Icons.upload_file, color: Colors.black),
+        label: const Text('Subir a Memoria', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+      ),
     );
   }
 }

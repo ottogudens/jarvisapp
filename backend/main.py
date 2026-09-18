@@ -514,6 +514,85 @@ async def obtener_prompt_agente(
 
 # ── Gestión de Memoria y Conocimiento (RAG) ──────────────
 
+@app.post("/v1/knowledge/upload")
+async def subir_conocimiento(
+    files: List[UploadFile] = File(...),
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.ai_service import get_gemini_client
+    import uuid, fitz, io as _io
+    from backend.models import KnowledgeDocument, DocumentChunk
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No se enviaron archivos")
+    
+    _gc = get_gemini_client()
+    nombres_procesados = []
+
+    for file in files:
+        if not file.filename: continue
+        file_bytes = await file.read()
+        if len(file_bytes) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"El archivo {file.filename} excede el límite de 15 MB.")
+
+        file_type = file.content_type or "application/octet-stream"
+        text = ""
+
+        if file_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
+            try:
+                pdf_doc = fitz.open(stream=_io.BytesIO(file_bytes), filetype="pdf")
+                text = "\n".join(page.get_text() for page in pdf_doc)
+                pdf_doc.close()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error leyendo PDF: {e}")
+        elif file_type.startswith("text/") or file.filename.lower().endswith((".txt", ".md", ".csv")):
+            text = file_bytes.decode("utf-8", errors="ignore")
+        else:
+            raise HTTPException(status_code=400, detail=f"Formato no soportado para RAG: {file.filename}")
+
+        if not text.strip():
+            raise HTTPException(status_code=400, detail=f"El archivo {file.filename} no contiene texto extraíble.")
+
+        # Dividir texto en chunks de ~1000 caracteres
+        chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
+        
+        # Generar embeddings
+        for i, chunk in enumerate(chunks):
+            try:
+                emb_res = _gc.models.embed_content(
+                    model="text-embedding-004",
+                    contents=chunk,
+                    task_type="RETRIEVAL_DOCUMENT"
+                )
+                embedding = emb_res.embeddings[0].values
+                
+                if i == 0:
+                    # Crear documento principal
+                    nuevo_doc = KnowledgeDocument(
+                        id_tenant=usuario["id_tenant"],
+                        nombre=file.filename,
+                    )
+                    db.add(nuevo_doc)
+                    db.commit()
+                    db.refresh(nuevo_doc)
+                    nombres_procesados.append(file.filename)
+                
+                # Crear chunk
+                nuevo_chunk = DocumentChunk(
+                    id_document=nuevo_doc.id_document,
+                    contenido=chunk,
+                    embedding=embedding
+                )
+                db.add(nuevo_chunk)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                raise HTTPException(status_code=500, detail=f"Error al generar embeddings: {str(e)}")
+                
+    return {"status": "success", "message": f"Procesados: {', '.join(nombres_procesados)}"}
+
+
 @app.get("/v1/knowledge/all")
 async def listar_conocimiento(
     usuario: dict = Depends(obtener_usuario_actual),
@@ -829,16 +908,8 @@ async def enviar_mensaje_chat(
                 if tp and tp.instrucciones_extra:
                     sys_prompt += f"\n\n[Instrucciones Adicionales del Cliente]:\n{tp.instrucciones_extra}"
 
-    # Override temporal de la sesión (ej. de la app móvil)
-    prompt_personalizado = custom_prompt
-    if not prompt_personalizado and x_custom_prompt:
-        try:
-            prompt_personalizado = base64.b64decode(x_custom_prompt).decode("utf-8")
-        except Exception:
-            prompt_personalizado = x_custom_prompt
-            
-    if prompt_personalizado and prompt_personalizado.strip():
-        sys_prompt = prompt_personalizado.strip()
+    # Se elimina el override destructivo de x_custom_prompt para que SIEMPRE se respete
+    # el Perfil Activo (JarvisProfile) y las Instrucciones Extra del cliente (TenantProfile).
 
     # Fix #tokens-3: la lista de routers (y las instrucciones de red asociadas)
     # solo se agrega al contexto si el mensaje del turno actual parece ser sobre
@@ -868,8 +939,15 @@ async def enviar_mensaje_chat(
     # Fix #tokens-2: sys_prompt ya NO se concatena al contenido del turno — se
     # pasa por separado a call_llm_with_tools() como mensaje de rol "system",
     # habilitando prompt caching nativo del proveedor entre turnos de la sesión.
-    if x_sarcasm_level:
-        sys_prompt += f"\nNota: Mantén un nivel de sarcasmo/ironía: {x_sarcasm_level}.\n"
+    if x_sarcasm_level and x_sarcasm_level.lower() != "nulo":
+        if x_sarcasm_level.lower() == "bajo":
+            sys_prompt += "\n\n[DIRECTIVA DE PERSONALIDAD]: Responde con un tono LIGERAMENTE SARCÁSTICO, sutil y ocasional.\n"
+        elif x_sarcasm_level.lower() == "medio":
+            sys_prompt += "\n\n[DIRECTIVA DE PERSONALIDAD]: Tu tono DEBE SER CLARAMENTE SARCÁSTICO E IRÓNICO. Búrlate un poco de la situación de forma amigable.\n"
+        elif x_sarcasm_level.lower() == "alto":
+            sys_prompt += "\n\n[DIRECTIVA DE PERSONALIDAD]: ERES EXTREMADAMENTE SARCÁSTICO, CÍNICO Y PESADO. Cuestiona la inteligencia de quien te habla y responde con sátira pura, actuando como si te estuvieran haciendo perder el tiempo.\n"
+        else:
+            sys_prompt += f"\n\n[DIRECTIVA DE PERSONALIDAD]: Mantén estrictamente este nivel de sarcasmo: {x_sarcasm_level}.\n"
         
     sys_prompt += (
         "\n[RAG Y GESTIÓN DE DOCUMENTOS]:\n"
