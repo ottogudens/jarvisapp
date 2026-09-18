@@ -102,6 +102,13 @@ def inicializar_base_de_datos_remota():
     except Exception:
         pass
         
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE knowledge_documents ADD COLUMN id_folder VARCHAR(36) REFERENCES knowledge_folders(id_folder) ON DELETE SET NULL'))
+            conn.commit()
+    except Exception:
+        pass
+        
     Base.metadata.create_all(bind=engine)
 
 

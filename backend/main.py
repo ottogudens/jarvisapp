@@ -520,7 +520,6 @@ async def subir_conocimiento(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.ai_service import get_gemini_client
     import uuid, fitz, io as _io
     from backend.models import KnowledgeDocument, DocumentChunk
 
@@ -605,21 +604,110 @@ async def subir_conocimiento(
     return {"status": "success", "message": f"Procesados: {', '.join(nombres_procesados)}"}
 
 
+from pydantic import BaseModel
+class FolderCreate(BaseModel):
+    nombre: str
+
+@app.post("/v1/knowledge/folders")
+async def crear_knowledge_folder(
+    data: FolderCreate,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import KnowledgeFolder
+    nueva_carpeta = KnowledgeFolder(
+        id_tenant=usuario["id_tenant"],
+        nombre=data.nombre
+    )
+    db.add(nueva_carpeta)
+    db.commit()
+    db.refresh(nueva_carpeta)
+    return {"status": "success", "id_folder": nueva_carpeta.id_folder, "nombre": nueva_carpeta.nombre}
+
+@app.put("/v1/knowledge/folders/{id_folder}")
+async def editar_knowledge_folder(
+    id_folder: str,
+    data: FolderCreate,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import KnowledgeFolder
+    carpeta = db.query(KnowledgeFolder).filter(
+        KnowledgeFolder.id_folder == id_folder,
+        KnowledgeFolder.id_tenant == usuario["id_tenant"]
+    ).first()
+    if not carpeta:
+        raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    
+    carpeta.nombre = data.nombre
+    db.commit()
+    return {"status": "success", "message": "Carpeta actualizada"}
+
+@app.delete("/v1/knowledge/folders/{id_folder}")
+async def eliminar_knowledge_folder(
+    id_folder: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import KnowledgeFolder
+    carpeta = db.query(KnowledgeFolder).filter(
+        KnowledgeFolder.id_folder == id_folder,
+        KnowledgeFolder.id_tenant == usuario["id_tenant"]
+    ).first()
+    if not carpeta:
+        raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    
+    db.delete(carpeta)
+    db.commit()
+    return {"message": "Carpeta eliminada exitosamente"}
+
+@app.put("/v1/knowledge/{id_document}/move")
+async def mover_knowledge_document(
+    id_document: str,
+    data: dict,  # {"id_folder": "uuid" or None}
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import KnowledgeDocument
+    doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_document == id_document,
+        KnowledgeDocument.id_tenant == usuario["id_tenant"]
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+        
+    doc.id_folder = data.get("id_folder")
+    db.commit()
+    return {"status": "success", "message": "Documento movido"}
+
 @app.get("/v1/knowledge/all")
 async def listar_conocimiento(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import KnowledgeDocument
-    documentos = db.query(KnowledgeDocument).filter(
+    from backend.models import KnowledgeDocument, KnowledgeFolder
+    
+    carpetas_db = db.query(KnowledgeFolder).filter(
+        KnowledgeFolder.id_tenant == usuario["id_tenant"]
+    ).order_by(KnowledgeFolder.created_at.desc()).all()
+    
+    documentos_db = db.query(KnowledgeDocument).filter(
         KnowledgeDocument.id_tenant == usuario["id_tenant"]
     ).order_by(KnowledgeDocument.created_at.desc()).all()
     
-    return [{
-        "id_document": d.id_document,
-        "nombre": d.nombre,
-        "created_at": d.created_at.isoformat() if d.created_at else None
-    } for d in documentos]
+    return {
+        "carpetas": [{
+            "id_folder": c.id_folder,
+            "nombre": c.nombre,
+            "created_at": c.created_at.isoformat() if c.created_at else None
+        } for c in carpetas_db],
+        "documentos": [{
+            "id_document": d.id_document,
+            "id_folder": d.id_folder,
+            "nombre": d.nombre,
+            "created_at": d.created_at.isoformat() if d.created_at else None
+        } for d in documentos_db]
+    }
 
 @app.delete("/v1/knowledge/{id_document}")
 async def eliminar_conocimiento(
@@ -962,12 +1050,14 @@ async def enviar_mensaje_chat(
             sys_prompt += f"\n\n[DIRECTIVA DE PERSONALIDAD]: Mantén estrictamente este nivel de sarcasmo: {x_sarcasm_level}.\n"
         
     sys_prompt += (
-        "\n[RAG Y GESTIÓN DE DOCUMENTOS]:\n"
-        "Si el usuario sube un archivo y te pide guardarlo, almacenarlo, o aprenderlo como conocimiento, "
+        "\n[RAG, GESTIÓN DE DOCUMENTOS Y MEMORIA PERMANENTE]:\n"
+        "PRIMERO: Si el usuario te hace una pregunta sobre información que no sabes (datos de clientes, minutas, reportes, historia, etc.), "
+        "tienes la OBLIGACIÓN de usar la herramienta `buscar_conocimiento(consulta)` ANTES de responder. Tu memoria RAG es tu fuente principal de verdad.\n"
+        "SEGUNDO: Si el usuario te envía un archivo o imagen por el chat y NO especifica qué hacer con él, NO lo guardes automáticamente. "
+        "DEBES preguntarle explícitamente: '¿Deseas que procese este archivo y lo guarde en tu Memoria permanente, o solo necesitas hacer una consulta específica sobre él?'.\n"
+        "TERCERO: Si el usuario te pide explícitamente guardar, almacenar, o aprender el archivo que acaba de enviar como conocimiento, "
         "DEBES llamar a la herramienta `almacenar_conocimiento(nombre_documento)` para guardarlo permanentemente. "
-        "Tú mismo debes inferir un nombre descriptivo basado en el contenido, a menos que el usuario especifique uno. "
-        "Si el usuario te hace una pregunta y no sabes la respuesta o parece depender de documentos previos, usa "
-        "la herramienta `buscar_conocimiento(consulta)` para recuperar la información de su memoria permanente.\n"
+        "Asigna un nombre descriptivo basado en el contenido si el usuario no especifica uno.\n"
     )
     prompt_con_contexto = ""
     if focused_knowledge:

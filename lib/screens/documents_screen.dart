@@ -17,6 +17,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
   bool _isLoading = true;
   List<Map<String, dynamic>> _documentos = [];
   List<Map<String, dynamic>> _conocimiento = [];
+  List<Map<String, dynamic>> _carpetas = [];
+  String? _currentFolderId;
   String _searchQuery = '';
   late TabController _tabController;
 
@@ -67,9 +69,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         headers: {'Authorization': 'Bearer $token'},
       );
       if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List;
+        final data = jsonDecode(resp.body);
         if (mounted) {
-          setState(() => _conocimiento = data.map((e) => Map<String, dynamic>.from(e)).toList());
+          setState(() {
+            _carpetas = List<Map<String, dynamic>>.from(data['carpetas'] ?? []);
+            _conocimiento = List<Map<String, dynamic>>.from(data['documentos'] ?? []);
+          });
         }
       }
     } catch (e) {
@@ -298,45 +303,196 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildKnowledgeList() {
-    if (_conocimiento.isEmpty) {
-      return const Center(child: Text('La memoria de JARVIS está vacía', style: TextStyle(color: Colors.white54)));
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _conocimiento.length,
-      itemBuilder: (context, i) {
-        final doc = _conocimiento[i];
-        return Card(
-          color: const Color(0xFF1E293B),
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.white.withOpacity(0.05)),
+  Future<void> _crearCarpeta() async {
+    final TextEditingController nameController = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Nueva Carpeta', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: nameController,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Nombre de la carpeta',
+            hintStyle: TextStyle(color: Colors.white54),
           ),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.purple.withOpacity(0.2),
-              child: const Icon(Icons.memory, color: Colors.purpleAccent),
-            ),
-            title: Text(
-              doc['nombre'] ?? 'Documento RAG',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              'Fecha de almacenamiento: ${doc['created_at']?.split('T')[0] ?? ''}',
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              onPressed: () => _eliminarConocimiento(doc['id_document']),
-              tooltip: 'Olvidar',
-            ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(color: Colors.white54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+            onPressed: () => Navigator.pop(context, nameController.text),
+            child: const Text('Crear', style: TextStyle(color: Colors.black)),
           ),
+        ],
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      setState(() => _isLoading = true);
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('jwt_token') ?? '';
+        final resp = await http.post(
+          Uri.parse('$kApiBaseUrl/v1/knowledge/folders'),
+          headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+          body: jsonEncode({'nombre': result}),
         );
-      },
+        if (resp.statusCode == 200) {
+          _cargarConocimiento();
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      } finally {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _eliminarCarpeta(String idFolder) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Eliminar Carpeta', style: TextStyle(color: Colors.white)),
+        content: const Text('¿Estás seguro? Los documentos dentro quedarán sin carpeta.', style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent), child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? '';
+      await http.delete(Uri.parse('$kApiBaseUrl/v1/knowledge/folders/$idFolder'), headers: {'Authorization': 'Bearer $token'});
+      _cargarConocimiento();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
+  Future<void> _moverDocumento(String idDocument) async {
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Mover a...', style: TextStyle(color: Colors.white)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.home, color: Colors.cyanAccent),
+                title: const Text('Carpeta Principal', style: TextStyle(color: Colors.white)),
+                onTap: () => Navigator.pop(context, 'ROOT'),
+              ),
+              ..._carpetas.map((c) => ListTile(
+                leading: const Icon(Icons.folder, color: Colors.cyanAccent),
+                title: Text(c['nombre'], style: const TextStyle(color: Colors.white)),
+                onTap: () => Navigator.pop(context, c['id_folder']),
+              )),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (result != null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('jwt_token') ?? '';
+        final folderId = result == 'ROOT' ? null : result;
+        await http.put(
+          Uri.parse('$kApiBaseUrl/v1/knowledge/$idDocument/move'),
+          headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+          body: jsonEncode({'id_folder': folderId}),
+        );
+        _cargarConocimiento();
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Widget _buildKnowledgeList() {
+    final itemsToShow = _currentFolderId == null
+        ? _conocimiento.where((d) => d['id_folder'] == null).toList()
+        : _conocimiento.where((d) => d['id_folder'] == _currentFolderId).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            children: [
+              if (_currentFolderId != null)
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.cyanAccent),
+                  onPressed: () => setState(() => _currentFolderId = null),
+                ),
+              Text(
+                _currentFolderId == null 
+                  ? 'Carpeta Principal' 
+                  : _carpetas.firstWhere((c) => c['id_folder'] == _currentFolderId, orElse: () => {'nombre': 'Carpeta'})['nombre'],
+                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              if (_currentFolderId == null)
+                TextButton.icon(
+                  onPressed: _crearCarpeta,
+                  icon: const Icon(Icons.create_new_folder, color: Colors.cyanAccent),
+                  label: const Text('Nueva Carpeta', style: TextStyle(color: Colors.cyanAccent)),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _carpetas.isEmpty && _conocimiento.isEmpty
+            ? const Center(child: Text('La memoria de JARVIS está vacía', style: TextStyle(color: Colors.white54)))
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  if (_currentFolderId == null)
+                    ..._carpetas.map((c) => Card(
+                      color: const Color(0xFF1E293B),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.cyan.withOpacity(0.3))),
+                      child: ListTile(
+                        leading: const Icon(Icons.folder, color: Colors.cyanAccent, size: 40),
+                        title: Text(c['nombre'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        subtitle: const Text('Carpeta', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                        onTap: () => setState(() => _currentFolderId = c['id_folder']),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.redAccent),
+                          onPressed: () => _eliminarCarpeta(c['id_folder']),
+                        ),
+                      ),
+                    )),
+                  ...itemsToShow.map((doc) => Card(
+                    color: const Color(0xFF1E293B),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withOpacity(0.05))),
+                    child: ListTile(
+                      leading: CircleAvatar(backgroundColor: Colors.purple.withOpacity(0.2), child: const Icon(Icons.memory, color: Colors.purpleAccent)),
+                      title: Text(doc['nombre'] ?? 'Documento RAG', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text('Fecha: ${doc['created_at']?.split('T')[0] ?? ''}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(icon: const Icon(Icons.drive_file_move, color: Colors.cyan), onPressed: () => _moverDocumento(doc['id_document'])),
+                          IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => _eliminarConocimiento(doc['id_document'])),
+                        ],
+                      ),
+                    ),
+                  )),
+                ],
+              ),
+        ),
+      ],
     );
   }
 

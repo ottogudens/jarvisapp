@@ -261,7 +261,7 @@ def call_llm_with_tools(
         elif fn_name == "comando_mikrotik_avanzado":
             return comando_mikrotik_avanzado(**args)
         elif fn_name == "almacenar_conocimiento":
-            from backend.models import KnowledgeDocument, DocumentChunk
+            from backend.models import KnowledgeDocument, DocumentChunk, KnowledgeFolder
             nombre_doc = args.get("nombre_documento", "Documento sin título")
             if not raw_documents:
                 return "Error: No se encontró ningún archivo subido en este mensaje para almacenar."
@@ -271,9 +271,22 @@ def call_llm_with_tools(
                 return "Error: El archivo subido no contenía texto extraíble."
 
             try:
+                # Buscar o crear la carpeta "Subidos por Chat"
+                carpeta_chat = db.query(KnowledgeFolder).filter(
+                    KnowledgeFolder.id_tenant == user_db.id_tenant,
+                    KnowledgeFolder.nombre == "Subidos por Chat"
+                ).first()
+                
+                if not carpeta_chat:
+                    carpeta_chat = KnowledgeFolder(id_tenant=user_db.id_tenant, nombre="Subidos por Chat")
+                    db.add(carpeta_chat)
+                    db.commit()
+                    db.refresh(carpeta_chat)
+
                 nuevo_doc = KnowledgeDocument(
                     id_tenant=user_db.id_tenant,
                     id_usuario=user_db.id_usuario,
+                    id_folder=carpeta_chat.id_folder,
                     nombre=nombre_doc
                 )
                 db.add(nuevo_doc)

@@ -289,15 +289,31 @@ class IoTConfig(Base):
     def __repr__(self):
         return f"<IoTConfig Usuario:{self.id_usuario}>"
 
+class KnowledgeFolder(Base):
+    __tablename__ = 'knowledge_folders'
+
+    id_folder = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    nombre = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    tenant = relationship("Tenant")
+    documentos = relationship("KnowledgeDocument", back_populates="folder")
+
+
 class KnowledgeDocument(Base):
     __tablename__ = 'knowledge_documents'
 
     id_document = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
     id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), nullable=True)
+    id_folder = Column(String(36), ForeignKey('knowledge_folders.id_folder', ondelete='SET NULL'), nullable=True)
     nombre = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    tenant = relationship("Tenant")
+    usuario = relationship("Usuario")
+    folder = relationship("KnowledgeFolder", back_populates="documentos")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 
 class DocumentChunk(Base):
