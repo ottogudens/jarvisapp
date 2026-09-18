@@ -90,6 +90,7 @@ class MikrotikService:
         - Si el path es destructivo, se ejecuta como POST con `params` como body — el llamador
           (mikrotik_tools.py) es responsable de exigir confirmación antes de invocar esto.
         """
-        if self.is_destructive(path):
-            return self._request("POST", path, data=params)
-        return self._request("GET", path, query=params)
+        # "All API features are available via POST. Encode the command word in the URL"
+        # Since this method receives RouterOS commands (e.g. /ping, /ip/address/print), 
+        # it must use POST. GET is only for pure resource paths (e.g. /ip/address).
+        return self._request("POST", path, data=params)
