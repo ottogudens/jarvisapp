@@ -380,6 +380,66 @@ def delete_tenant(
     return {"message": f"Cliente '{db_tenant.nombre_organizacion}' eliminado correctamente"}
 
 # ============================================================
+# Endpoints AI Stats & AI Keys
+# ============================================================
+
+@router.get("/ai-stats")
+def get_ai_stats(usuario: dict = Depends(requiere_superadmin), db: Session = Depends(get_db)):
+    stats = db.query(AIUsageStats).all()
+    grouped_by_provider = {}
+    for s in stats:
+        if s.proveedor not in grouped_by_provider:
+            grouped_by_provider[s.proveedor] = {"provider": s.proveedor, "tokens": 0, "requests": 0}
+        grouped_by_provider[s.proveedor]["tokens"] += (s.tokens_consumidos or 0)
+        grouped_by_provider[s.proveedor]["requests"] += (s.solicitudes_realizadas or 0)
+
+    return {
+        "providers": list(grouped_by_provider.values()),
+        "raw": [
+            {
+                "id_tenant": s.id_tenant,
+                "proveedor": s.proveedor,
+                "tokens_consumidos": s.tokens_consumidos,
+                "solicitudes_realizadas": s.solicitudes_realizadas
+            } for s in stats
+        ]
+    }
+
+class AIKeyTest(BaseModel):
+    provider: str
+    api_key: str
+
+@router.post("/ai-keys/test")
+def test_ai_key(data: AIKeyTest, usuario: dict = Depends(requiere_superadmin)):
+    import litellm
+    from litellm import completion
+    import os
+    
+    provider = data.provider.lower()
+    os.environ[f"{provider.upper()}_API_KEY"] = data.api_key
+    
+    if provider == "openai":
+        model = "openai/gpt-3.5-turbo"
+    elif provider == "anthropic" or provider == "claude":
+        model = "anthropic/claude-3-haiku-20240307"
+    elif provider == "gemini":
+        model = "gemini/gemini-1.5-flash"
+    elif provider == "deepseek":
+        model = "deepseek/deepseek-chat"
+    else:
+        raise HTTPException(status_code=400, detail="Proveedor desconocido")
+
+    try:
+        response = completion(
+            model=model,
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=5
+        )
+        return {"status": "ok", "message": "Key is valid"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ============================================================
 # Endpoints Usuarios (Clientes por Tenant)
 # ============================================================
 
