@@ -101,7 +101,15 @@ def inicializar_base_de_datos_remota():
             conn.commit()
     except Exception:
         pass
-        
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE usuarios ADD COLUMN telegram_chat_id BIGINT UNIQUE'))
+            conn.execute(text('ALTER TABLE usuarios ADD COLUMN telegram_username VARCHAR(100)'))
+            conn.commit()
+    except Exception:
+        pass
+
     Base.metadata.create_all(bind=engine)
 
     # Migraciones que dependen de tablas creadas en create_all
