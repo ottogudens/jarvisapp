@@ -13,7 +13,7 @@ from backend.database import get_db
 from backend.auth import obtener_usuario_actual
 from backend.models import Usuario, ChatSession, ChatMessage
 from backend.ai_service import call_llm_with_tools
-from backend.main import SYSTEM_PROMPTS
+from backend.prompts import SYSTEM_PROMPTS
 
 router = APIRouter(prefix="/v1/telegram", tags=["Telegram Integration"])
 
