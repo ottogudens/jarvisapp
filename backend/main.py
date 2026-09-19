@@ -18,6 +18,7 @@ import json
 import tempfile
 import hashlib
 import hmac
+import httpx
 from typing import Type, List, Optional
 from contextlib import asynccontextmanager
 
@@ -1204,4 +1205,53 @@ async def update_iot_config(
     
     db.commit()
     return {"message": "Configuración IoT guardada"}
+
+
+@app.post("/v1/iot/test-ha")
+async def test_ha_connection(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    """Verifica si la conexión con Home Assistant es exitosa."""
+    from backend.iot_service import IoTService
+    service = IoTService(db, usuario["id_usuario"])
+    if not service.config or not service.config.ha_url or not service.config.ha_token:
+        return {"status": "error", "connected": False, "message": "Falta URL o Token de Home Assistant"}
+    
+    url = f"{service.config.ha_url.rstrip('/')}/api/"
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(url, headers=service.get_ha_headers(), timeout=5.0)
+            if res.statusCode == 200 or res.status_code == 200:
+                data = res.json()
+                return {"status": "success", "connected": True, "message": data.get("message", "Conexión exitosa a Home Assistant")}
+            else:
+                return {"status": "error", "connected": False, "message": f"Error HTTP {res.status_code}"}
+    except Exception as e:
+        return {"status": "error", "connected": False, "message": str(e)}
+
+
+@app.post("/v1/iot/test-mqtt")
+async def test_mqtt_connection(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    """Verifica si la conexión con el Broker MQTT es exitosa."""
+    import paho.mqtt.client as mqtt
+    from backend.models import IoTConfig
+    config = db.query(IoTConfig).filter(IoTConfig.id_usuario == usuario["id_usuario"]).first()
+    if not config or not config.mqtt_broker:
+        return {"status": "error", "connected": False, "message": "Falta el Broker MQTT"}
+
+    try:
+        client = mqtt.Client()
+        if config.mqtt_user and config.mqtt_password:
+            client.username_pw_set(config.mqtt_user, config.mqtt_password)
+        port = config.mqtt_port if config.mqtt_port else 1883
+        client.connect(config.mqtt_broker, port, timeout=5)
+        client.disconnect()
+        return {"status": "success", "connected": True, "message": "Conexión a Broker MQTT exitosa"}
+    except Exception as e:
+        return {"status": "error", "connected": False, "message": str(e)}
+
 

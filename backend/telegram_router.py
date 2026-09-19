@@ -168,3 +168,42 @@ async def procesar_mensaje_telegram(
         "generated_urls": generated_urls,
         "tokens_consumidos": tokens
     }
+
+
+@router.get("/status")
+async def consultar_estado_telegram(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """
+    Obtiene el estado de conexión con Telegram del usuario actual.
+    """
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    is_linked = user.telegram_chat_id is not None
+    return {
+        "connected": is_linked,
+        "telegram_chat_id": user.telegram_chat_id,
+        "telegram_username": user.telegram_username,
+    }
+
+
+@router.post("/unlink")
+async def desvincular_cuenta_telegram(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """
+    Desvincula la cuenta de Telegram del usuario actual.
+    """
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    user.telegram_chat_id = None
+    user.telegram_username = None
+    db.commit()
+    return {"status": "success", "message": "Cuenta de Telegram desvinculada exitosamente"}
+

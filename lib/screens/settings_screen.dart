@@ -27,6 +27,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  // Telegram Config & Status
+  bool _telegramConnected = false;
+  String? _telegramUsername;
+  String? _telegramChatId;
+  String? _linkCode;
+  bool _isGeneratingCode = false;
+
+  // IoT Config & Connection Status
+  final _haUrlController = TextEditingController();
+  final _haTokenController = TextEditingController();
+  bool? _haConnected;
+  bool _testingHA = false;
+  String? _haStatusMessage;
+
+  final _mqttBrokerController = TextEditingController();
+  final _mqttPortController = TextEditingController(text: '1883');
+  final _mqttUserController = TextEditingController();
+  final _mqttPasswordController = TextEditingController();
+  bool? _mqttConnected;
+  bool _testingMQTT = false;
+  String? _mqttStatusMessage;
 
   // MikroTik
   List<dynamic> _mikrotikRouters = [];
@@ -35,13 +56,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _mkPortController = TextEditingController(text: '443');
   final _mkUserController = TextEditingController();
   final _mkPasswordController = TextEditingController();
-  // IoT Config
-  final _haUrlController = TextEditingController();
-  final _haTokenController = TextEditingController();
-  final _mqttBrokerController = TextEditingController();
-  final _mqttPortController = TextEditingController(text: '1883');
-  final _mqttUserController = TextEditingController();
-  final _mqttPasswordController = TextEditingController();
 
   List<dynamic> _perfiles = [];
   int? _activeProfileId;
@@ -54,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadSettings();
     _loadIoTConfig();
     _loadMikrotikRouters();
+    _loadTelegramStatus();
   }
 
   Future<void> _loadSettings() async {
@@ -119,6 +134,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() => _isLoading = false);
     }
   }
+
+  Future<void> _loadTelegramStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/telegram/status'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          _telegramConnected = data['connected'] ?? false;
+          _telegramChatId = data['telegram_chat_id']?.toString();
+          _telegramUsername = data['telegram_username'];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading Telegram status: $e');
+    }
+  }
+
+  Future<void> _generateTelegramLinkCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    setState(() => _isGeneratingCode = true);
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/telegram/link-code'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          _linkCode = data['link_code'];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error generating link code: $e');
+    } finally {
+      if (mounted) setState(() => _isGeneratingCode = false);
+    }
+  }
+
+  Future<void> _unlinkTelegram() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/telegram/unlink'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          _telegramConnected = false;
+          _telegramChatId = null;
+          _telegramUsername = null;
+          _linkCode = null;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Telegram desvinculado'), backgroundColor: Colors.orangeAccent),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error unlinking Telegram: $e');
+    }
+  }
+
   Future<void> _loadIoTConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -144,6 +232,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _testHAConnection() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    setState(() {
+      _testingHA = true;
+      _haStatusMessage = null;
+    });
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/iot/test-ha'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          _haConnected = data['connected'] ?? false;
+          _haStatusMessage = data['message'];
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _haConnected = false;
+        _haStatusMessage = 'Error de conexión: $e';
+      });
+    } finally {
+      if (mounted) setState(() => _testingHA = false);
+    }
+  }
+
+  Future<void> _testMQTTConnection() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    setState(() {
+      _testingMQTT = true;
+      _mqttStatusMessage = null;
+    });
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/iot/test-mqtt'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          _mqttConnected = data['connected'] ?? false;
+          _mqttStatusMessage = data['message'];
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _mqttConnected = false;
+        _mqttStatusMessage = 'Error de conexión: $e';
+      });
+    } finally {
+      if (mounted) setState(() => _testingMQTT = false);
+    }
+  }
 
   Future<void> _loadMikrotikRouters() async {
     final prefs = await SharedPreferences.getInstance();
@@ -186,7 +333,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (response.statusCode == 200) {
         _mkNameController.clear();
         _mkIpController.clear();
-        _mkPortController.text = '80';
+        _mkPortController.text = '443';
         _mkUserController.clear();
         _mkPasswordController.clear();
         _loadMikrotikRouters();
@@ -362,8 +509,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
 
-
-    // Guardar perfil
     if (token != null) {
       try {
         await http.put(
@@ -393,24 +538,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _restoreDefaultPrompt() {
-    if (_defaultPrompt.isNotEmpty) {
-      setState(() {
-        _promptController.text = _defaultPrompt;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Rol restaurado al predeterminado del sistema')),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _voiceIdController.dispose();
-    _promptController.dispose();
-    super.dispose();
-  }
-
   Future<void> _saveProfileInstructions(int idPerfil, String? instruccionesExtra) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -433,6 +560,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       debugPrint('Error saving profile instructions: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    _voiceIdController.dispose();
+    _promptController.dispose();
+    _haUrlController.dispose();
+    _haTokenController.dispose();
+    _mqttBrokerController.dispose();
+    _mqttPortController.dispose();
+    _mqttUserController.dispose();
+    _mqttPasswordController.dispose();
+    super.dispose();
   }
 
   @override
@@ -478,7 +618,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
                 
-                
+                // INTEGRACIÓN TELEGRAM
+                const SizedBox(height: 32),
+                _buildSectionTitle('Integración Bot de Telegram'),
+                const SizedBox(height: 14),
+                Card(
+                  color: const Color(0xFF1E293B),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: ExpansionTile(
+                    leading: Icon(
+                      Icons.send,
+                      color: _telegramConnected ? Colors.lightBlueAccent : Colors.white38,
+                    ),
+                    title: Row(
+                      children: [
+                        const Text('Bot de Telegram', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        _buildStatusBadge(_telegramConnected),
+                      ],
+                    ),
+                    subtitle: Text(
+                      _telegramConnected 
+                          ? 'Conectado${_telegramUsername != null ? ' (@$_telegramUsername)' : ''}'
+                          : 'No vinculado',
+                      style: TextStyle(color: _telegramConnected ? Colors.greenAccent : Colors.white54, fontSize: 12),
+                    ),
+                    iconColor: Colors.cyanAccent,
+                    collapsedIconColor: Colors.cyanAccent,
+                    childrenPadding: const EdgeInsets.all(16),
+                    children: [
+                      if (_telegramConnected) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.1),
+                            border: Border.all(color: Colors.greenAccent.withOpacity(0.3)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.check_circle, color: Colors.greenAccent, size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Tu cuenta está vinculada exitosamente con Telegram.',
+                                      style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (_telegramChatId != null) ...[
+                                const SizedBox(height: 6),
+                                Text('Chat ID: $_telegramChatId', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                              ]
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        OutlinedButton.icon(
+                          onPressed: _unlinkTelegram,
+                          icon: const Icon(Icons.link_off, color: Colors.redAccent),
+                          label: const Text('Desvincular Telegram', style: TextStyle(color: Colors.redAccent)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.redAccent),
+                          ),
+                        ),
+                      ] else ...[
+                        Text(
+                          'Para conectar tu agente J.A.R.V.I.S. con Telegram, genera un código de vinculación e ingrésalo en tu bot.',
+                          style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
+                        ),
+                        const SizedBox(height: 16),
+                        if (_linkCode != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0F172A),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)),
+                            ),
+                            child: Column(
+                              children: [
+                                const Text('Código de Vinculación:', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                                const SizedBox(height: 6),
+                                SelectableText(
+                                  _linkCode!,
+                                  style: const TextStyle(color: Colors.cyanAccent, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Abre tu Bot de Telegram y envía el comando:\n/start $_linkCode',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        ElevatedButton.icon(
+                          onPressed: _isGeneratingCode ? null : _generateTelegramLinkCode,
+                          icon: _isGeneratingCode 
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                              : const Icon(Icons.qr_code, color: Colors.black),
+                          label: Text(_linkCode == null ? 'Generar Código de Vinculación' : 'Regenerar Código', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
                 
                 if (_perfiles.isNotEmpty) ...[
                   const SizedBox(height: 32),
@@ -636,7 +888,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SwitchListTile(
                   title: const Text('Modo Manos Libres Activo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                   subtitle: const Text(
-                    'Respuesta automática por voz y control con el botón del auricular inalámbrico (inicia grabación, y envía tras 3s de silencio o nuevo clic).',
+                    'Respuesta automática por voz y control con el botón del auricular inalámbrico.',
                     style: TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   value: _handsFreeMode,
@@ -649,22 +901,119 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
 
+                // INTEGRACIÓN IOT (DOMÓTICA)
                 const SizedBox(height: 32),
                 _buildSectionTitle('Integración IoT (Domótica)'),
                 const SizedBox(height: 14),
-                _buildTextField(_haUrlController, 'Home Assistant URL', Icons.home_work),
+                Card(
+                  color: const Color(0xFF1E293B),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: ExpansionTile(
+                    leading: Icon(
+                      Icons.home_work,
+                      color: _haConnected == true ? Colors.greenAccent : Colors.cyanAccent,
+                    ),
+                    title: Row(
+                      children: [
+                        const Text('Home Assistant', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        _buildStatusBadge(_haConnected),
+                      ],
+                    ),
+                    subtitle: Text(
+                      _haUrlController.text.isNotEmpty ? _haUrlController.text : 'No configurado',
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    iconColor: Colors.cyanAccent,
+                    collapsedIconColor: Colors.cyanAccent,
+                    childrenPadding: const EdgeInsets.all(16),
+                    children: [
+                      _buildTextField(_haUrlController, 'Home Assistant URL', Icons.link),
+                      const SizedBox(height: 10),
+                      _buildTextField(_haTokenController, 'Home Assistant Token (Long-Lived)', Icons.key, TextInputType.text, true),
+                      const SizedBox(height: 12),
+                      if (_haStatusMessage != null) ...[
+                        Text(
+                          _haStatusMessage!,
+                          style: TextStyle(
+                            color: _haConnected == true ? Colors.greenAccent : Colors.redAccent,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton.icon(
+                          onPressed: _testingHA ? null : _testHAConnection,
+                          icon: _testingHA 
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent))
+                              : const Icon(Icons.network_check, color: Colors.cyanAccent, size: 18),
+                          label: const Text('Probar Conexión HA', style: TextStyle(color: Colors.cyanAccent)),
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.cyanAccent)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 10),
-                _buildTextField(_haTokenController, 'Home Assistant Token (Long-Lived)', Icons.key),
-                const SizedBox(height: 10),
-                _buildTextField(_mqttBrokerController, 'MQTT Broker Host', Icons.router),
-                const SizedBox(height: 10),
-                _buildTextField(_mqttPortController, 'MQTT Broker Port', Icons.settings_ethernet, TextInputType.number),
-                const SizedBox(height: 10),
-                _buildTextField(_mqttUserController, 'MQTT User (Opcional)', Icons.person),
-                const SizedBox(height: 10),
-                _buildTextField(_mqttPasswordController, 'MQTT Password (Opcional)', Icons.password, TextInputType.text, true),
+                Card(
+                  color: const Color(0xFF1E293B),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: ExpansionTile(
+                    leading: Icon(
+                      Icons.hub,
+                      color: _mqttConnected == true ? Colors.greenAccent : Colors.cyanAccent,
+                    ),
+                    title: Row(
+                      children: [
+                        const Text('MQTT Broker', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        const SizedBox(width: 8),
+                        _buildStatusBadge(_mqttConnected),
+                      ],
+                    ),
+                    subtitle: Text(
+                      _mqttBrokerController.text.isNotEmpty ? '${_mqttBrokerController.text}:${_mqttPortController.text}' : 'No configurado',
+                      style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    iconColor: Colors.cyanAccent,
+                    collapsedIconColor: Colors.cyanAccent,
+                    childrenPadding: const EdgeInsets.all(16),
+                    children: [
+                      _buildTextField(_mqttBrokerController, 'MQTT Broker Host', Icons.router),
+                      const SizedBox(height: 10),
+                      _buildTextField(_mqttPortController, 'MQTT Broker Port', Icons.settings_ethernet, TextInputType.number),
+                      const SizedBox(height: 10),
+                      _buildTextField(_mqttUserController, 'MQTT User (Opcional)', Icons.person),
+                      const SizedBox(height: 10),
+                      _buildTextField(_mqttPasswordController, 'MQTT Password (Opcional)', Icons.password, TextInputType.text, true),
+                      const SizedBox(height: 12),
+                      if (_mqttStatusMessage != null) ...[
+                        Text(
+                          _mqttStatusMessage!,
+                          style: TextStyle(
+                            color: _mqttConnected == true ? Colors.greenAccent : Colors.redAccent,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton.icon(
+                          onPressed: _testingMQTT ? null : _testMQTTConnection,
+                          icon: _testingMQTT 
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent))
+                              : const Icon(Icons.network_check, color: Colors.cyanAccent, size: 18),
+                          label: const Text('Probar Conexión MQTT', style: TextStyle(color: Colors.cyanAccent)),
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.cyanAccent)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
-
+                // INTEGRACIÓN MIKROTIK
                 const SizedBox(height: 32),
                 _buildSectionTitle('Integración de Red (MikroTik)'),
                 const SizedBox(height: 14),
@@ -672,73 +1021,81 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ..._mikrotikRouters.map((r) {
                     final bool isConnected = r['is_connected'] ?? false;
                     final String? lastError = r['last_error'];
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        Icons.circle,
-                        color: isConnected ? Colors.greenAccent : Colors.redAccent,
-                        size: 14,
-                      ),
-                      title: Text(r['nombre'], style: const TextStyle(color: Colors.white)),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('${r['ip_address']}:${r['api_port']}', style: const TextStyle(color: Colors.white54)),
-                          if (!isConnected && lastError != null)
-                            Text('Error: $lastError', style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (!isConnected)
+                    return Card(
+                      color: const Color(0xFF1E293B),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.circle,
+                          color: isConnected ? Colors.greenAccent : Colors.redAccent,
+                          size: 14,
+                        ),
+                        title: Text(r['nombre'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('${r['ip_address']}:${r['api_port']}', style: const TextStyle(color: Colors.white54)),
+                            if (!isConnected && lastError != null)
+                              Text('Error: $lastError', style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                          ],
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!isConnected)
+                              IconButton(
+                                icon: const Icon(Icons.link, color: Colors.cyanAccent),
+                                tooltip: 'Conectar',
+                                onPressed: () => _connectMikrotik(r['id_router']),
+                              )
+                            else
+                              IconButton(
+                                icon: const Icon(Icons.link_off, color: Colors.orangeAccent),
+                                tooltip: 'Desconectar',
+                                onPressed: () => _disconnectMikrotik(r['id_router']),
+                              ),
                             IconButton(
-                              icon: const Icon(Icons.link, color: Colors.cyanAccent),
-                              tooltip: 'Conectar',
-                              onPressed: () => _connectMikrotik(r['id_router']),
-                            )
-                          else
-                            IconButton(
-                              icon: const Icon(Icons.link_off, color: Colors.orangeAccent),
-                              tooltip: 'Desconectar',
-                              onPressed: () => _disconnectMikrotik(r['id_router']),
+                              icon: const Icon(Icons.edit, color: Colors.amberAccent),
+                              tooltip: 'Editar',
+                              onPressed: () => _showEditMikrotikDialog(r),
                             ),
-                          IconButton(
-                            icon: const Icon(Icons.edit, color: Colors.amberAccent),
-                            tooltip: 'Editar',
-                            onPressed: () => _showEditMikrotikDialog(r),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.redAccent),
-                            onPressed: () => _deleteMikrotikRouter(r['id_router']),
-                          ),
-                        ],
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.redAccent),
+                              onPressed: () => _deleteMikrotikRouter(r['id_router']),
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   }),
                 const SizedBox(height: 10),
-                ExpansionTile(
-                  title: const Text('Agregar Nuevo Router', style: TextStyle(color: Colors.cyanAccent)),
-                  iconColor: Colors.cyanAccent,
-                  collapsedIconColor: Colors.cyanAccent,
-                  childrenPadding: const EdgeInsets.all(8),
-                  children: [
-                    _buildTextField(_mkNameController, 'Nombre (Ej: Oficina Principal)', Icons.router),
-                    const SizedBox(height: 10),
-                    _buildTextField(_mkIpController, 'IP Address', Icons.computer),
-                    const SizedBox(height: 10),
-                    _buildTextField(_mkPortController, 'Puerto API REST (Por defecto 80)', Icons.settings_ethernet, TextInputType.number),
-                    const SizedBox(height: 10),
-                    _buildTextField(_mkUserController, 'Usuario', Icons.person),
-                    const SizedBox(height: 10),
-                    _buildTextField(_mkPasswordController, 'Contraseña', Icons.password, TextInputType.text, true),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _addMikrotikRouter,
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
-                      child: const Text('Guardar Router', style: TextStyle(color: Colors.black)),
-                    )
-                  ],
+                Card(
+                  color: const Color(0xFF1E293B),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: ExpansionTile(
+                    title: const Text('Agregar Nuevo Router', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
+                    iconColor: Colors.cyanAccent,
+                    collapsedIconColor: Colors.cyanAccent,
+                    childrenPadding: const EdgeInsets.all(16),
+                    children: [
+                      _buildTextField(_mkNameController, 'Nombre (Ej: Oficina Principal)', Icons.router),
+                      const SizedBox(height: 10),
+                      _buildTextField(_mkIpController, 'IP Address', Icons.computer),
+                      const SizedBox(height: 10),
+                      _buildTextField(_mkPortController, 'Puerto API REST (Por defecto 443)', Icons.settings_ethernet, TextInputType.number),
+                      const SizedBox(height: 10),
+                      _buildTextField(_mkUserController, 'Usuario', Icons.person),
+                      const SizedBox(height: 10),
+                      _buildTextField(_mkPasswordController, 'Contraseña', Icons.password, TextInputType.text, true),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _addMikrotikRouter,
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
+                        child: const Text('Guardar Router', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      )
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 48),
                 SizedBox(
@@ -756,6 +1113,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 32),
               ],
             ),
+    );
+  }
+
+  Widget _buildStatusBadge(bool? status) {
+    if (status == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10)),
+        child: const Text('Sin probar', style: TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.bold)),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: status ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: status ? Colors.greenAccent : Colors.redAccent, width: 0.8),
+      ),
+      child: Text(
+        status ? 'Conectado' : 'Desconectado',
+        style: TextStyle(color: status ? Colors.greenAccent : Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
+      ),
     );
   }
 
@@ -781,7 +1160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         labelText: label,
         labelStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
         filled: true,
-        fillColor: const Color(0xFF1E293B),
+        fillColor: const Color(0xFF0F172A),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
