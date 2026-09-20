@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.auth import obtener_usuario_actual, require_superadmin
+from backend.auth import obtener_usuario_actual
 from backend.models import Usuario, ChatSession, ChatMessage
 from backend.prompts import SYSTEM_PROMPTS
 
@@ -36,9 +36,12 @@ class SetWebhookRequest(BaseModel):
 @router.post("/set-webhook")
 async def set_telegram_webhook(
     body: SetWebhookRequest,
-    usuario: dict = Depends(require_superadmin)
+    usuario: dict = Depends(obtener_usuario_actual)
 ):
     """Establece la URL del Webhook en la API de Telegram."""
+    if not usuario.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="No tienes permisos de superadmin para esto.")
+        
     if not TELEGRAM_BOT_TOKEN:
         raise HTTPException(status_code=500, detail="Falta TELEGRAM_BOT_TOKEN en el entorno del servidor.")
         
