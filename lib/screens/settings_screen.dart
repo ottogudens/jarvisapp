@@ -800,7 +800,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ],
                     ],
-                  ),
+                  ],
+                ),
                 ),
                 
                 if (_perfiles.isNotEmpty) ...[
