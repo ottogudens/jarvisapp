@@ -33,6 +33,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _telegramChatId;
   String? _linkCode;
   bool _isGeneratingCode = false;
+  bool _tenantBotConfigured = false;
+  final _telegramBotTokenController = TextEditingController();
+  bool _isConfiguringBot = false;
 
   // IoT Config & Connection Status
   final _haUrlController = TextEditingController();
@@ -147,6 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         setState(() {
+          _tenantBotConfigured = data['tenant_bot_configured'] ?? false;
           _telegramConnected = data['connected'] ?? false;
           _telegramChatId = data['telegram_chat_id']?.toString();
           _telegramUsername = data['telegram_username'];
@@ -154,6 +158,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } catch (e) {
       debugPrint('Error loading Telegram status: $e');
+    }
+  }
+
+  Future<void> _configurarNuevoBotTelegram() async {
+    final tokenValue = _telegramBotTokenController.text.trim();
+    if (tokenValue.isEmpty) return;
+    
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    setState(() => _isConfiguringBot = true);
+    
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/telegram/config'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({'bot_token': tokenValue}),
+      );
+      if (res.statusCode == 200) {
+        setState(() => _tenantBotConfigured = true);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bot SaaS desplegado y configurado exitosamente', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+      } else {
+        final body = jsonDecode(res.body);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(body['detail'] ?? 'Error configurando bot'), backgroundColor: Colors.redAccent));
+      }
+    } catch (e) {
+      debugPrint('Error configurando bot: $e');
+    } finally {
+      setState(() => _isConfiguringBot = false);
     }
   }
 
@@ -226,6 +259,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _mqttUserController.text = data['mqtt_user'] ?? '';
           _mqttPasswordController.text = data['mqtt_password'] ?? '';
         });
+        
+        // Auto check MQTT if configured to persist the UI green badge after reload
+        if (_mqttBrokerController.text.isNotEmpty) {
+           _testMQTTConnection();
+        }
       }
     } catch (e) {
       debugPrint('Error loading IoT config: $e');
@@ -638,15 +676,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     subtitle: Text(
-                      _telegramConnected 
-                          ? 'Conectado${_telegramUsername != null ? ' (@$_telegramUsername)' : ''}'
-                          : 'No vinculado',
-                      style: TextStyle(color: _telegramConnected ? Colors.greenAccent : Colors.white54, fontSize: 12),
+                       _tenantBotConfigured 
+                          ? (_telegramConnected ? 'Conectado como admin${_telegramUsername != null ? ' (@$_telegramUsername)' : ''}' : 'Bot SaaS Operacional (Tu cuenta no está vinculada)')
+                          : 'Bot Principal No Configurado',
+                      style: TextStyle(color: _tenantBotConfigured ? Colors.greenAccent : Colors.orangeAccent, fontSize: 12),
                     ),
                     iconColor: Colors.cyanAccent,
                     collapsedIconColor: Colors.cyanAccent,
                     childrenPadding: const EdgeInsets.all(16),
                     children: [
+                      if (!_tenantBotConfigured) ...[
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(color: const Color(0xFF0F172A), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.cyanAccent.withOpacity(0.5))),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Paso 1: Crea tu Bot', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                              const SizedBox(height: 8),
+                              const Text('1. Busca a @BotFather en Telegram.\n2. Envíale el comando /newbot y ponle un nombre.\n3. Copia el "HTTP API Token" que te entregará.\n4. Pégalo debajo para desplegarlo de inmediato.', style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4)),
+                              const SizedBox(height: 16),
+                              _buildTextField(_telegramBotTokenController, 'Pega el Token (API Key)', Icons.key),
+                              const SizedBox(height: 12),
+                              ElevatedButton.icon(
+                                onPressed: _isConfiguringBot ? null : _configurarNuevoBotTelegram,
+                                icon: _isConfiguringBot ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : const Icon(Icons.rocket_launch, color: Colors.black),
+                                label: const Text('Conectar Bot', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: Colors.cyan.withOpacity(0.1), border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)), borderRadius: BorderRadius.circular(8)),
+                          child: const Row(children: [Icon(Icons.check_circle, color: Colors.cyanAccent, size: 20), SizedBox(width: 8), Expanded(child: Text('El Bot Inteligente de tu organización está desplegado.', style: TextStyle(color: Colors.white, fontSize: 13)))]),
+                        ),
+                        const SizedBox(height: 16),
+                        const Divider(color: Colors.white24),
+                        const SizedBox(height: 12),
+                        const Text('Vincular tu cuenta personal al ChatBot', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 14)),
+                        const SizedBox(height: 8),
                       if (_telegramConnected) ...[
                         Container(
                           padding: const EdgeInsets.all(12),
