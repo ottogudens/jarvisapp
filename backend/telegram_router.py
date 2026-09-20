@@ -142,7 +142,7 @@ async def handle_link_code(db: Session, chat_id: str, username: str, text: str) 
         await send_telegram_message(chat_id, "❌ Error: Usuario no encontrado en la base de datos.")
         return True
         
-    user.telegram_chat_id = chat_id
+    user.telegram_chat_id = int(chat_id)
     if username: 
         user.telegram_username = username
     db.commit()
