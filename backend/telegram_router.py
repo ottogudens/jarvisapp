@@ -160,7 +160,7 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
         return {"status": "ignored"}
         
     msg = update["message"]
-    chat_id = str(msg["chat"]["id"])
+    chat_id = msg["chat"]["id"]
     username = msg.get("from", {}).get("username") or msg.get("from", {}).get("first_name", "User")
     
     raw_text = msg.get("text", "")
