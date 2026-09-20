@@ -262,6 +262,47 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
                             
                         if texto_extraido:
                             text = (text + f"\n\n[El usuario adjuntó el documento PDF '{d_name}'. A continuación se encuentra el texto extraído del mismo para que lo analices:]\n\"\"\"\n{texto_extraido}\n\"\"\"").strip()
+                            
+                            # Auto-guardar en Base de Conocimiento del Agente
+                            from backend.models import Tenant, KnowledgeFolder, KnowledgeDocument, DocumentChunk
+                            tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
+                            ai_provider = tenant.ai_provider if tenant else "openai"
+                            from backend.ai_service import load_ai_keys
+                            load_ai_keys(db)
+                            
+                            try:
+                                carpeta_chat = db.query(KnowledgeFolder).filter(KnowledgeFolder.id_tenant == user.id_tenant, KnowledgeFolder.nombre == "Subidos por Telegram").first()
+                                if not carpeta_chat:
+                                    carpeta_chat = KnowledgeFolder(id_tenant=user.id_tenant, nombre="Subidos por Telegram")
+                                    db.add(carpeta_chat)
+                                    db.commit()
+                                
+                                nuevo_doc = KnowledgeDocument(id_tenant=user.id_tenant, id_usuario=user.id_usuario, id_folder=carpeta_chat.id_folder, nombre=d_name)
+                                db.add(nuevo_doc)
+                                db.commit()
+                                
+                                import textwrap
+                                from litellm import embedding
+                                partes = textwrap.wrap(texto_extraido, width=1000, replace_whitespace=False)
+                                
+                                emb_model = "text-embedding-3-small"
+                                emb_kwargs = {}
+                                if ai_provider.lower() == "gemini":
+                                    emb_model = "gemini/text-embedding-004"
+                                else:
+                                    emb_kwargs["dimensions"] = 768
+                                    
+                                for idx, parte in enumerate(partes):
+                                    emb_res = embedding(model=emb_model, input=[parte], **emb_kwargs)
+                                    vector = emb_res.data[0]['embedding']
+                                    chk = DocumentChunk(id_document=nuevo_doc.id_document, chunk_index=idx, texto=parte, embedding=vector)
+                                    db.add(chk)
+                                db.commit()
+                                text += "\n[Aviso interno: Este documento fue guardado silenciosamente en tu Base de Conocimientos permanente bajo la carpeta 'Subidos por Telegram']."
+                            except Exception as em_e:
+                                db.rollback()
+                                logger.error(f"Error guardando autoconocimiento de Telegram: {em_e}")
+                                
                         else:
                             text = (text + f" [El usuario adjuntó el PDF '{d_name}', pero parece ser un documento escaneado sin texto seleccionable.]").strip()
                     except Exception as e:
