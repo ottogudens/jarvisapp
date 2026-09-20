@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import httpx
 import paho.mqtt.client as mqtt
@@ -71,12 +71,25 @@ class IoTService:
             return "MQTT Broker no está configurado."
             
         try:
-            client = mqtt.Client()
+            # Compatibilidad Paho MQTT v2.0+
+            import paho.mqtt.client as mqtt
+            try:
+                client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+            except AttributeError:
+                client = mqtt.Client() # Fallback para v1.x
+                
             if self.config.mqtt_user and self.config.mqtt_password:
                 client.username_pw_set(self.config.mqtt_user, self.config.mqtt_password)
                 
             port = self.config.mqtt_port if self.config.mqtt_port else 1883
-            client.connect(self.config.mqtt_broker, port, 60)
+            
+            # Soporte TLS/SSL si usan servidores Cloud (HiveMQ, AWS, etc)
+            if port == 8883 or str(port) == "8883":
+                import ssl
+                client.tls_set(cert_reqs=ssl.CERT_NONE)
+                client.tls_insecure_set(True)
+                
+            client.connect(self.config.mqtt_broker, int(port), 60)
             client.publish(topic, payload)
             client.disconnect()
             return f"Mensaje publicado exitosamente en el tópico '{topic}'."
