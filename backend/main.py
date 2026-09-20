@@ -1244,14 +1244,25 @@ async def test_mqtt_connection(
         return {"status": "error", "connected": False, "message": "Falta el Broker MQTT"}
 
     try:
-        client = mqtt.Client()
+        try:
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        except AttributeError:
+            client = mqtt.Client()
+            
         if config.mqtt_user and config.mqtt_password:
             client.username_pw_set(config.mqtt_user, config.mqtt_password)
+            
         port = config.mqtt_port if config.mqtt_port else 1883
-        client.connect(config.mqtt_broker, port, timeout=5)
+        
+        if port == 8883 or str(port) == "8883":
+            import ssl
+            client.tls_set(cert_reqs=ssl.CERT_NONE)
+            client.tls_insecure_set(True)
+            
+        client.connect(config.mqtt_broker, int(port), keepalive=60)
         client.disconnect()
         return {"status": "success", "connected": True, "message": "Conexión a Broker MQTT exitosa"}
     except Exception as e:
-        return {"status": "error", "connected": False, "message": str(e)}
+        return {"status": "error", "connected": False, "message": f"Error conectando: {str(e)}"}
 
 
