@@ -182,7 +182,7 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
 
     file_url = None
 
-    async def get_telegram_file_as_base64(file_id: str, mime_type: str) -> Optional[str]:
+    async def download_telegram_file(file_id: str) -> Optional[bytes]:
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{TELEGRAM_API_URL}/getFile", json={"file_id": file_id})
             if resp.status_code == 200:
@@ -191,23 +191,59 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
                     download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{f_path}"
                     file_resp = await client.get(download_url)
                     if file_resp.status_code == 200:
-                        import base64
-                        b64 = base64.b64encode(file_resp.content).decode("utf-8")
-                        return f"data:{mime_type};base64,{b64}"
+                        return file_resp.content
         return None
 
     # Procesar acción de tipeo/grabación
-    async with httpx.AsyncClient() as client:
-        if "voice" in msg:
-            await client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "record_voice"})
-            file_url = await get_telegram_file_as_base64(msg["voice"]["file_id"], "audio/ogg")
-            text = text or "A continuación hay un mensaje de audio adjunto, escúchalo e indica tu respuesta o transcribe si te lo pido."
+    async with httpx.AsyncClient() as dict_client:
+        if "voice" in msg or "audio" in msg:
+            audio_source = msg.get("voice") or msg.get("audio")
+            await dict_client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "record_voice"})
+            audio_bytes = await download_telegram_file(audio_source["file_id"])
+            
+            if audio_bytes:
+                from backend.ai_service import load_ai_keys
+                import os, tempfile
+                load_ai_keys(db)
+                if os.getenv("OPENAI_API_KEY"):
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tf:
+                            tf.write(audio_bytes)
+                            t_path = tf.name
+                        
+                        with open(t_path, "rb") as audio_file:
+                            headers = {"Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}"}
+                            files = {"file": ("audio.ogg", audio_file, "audio/ogg")}
+                            res = await dict_client.post("https://api.openai.com/v1/audio/transcriptions", headers=headers, files=files, data={"model": "whisper-1"}, timeout=30.0)
+                            
+                            if res.status_code == 200:
+                                trans = res.json().get("text", "")
+                                text = (text + f" [Transcripción de mi nota de voz]: {trans}").strip()
+                            else:
+                                text = (text + " [Nota de voz recibida, error de transcripción en OpenAI]").strip()
+                        os.unlink(t_path)
+                    except Exception as e:
+                        text = (text + " [Fallo al transcribir mi nota de voz]").strip()
+                        logger.error(f"Error transcribiendo: {e}")
+                else:
+                    text = (text + " [Te he enviado una nota de voz pero tienes deshabilitado Whisper]").strip()
+            
         elif "photo" in msg:
-            await client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "upload_photo"})
-            file_url = await get_telegram_file_as_base64(msg["photo"][-1]["file_id"], "image/jpeg")
-            text = text or "Describe qué ves en esta imagen adjunta o atiende a mi consulta en base a ella."
+            await dict_client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "upload_photo"})
+            photo_bytes = await download_telegram_file(msg["photo"][-1]["file_id"])
+            if photo_bytes:
+                import base64
+                b64 = base64.b64encode(photo_bytes).decode("utf-8")
+                file_url = f"data:image/jpeg;base64,{b64}"
+            text = text or "Describe qué ves en esta imagen adjunta o atiende a mi consulta considerando lo que muestra."
+            
+        elif "document" in msg:
+            await dict_client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
+            d_name = msg["document"].get("file_name", "archivo adjunto")
+            text = (text + f" [He adjuntado el archivo: {d_name}]").strip()
+            
         else:
-            await client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
+            await dict_client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
 
     # Inyeccion de sesion de chat local en base de datos
     session = db.query(ChatSession).filter(

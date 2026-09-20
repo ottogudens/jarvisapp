@@ -208,7 +208,7 @@ def call_llm_with_tools(
     # Construir mensajes
     content_list = [{"type": "text", "text": prompt_con_contexto}]
     for url in uploaded_urls:
-        if url.startswith("data:image/") or url.startswith("data:audio/"):
+        if url.startswith("data:image/"):
             content_list.append({"type": "image_url", "image_url": {"url": url}})
     
     # Fix #tokens-2: el system prompt va en su propio mensaje "system", separado
