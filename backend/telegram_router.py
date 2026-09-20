@@ -7,7 +7,7 @@ import httpx
 import secrets
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Almacenamiento temporal en memoria de tokens de vinculación (token -> id_usuario)
 _LINK_TOKENS = {}
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 class LinkTokenResponse(BaseModel):
@@ -30,27 +30,42 @@ class LinkTokenResponse(BaseModel):
     bot_username: Optional[str] = None
     instructions: str
 
-class SetWebhookRequest(BaseModel):
-    url: str
+@router.get("/debug")
+async def debug_telegram_webhook(usuario: dict = Depends(obtener_usuario_actual)):
+    """Llama a getWebhookInfo para ver si Telegram detectó algún error de conectividad."""
+    if not usuario.get("is_superadmin"):
+         raise HTTPException(status_code=403, detail="Sin permisos.")
+    if not TELEGRAM_BOT_TOKEN:
+        return {"error": "Falta TELEGRAM_BOT_TOKEN"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"{TELEGRAM_API_URL}/getWebhookInfo")
+    return resp.json()
 
 @router.post("/set-webhook")
 async def set_telegram_webhook(
-    body: SetWebhookRequest,
+    request: Request,
     usuario: dict = Depends(obtener_usuario_actual)
 ):
-    """Establece la URL del Webhook en la API de Telegram."""
+    """Establece la URL del Webhook obteniéndola automáticamente de FastApi."""
     if not usuario.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="No tienes permisos de superadmin para esto.")
         
     if not TELEGRAM_BOT_TOKEN:
         raise HTTPException(status_code=500, detail="Falta TELEGRAM_BOT_TOKEN en el entorno del servidor.")
         
+    base_url = str(request.base_url).rstrip("/")
+    # Railway redirige trafico a traves de HTTPS, hay que asegurar que usemos https://
+    if "up.railway.app" in base_url and base_url.startswith("http://"):
+        base_url = base_url.replace("http://", "https://")
+        
+    webhook_url = f"{base_url}/v1/telegram/webhook"
+    
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{TELEGRAM_API_URL}/setWebhook",
-            json={"url": body.url}
+            json={"url": webhook_url, "allowed_updates": ["message"]}
         )
-    return resp.json()
+    return {"webhook_url": webhook_url, "telegram_response": resp.json()}
 
 @router.post("/link-code", response_model=LinkTokenResponse)
 async def generar_codigo_vinculacion(
