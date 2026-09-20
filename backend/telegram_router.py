@@ -1,5 +1,5 @@
 """
-J.A.R.V.I.S. Core Engine — Telegram Router & Integration APIs
+J.A.R.V.I.S. Core Engine — Telegram Router & Integration APIs (Multi-Tenant)
 """
 import os
 import re
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.auth import obtener_usuario_actual
-from backend.models import Usuario, ChatSession, ChatMessage
+from backend.models import Usuario, ChatSession, ChatMessage, Tenant
 from backend.prompts import SYSTEM_PROMPTS
 
 router = APIRouter(prefix="/v1/telegram", tags=["Telegram Integration"])
@@ -22,50 +22,62 @@ logger = logging.getLogger(__name__)
 # Almacenamiento temporal en memoria de tokens de vinculación (token -> id_usuario)
 _LINK_TOKENS = {}
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-
 class LinkTokenResponse(BaseModel):
     link_code: str
     bot_username: Optional[str] = None
     instructions: str
 
-@router.get("/debug")
-async def debug_telegram_webhook(usuario: dict = Depends(obtener_usuario_actual)):
-    """Llama a getWebhookInfo para ver si Telegram detectó algún error de conectividad."""
-    if not usuario.get("is_superadmin"):
-         raise HTTPException(status_code=403, detail="Sin permisos.")
-    if not TELEGRAM_BOT_TOKEN:
-        return {"error": "Falta TELEGRAM_BOT_TOKEN"}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{TELEGRAM_API_URL}/getWebhookInfo")
-    return resp.json()
+class TelegramConfigPayload(BaseModel):
+    bot_token: str
 
-@router.post("/set-webhook")
-async def set_telegram_webhook(
+@router.post("/config", summary="Configurar el bot de Telegram del Tenant")
+async def configurar_telegram_tenant(
+    payload: TelegramConfigPayload,
     request: Request,
-    usuario: dict = Depends(obtener_usuario_actual)
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
 ):
-    """Establece la URL del Webhook obteniéndola automáticamente de FastApi."""
-    if not usuario.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="No tienes permisos de superadmin para esto.")
-        
-    if not TELEGRAM_BOT_TOKEN:
-        raise HTTPException(status_code=500, detail="Falta TELEGRAM_BOT_TOKEN en el entorno del servidor.")
-        
+    """Guarda el token de Telegram y registra automáticamente el Webhook dinámico."""
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organización no encontrada")
+
+    token = payload.bot_token.strip()
+    
     base_url = str(request.base_url).rstrip("/")
-    # Railway redirige trafico a traves de HTTPS, hay que asegurar que usemos https://
     if "up.railway.app" in base_url and base_url.startswith("http://"):
         base_url = base_url.replace("http://", "https://")
         
-    webhook_url = f"{base_url}/v1/telegram/webhook"
+    webhook_url = f"{base_url}/v1/telegram/webhook/{token}"
     
+    api_url = f"https://api.telegram.org/bot{token}"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"{TELEGRAM_API_URL}/setWebhook",
+            f"{api_url}/setWebhook",
             json={"url": webhook_url, "allowed_updates": ["message"]}
         )
-    return {"webhook_url": webhook_url, "telegram_response": resp.json()}
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="El token es inválido o Telegram rechazó el Webhook.")
+            
+    tenant.telegram_bot_token = token
+    db.commit()
+    
+    return {"status": "success", "message": "Bot de Telegram configurado exitosamente", "webhook_url": webhook_url}
+
+
+@router.get("/debug")
+async def debug_telegram_webhook(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Llama a getWebhookInfo para ver si Telegram detectó algún error de conectividad."""
+    if not usuario.get("is_superadmin"):
+         raise HTTPException(status_code=403, detail="Sin permisos.")
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    if not tenant or not tenant.telegram_bot_token:
+        return {"error": "Falta el Bot Token del Tenant"}
+    
+    async with httpx.AsyncClient() as client:
+        api_url = f"https://api.telegram.org/bot{tenant.telegram_bot_token}"
+        resp = await client.get(f"{api_url}/getWebhookInfo")
+    return resp.json()
 
 @router.post("/link-code", response_model=LinkTokenResponse)
 async def generar_codigo_vinculacion(
@@ -92,8 +104,11 @@ async def consultar_estado_telegram(
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
     
     return {
+        "tenant_bot_configured": bool(tenant and tenant.telegram_bot_token),
         "connected": user.telegram_chat_id is not None,
         "telegram_chat_id": user.telegram_chat_id,
         "telegram_username": user.telegram_username,
@@ -114,22 +129,24 @@ async def desvincular_cuenta_telegram(
     db.commit()
     return {"status": "success", "message": "Cuenta de Telegram desvinculada exitosamente"}
 
-async def send_telegram_message(chat_id: str, text: str):
-    if not TELEGRAM_BOT_TOKEN: return
+async def send_telegram_message(bot_token: str, chat_id: str, text: str):
+    if not bot_token: return
+    api_url = f"https://api.telegram.org/bot{bot_token}"
     async with httpx.AsyncClient() as client:
         await client.post(
-            f"{TELEGRAM_API_URL}/sendMessage",
+            f"{api_url}/sendMessage",
             json={"chat_id": str(chat_id), "text": text, "parse_mode": "Markdown"}
         )
 
-async def send_telegram_document(chat_id: str, filename: str, filebytes: bytes):
-    if not TELEGRAM_BOT_TOKEN: return
+async def send_telegram_document(bot_token: str, chat_id: str, filename: str, filebytes: bytes):
+    if not bot_token: return
+    api_url = f"https://api.telegram.org/bot{bot_token}"
     async with httpx.AsyncClient() as client:
         files = {'document': (filename, filebytes)}
         data = {'chat_id': str(chat_id)}
-        await client.post(f"{TELEGRAM_API_URL}/sendDocument", data=data, files=files)
+        await client.post(f"{api_url}/sendDocument", data=data, files=files)
 
-async def handle_link_code(db: Session, chat_id: str, username: str, text: str) -> bool:
+async def handle_link_code(db: Session, bot_token: str, id_tenant: int, chat_id: str, username: str, text: str) -> bool:
     """Intenta capturar un código de vinculación en el mensaje de Telegram."""
     match = re.search(r'\b\d{6}\b', text)
     if not match: 
@@ -138,15 +155,14 @@ async def handle_link_code(db: Session, chat_id: str, username: str, text: str) 
     code = match.group(0)
     id_usuario = _LINK_TOKENS.pop(code, None)
     if not id_usuario:
-        # A code was sent but it is missing or expired, only inform if message was short (just the code)
         if len(text.strip()) <= 15:
-            await send_telegram_message(chat_id, "❌ Código de vinculación inválido o expirado. Por favor genera uno nuevo en tu panel web.")
+            await send_telegram_message(bot_token, chat_id, "❌ Código de vinculación inválido o expirado. Por favor genera uno nuevo en tu panel web.")
             return True
-        return False # Was just 6 digits inside a bigger text
+        return False 
         
-    user = db.query(Usuario).filter(Usuario.id_usuario == id_usuario).first()
+    user = db.query(Usuario).filter(Usuario.id_usuario == id_usuario, Usuario.id_tenant == id_tenant).first()
     if not user:
-        await send_telegram_message(chat_id, "❌ Error: Usuario no encontrado en la base de datos.")
+        await send_telegram_message(bot_token, chat_id, "❌ Error: Usuario no encontrado en tu Organización.")
         return True
         
     user.telegram_chat_id = int(chat_id)
@@ -155,16 +171,20 @@ async def handle_link_code(db: Session, chat_id: str, username: str, text: str) 
     db.commit()
     
     await send_telegram_message(
-        chat_id, 
+        bot_token, chat_id, 
         f"✅ ¡Cuenta vinculada exitosamente con *{user.email}*!\n\nYa puedes enviarme consultas, comandos, fotos o notas de voz."
     )
     return True
 
-@router.post("/webhook")
-async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_db)):
+@router.post("/webhook/{bot_token}")
+async def telegram_webhook(bot_token: str, update: dict = Body(...), db: Session = Depends(get_db)):
     """Recepciona eventos nativos desde los servidores de Telegram (Webhook)."""
     if "message" not in update:
         return {"status": "ignored"}
+        
+    tenant = db.query(Tenant).filter(Tenant.telegram_bot_token == bot_token).first()
+    if not tenant:
+        return {"status": "ignored", "reason": "token not mapped"}
         
     msg = update["message"]
     chat_id = msg["chat"]["id"]
@@ -175,19 +195,20 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
     text = raw_text or caption
 
     # Intentar vinculación
-    if await handle_link_code(db, chat_id, username, text):
+    if await handle_link_code(db, bot_token, tenant.id_tenant, str(chat_id), username, text):
         return {"status": "ok"}
 
     # Validar que cuenta existiera
-    user = db.query(Usuario).filter(Usuario.telegram_chat_id == chat_id).first()
+    user = db.query(Usuario).filter(Usuario.telegram_chat_id == chat_id, Usuario.id_tenant == tenant.id_tenant).first()
     if not user:
         await send_telegram_message(
-            chat_id, 
+            bot_token, str(chat_id), 
             "⚠️ Tu cuenta J.A.R.V.I.S. no está vinculada.\nGenera un código de 6 dígitos en tu panel web y envíalo por este medio para conectarnos."
         )
         return {"status": "ok"}
 
     file_url = None
+    TELEGRAM_API_URL = f"https://api.telegram.org/bot{bot_token}"
 
     async def download_telegram_file(file_id: str) -> Optional[bytes]:
         async with httpx.AsyncClient() as client:
@@ -195,7 +216,7 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
             if resp.status_code == 200:
                 f_path = resp.json().get("result", {}).get("file_path")
                 if f_path:
-                    download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{f_path}"
+                    download_url = f"https://api.telegram.org/file/bot{bot_token}/{f_path}"
                     file_resp = await client.get(download_url)
                     if file_resp.status_code == 200:
                         return file_resp.content
@@ -271,7 +292,7 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
                             text = (text + f"\n\n[El usuario adjuntó el documento PDF '{d_name}'. A continuación se encuentra el texto extraído del mismo para que lo analices:]\n\"\"\"\n{texto_extraido}\n\"\"\"").strip()
                             
                             # Auto-guardar en Base de Conocimiento del Agente
-                            from backend.models import Tenant, KnowledgeFolder, KnowledgeDocument, DocumentChunk
+                            from backend.models import KnowledgeFolder, KnowledgeDocument, DocumentChunk
                             tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
                             ai_provider = tenant.ai_provider if tenant else "openai"
                             from backend.ai_service import load_ai_keys
@@ -384,7 +405,7 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
         logger.error(f"Error crítico en base de datos de historial de chat de Telegram: {e}")
 
     # Responder al usuario asincronamente
-    await send_telegram_message(chat_id, respuesta_jarvis)
+    await send_telegram_message(bot_token, str(chat_id), respuesta_jarvis)
     
     # Enviar documentos generados adjuntos
     if generated_urls:
@@ -403,7 +424,7 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
                     elif "text/csv" in header: filename = "datos.csv"
                     elif "text/markdown" in header: filename = "informe.md"
                     
-                    await send_telegram_document(chat_id, filename, filebytes)
+                    await send_telegram_document(bot_token, str(chat_id), filename, filebytes)
                 except Exception as e:
                     logger.error(f"Error enviando documento por telegram: {e}")
 
