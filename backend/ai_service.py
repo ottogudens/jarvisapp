@@ -236,20 +236,53 @@ def call_llm_with_tools(
             return iot_service.publicar_mensaje_mqtt(**args)
         elif fn_name == "generar_documento":
             import base64
+            import urllib.parse
             try:
                 contenido = args.get("contenido", "")
                 formato = args.get("formato", "txt").lower()
                 titulo = args.get("titulo", "Documento")
                 
-                mime_type = "text/plain"
-                if formato == "csv": mime_type = "text/csv"
-                elif formato == "md": mime_type = "text/markdown"
-                elif formato == "html": mime_type = "text/html"
-                
-                b64 = base64.b64encode(contenido.encode("utf-8")).decode("utf-8")
-                data_uri = f"data:{mime_type};base64,{b64}"
+                if formato == "pdf":
+                    import io
+                    import re
+                    from reportlab.lib.pagesizes import letter
+                    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+                    from reportlab.lib.styles import getSampleStyleSheet
+                    
+                    buffer = io.BytesIO()
+                    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+                    styles = getSampleStyleSheet()
+                    story = []
+                    
+                    story.append(Paragraph(titulo, styles['Title']))
+                    story.append(Spacer(1, 20))
+                    
+                    for line in contenido.split('\n'):
+                        txt = line.strip()
+                        if txt:
+                            txt = txt.replace("<", "&lt;").replace(">", "&gt;") 
+                            txt = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', txt)
+                            story.append(Paragraph(txt, styles['Normal']))
+                        story.append(Spacer(1, 8))
+                            
+                    doc.build(story)
+                    b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+                    
+                    safe_titulo = urllib.parse.quote(f"{titulo}.pdf")
+                    data_uri = f"data:application/pdf;name={safe_titulo};base64,{b64}"
+                else:
+                    mime_type = "text/plain"
+                    if formato == "csv": mime_type = "text/csv"
+                    elif formato == "md": mime_type = "text/markdown"
+                    elif formato == "html": mime_type = "text/html"
+                    
+                    b64 = base64.b64encode(contenido.encode("utf-8")).decode("utf-8")
+                    safe_titulo = urllib.parse.quote(f"{titulo}.{formato}")
+                    data_uri = f"data:{mime_type};name={safe_titulo};base64,{b64}"
+                    
                 generated_urls.append(data_uri)
-                return f"Documento '{titulo}' generado exitosamente."
+                return (f"Éxito: Documento '{titulo}' fue generado y emitido. "
+                        f"[AVISO DE SISTEMA: Yo como backend ya le envié este archivo físicamente al celular del usuario. NO INTENTES GENERAR NINGÚN ENLACE NI URL FANTASMA ni uses markdown links para descarga. Solo dile charlando que su archivo ha sido enviado].")
             except Exception as e:
                 return f"Error al generar documento: {str(e)}"
         elif fn_name == "obtener_estado_red_mikrotik":

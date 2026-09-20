@@ -122,6 +122,13 @@ async def send_telegram_message(chat_id: str, text: str):
             json={"chat_id": str(chat_id), "text": text, "parse_mode": "Markdown"}
         )
 
+async def send_telegram_document(chat_id: str, filename: str, filebytes: bytes):
+    if not TELEGRAM_BOT_TOKEN: return
+    async with httpx.AsyncClient() as client:
+        files = {'document': (filename, filebytes)}
+        data = {'chat_id': str(chat_id)}
+        await client.post(f"{TELEGRAM_API_URL}/sendDocument", data=data, files=files)
+
 async def handle_link_code(db: Session, chat_id: str, username: str, text: str) -> bool:
     """Intenta capturar un código de vinculación en el mensaje de Telegram."""
     match = re.search(r'\b\d{6}\b', text)
@@ -378,5 +385,26 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
 
     # Responder al usuario asincronamente
     await send_telegram_message(chat_id, respuesta_jarvis)
+    
+    # Enviar documentos generados adjuntos
+    if generated_urls:
+        import base64
+        import urllib.parse
+        for url in generated_urls:
+            if url.startswith("data:"):
+                try:
+                    header, b64 = url.split("base64,", 1)
+                    filebytes = base64.b64decode(b64)
+                    
+                    filename = "documento_jarvis.pdf"
+                    if "name=" in header:
+                        name_part = header.split("name=")[1].split(";")[0]
+                        filename = urllib.parse.unquote(name_part)
+                    elif "text/csv" in header: filename = "datos.csv"
+                    elif "text/markdown" in header: filename = "informe.md"
+                    
+                    await send_telegram_document(chat_id, filename, filebytes)
+                except Exception as e:
+                    logger.error(f"Error enviando documento por telegram: {e}")
 
     return {"status": "ok"}
