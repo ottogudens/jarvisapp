@@ -253,9 +253,13 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
         logger.error(f"Error procesando LLM en Webhook: {e}")
         respuesta_jarvis = "❌ Tuve un error interno de inteligencia. Intenta de nuevo..."
 
-    db.add(ChatMessage(id_session=session.id_session, rol="user", contenido=text, file_urls=uploaded_urls))
-    db.add(ChatMessage(id_session=session.id_session, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls))
-    db.commit()
+    try:
+        db.add(ChatMessage(id_session=session.id_session, rol="user", contenido=text, file_urls=uploaded_urls))
+        db.add(ChatMessage(id_session=session.id_session, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error crítico en base de datos de historial de chat de Telegram: {e}")
 
     # Responder al usuario asincronamente
     await send_telegram_message(chat_id, respuesta_jarvis)

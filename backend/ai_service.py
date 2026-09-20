@@ -353,6 +353,7 @@ def call_llm_with_tools(
                     resp += f"--- Extracto de: {nombre_doc} ---\n{chunk.texto}\n\n"
                 return resp
             except Exception as e:
+                db.rollback()
                 return f"Error en la base de datos al buscar: {str(e)}"
 
         return "Herramienta desconocida"
@@ -416,6 +417,11 @@ def call_llm_with_tools(
                 solicitudes_realizadas=1
             )
             db.add(stat)
-        db.commit()
+        try:
+            db.commit()
+        except:
+            db.rollback()
 
     return respuesta_jarvis, total_tokens
+
+
