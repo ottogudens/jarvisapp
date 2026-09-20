@@ -1253,13 +1253,21 @@ async def test_mqtt_connection(
             client.username_pw_set(config.mqtt_user, config.mqtt_password)
             
         port = config.mqtt_port if config.mqtt_port else 1883
+        host = config.mqtt_broker.strip()
         
-        if port == 8883 or str(port) == "8883":
+        use_tls = False
+        if host.startswith("mqtts://"):
+            use_tls = True
+            host = host.replace("mqtts://", "")
+        elif host.startswith("mqtt://"):
+            host = host.replace("mqtt://", "")
+            
+        if port == 8883 or str(port) == "8883" or use_tls:
             import ssl
             client.tls_set(cert_reqs=ssl.CERT_NONE)
             client.tls_insecure_set(True)
             
-        client.connect(config.mqtt_broker, int(port), keepalive=60)
+        client.connect(host, int(port), keepalive=60)
         client.disconnect()
         return {"status": "success", "connected": True, "message": "Conexión a Broker MQTT exitosa"}
     except Exception as e:

@@ -82,14 +82,22 @@ class IoTService:
                 client.username_pw_set(self.config.mqtt_user, self.config.mqtt_password)
                 
             port = self.config.mqtt_port if self.config.mqtt_port else 1883
+            host = self.config.mqtt_broker.strip()
             
+            use_tls = False
+            if host.startswith("mqtts://"):
+                use_tls = True
+                host = host.replace("mqtts://", "")
+            elif host.startswith("mqtt://"):
+                host = host.replace("mqtt://", "")
+                
             # Soporte TLS/SSL si usan servidores Cloud (HiveMQ, AWS, etc)
-            if port == 8883 or str(port) == "8883":
+            if port == 8883 or str(port) == "8883" or use_tls:
                 import ssl
                 client.tls_set(cert_reqs=ssl.CERT_NONE)
                 client.tls_insecure_set(True)
                 
-            client.connect(self.config.mqtt_broker, int(port), 60)
+            client.connect(host, int(port), keepalive=60)
             client.publish(topic, payload)
             client.disconnect()
             return f"Mensaje publicado exitosamente en el tópico '{topic}'."
