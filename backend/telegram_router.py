@@ -182,25 +182,30 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
 
     file_url = None
 
-    async def get_telegram_file_url(file_id: str) -> Optional[str]:
+    async def get_telegram_file_as_base64(file_id: str, mime_type: str) -> Optional[str]:
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{TELEGRAM_API_URL}/getFile", json={"file_id": file_id})
             if resp.status_code == 200:
                 f_path = resp.json().get("result", {}).get("file_path")
                 if f_path:
-                    return f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{f_path}"
+                    download_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{f_path}"
+                    file_resp = await client.get(download_url)
+                    if file_resp.status_code == 200:
+                        import base64
+                        b64 = base64.b64encode(file_resp.content).decode("utf-8")
+                        return f"data:{mime_type};base64,{b64}"
         return None
 
     # Procesar acción de tipeo/grabación
     async with httpx.AsyncClient() as client:
         if "voice" in msg:
             await client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "record_voice"})
-            file_url = await get_telegram_file_url(msg["voice"]["file_id"])
-            text = text or "Envié este archivo adjunto."
+            file_url = await get_telegram_file_as_base64(msg["voice"]["file_id"], "audio/ogg")
+            text = text or "A continuación hay un mensaje de audio adjunto, escúchalo e indica tu respuesta o transcribe si te lo pido."
         elif "photo" in msg:
             await client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "upload_photo"})
-            file_url = await get_telegram_file_url(msg["photo"][-1]["file_id"])
-            text = text or "Describe qué ves en esta imagen adjunta."
+            file_url = await get_telegram_file_as_base64(msg["photo"][-1]["file_id"], "image/jpeg")
+            text = text or "Describe qué ves en esta imagen adjunta o atiende a mi consulta en base a ella."
         else:
             await client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
 
