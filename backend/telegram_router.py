@@ -239,8 +239,46 @@ async def telegram_webhook(update: dict = Body(...), db: Session = Depends(get_d
             
         elif "document" in msg:
             await dict_client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
-            d_name = msg["document"].get("file_name", "archivo adjunto")
-            text = (text + f" [He adjuntado el archivo: {d_name}]").strip()
+            doc_obj = msg["document"]
+            d_name = doc_obj.get("file_name", "archivo adjunto")
+            mime_type = doc_obj.get("mime_type", "")
+            
+            doc_bytes = await download_telegram_file(doc_obj["file_id"])
+            if doc_bytes:
+                if "pdf" in mime_type.lower() or d_name.lower().endswith(".pdf"):
+                    try:
+                        import fitz  # PyMuPDF
+                        import io
+                        pdf_stream = io.BytesIO(doc_bytes)
+                        doc_pdf = fitz.open(stream=pdf_stream, filetype="pdf")
+                        texto_extraido = ""
+                        for page in doc_pdf:
+                            texto_extraido += page.get_text() + "\n"
+                        doc_pdf.close()
+                        
+                        texto_extraido = texto_extraido.strip()
+                        if len(texto_extraido) > 12000:
+                            texto_extraido = texto_extraido[:12000] + "\n... [Resto del documento omitido por límite de memoria]"
+                            
+                        if texto_extraido:
+                            text = (text + f"\n\n[El usuario adjuntó el documento PDF '{d_name}'. A continuación se encuentra el texto extraído del mismo para que lo analices:]\n\"\"\"\n{texto_extraido}\n\"\"\"").strip()
+                        else:
+                            text = (text + f" [El usuario adjuntó el PDF '{d_name}', pero parece ser un documento escaneado sin texto seleccionable.]").strip()
+                    except Exception as e:
+                        logger.error(f"Error extrayendo PDF en Telegram: {e}")
+                        text = (text + f" [He adjuntado el archivo {d_name}, pero ocurrió un fallo leyendo su contenido interno.]").strip()
+                elif "text/" in mime_type.lower() or d_name.lower().endswith((".txt", ".md", ".csv")):
+                    try:
+                        texto_extraido = doc_bytes.decode("utf-8").strip()
+                        if len(texto_extraido) > 12000:
+                            texto_extraido = texto_extraido[:12000] + "\n... [Resto del archivo omitido por límite de memoria]"
+                        text = (text + f"\n\n[El usuario adjuntó el archivo de texto '{d_name}'. A continuación su contenido:]\n{texto_extraido}").strip()
+                    except Exception:
+                        text = (text + f" [He adjuntado el archivo de texto '{d_name}', pero estaba codificado en un formato no legible.]").strip()
+                else:
+                    text = (text + f" [He adjuntado el archivo de formato no soportado nativamente: '{d_name}'. No es posible leer su contenido interno.]").strip()
+            else:
+                text = (text + f" [Intenté enviarte el archivo '{d_name}' pero falló su descarga.]").strip()
             
         else:
             await dict_client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
