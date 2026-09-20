@@ -747,14 +747,21 @@ async def listar_documentos(
             continue
         for url in urls:
             tipo = "desconocido"
+            nombre_archivo = None
             if url.startswith("data:"):
-                tipo = url.split(";")[0].replace("data:", "")
+                partes_header = url.split("base64,")[0].split(";")
+                tipo = partes_header[0].replace("data:", "")
+                for p in partes_header:
+                    if p.startswith("name="):
+                        import urllib.parse
+                        nombre_archivo = urllib.parse.unquote(p.split("=")[1])
             elif url.startswith("http"):
                 tipo = "archivo_generado"
             
             resultado.append({
                 "id_mensaje": m.id_mensaje,
                 "id_session": m.id_session,
+                "nombre_archivo": nombre_archivo,
                 "titulo_sesion": session_map.get(m.id_session, "Conversación"),
                 "contenido": m.contenido,
                 "tipo": tipo,

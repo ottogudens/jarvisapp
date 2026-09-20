@@ -219,16 +219,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                     ),
                     onPressed: () async {
                       final url = doc['url'];
-                      if (url != null && url.toString().startsWith('http')) {
+                      if (url != null && (url.toString().startsWith('http') || url.toString().startsWith('data:'))) {
                         final uri = Uri.parse(url);
-                        if (await canLaunchUrl(uri)) {
+                        try {
                           await launchUrl(uri, mode: LaunchMode.externalApplication);
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir el archivo original')));
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir el archivo: $e')));
                         }
                       } else {
-                         // Fallback for base64
-                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El archivo original no está disponible (formato base64)')));
+                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El archivo original no está disponible')));
                       }
                     },
                     icon: const Icon(Icons.open_in_browser),
@@ -272,7 +271,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               child: Icon(icono, color: esGenerado ? Colors.cyan : Colors.cyanAccent),
             ),
             title: Text(
-              doc['id_mensaje'] ?? 'Documento',
+              doc['nombre_archivo'] ?? doc['id_mensaje'] ?? 'Documento',
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
