@@ -68,6 +68,7 @@ class TenantUpdateSchema(BaseModel):
     nombre_contacto: Optional[str] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
+    password: Optional[str] = None
     id_plan: Optional[int] = None
     ai_provider: Optional[str] = None
     ai_model: Optional[str] = None
@@ -299,7 +300,8 @@ def create_tenant(
         db.add(TenantProfile(id_tenant=new_tenant.id_tenant, id_perfil=p_id))
 
     # Crear usuario principal del tenant
-    pwd = data.password if data.password else "Admin123!"
+    # Usar None-check explícito: string vacío "" también es una contraseña inválida
+    pwd = data.password if (data.password is not None and data.password.strip()) else "Admin123!"
     new_user = Usuario(
         id_tenant=new_tenant.id_tenant,
         email=data.email,
@@ -353,14 +355,17 @@ def update_tenant(
         for p_id in update_data.perfiles_ids:
             db.add(TenantProfile(id_tenant=id_tenant, id_perfil=p_id))
 
-    # Actualizar email del usuario administrador del tenant
-    if update_data.email is not None:
+    # Actualizar email y/o contraseña del usuario administrador del tenant
+    if update_data.email is not None or (update_data.password is not None and update_data.password.strip()):
         admin_user = db.query(Usuario).filter(Usuario.id_tenant == id_tenant).first()
-        if admin_user and update_data.email != admin_user.email:
-            existing = db.query(Usuario).filter(Usuario.email == update_data.email).first()
-            if existing:
-                raise HTTPException(status_code=400, detail="El email ya está en uso por otro usuario")
-            admin_user.email = update_data.email
+        if admin_user:
+            if update_data.email is not None and update_data.email != admin_user.email:
+                existing = db.query(Usuario).filter(Usuario.email == update_data.email).first()
+                if existing:
+                    raise HTTPException(status_code=400, detail="El email ya está en uso por otro usuario")
+                admin_user.email = update_data.email
+            if update_data.password is not None and update_data.password.strip():
+                admin_user.password_hash = hash_password(update_data.password.strip())
     
     db.commit()
     
