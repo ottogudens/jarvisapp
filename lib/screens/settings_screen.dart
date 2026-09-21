@@ -53,6 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool? _mqttConnected;
   bool _testingMQTT = false;
   bool _mqttAutoConnect = false;
+  String? _mqttStatusMessage;
   List<dynamic> _mqttSubscriptions = [];
   final _mqttTopicController = TextEditingController();
   final _mqttPublishTopicController = TextEditingController();
