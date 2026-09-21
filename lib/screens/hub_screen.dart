@@ -44,6 +44,38 @@ class _HubScreenState extends State<HubScreen> {
       }
     });
 
+    if (_token != null) {
+      try {
+        final resp = await http.get(
+          Uri.parse('$kApiBaseUrl/v1/auth/profile'),
+          headers: {'Authorization': 'Bearer $_token'},
+        );
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body);
+          final newOrg = data['nombre_organizacion'] ?? _organizacion;
+          String newProfile = _perfil;
+          final actives = data['active_profile_id'];
+          final perfs = data['perfiles'] as List? ?? [];
+          if (actives != null) {
+            for (var p in perfs) {
+              if (p['id_perfil'] == actives) {
+                newProfile = p['nombre'];
+                break;
+              }
+            }
+          }
+          await prefs.setString('perfil_jarvis', newProfile);
+          await prefs.setString('nombre_organizacion', newOrg);
+          if (mounted) {
+            setState(() {
+              _perfil = newProfile == 'Inspector_DGC' ? 'Inspector' : newProfile;
+              _organizacion = newOrg;
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
     await Future.wait([
       _fetchActivities(),
       _fetchFileStats(),

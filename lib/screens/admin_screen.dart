@@ -570,7 +570,12 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                               color: Colors.orange.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text('${t['perfil_jarvis'] ?? 'N/A'}', style: const TextStyle(color: Colors.orangeAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+                            child: Text(
+                              (t['perfiles'] is List && (t['perfiles'] as List).isNotEmpty)
+                                  ? (t['perfiles'] as List).map((p) => p['nombre']).join(' | ')
+                                  : 'Sin Perfiles',
+                              style: const TextStyle(color: Colors.orangeAccent, fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
                           ),
                           const Spacer(),
                           Text('${t['tokens_consumidos'] ?? 0} tokens', style: const TextStyle(color: Colors.white38, fontSize: 11)),
