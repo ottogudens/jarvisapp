@@ -848,6 +848,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ],
                 )),
+                _permiteTelegram,
+                ),
                 
                 if (_perfiles.isNotEmpty) ...[
                   const SizedBox(height: 32),
