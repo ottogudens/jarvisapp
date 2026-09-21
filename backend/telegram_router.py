@@ -387,13 +387,23 @@ async def telegram_webhook(bot_token: str, update: dict = Body(...), db: Session
         db.refresh(session)
 
     perfil = "Mecanico"
+    sys_prompt = SYSTEM_PROMPTS.get("Mecanico", "")
+    
     if user.active_profile_ids and len(user.active_profile_ids) > 0:
-        from backend.models import JarvisProfile
+        from backend.models import JarvisProfile, TenantProfile
         first_profile = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == user.active_profile_ids[0]).first()
         if first_profile:
             perfil = first_profile.nombre
+            sys_prompt = first_profile.instrucciones_base or sys_prompt
             
-    sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS.get("Mecanico", ""))
+            # Buscar instrucciones extra del Tenant
+            tenant_profile = db.query(TenantProfile).filter(
+                TenantProfile.id_perfil == first_profile.id_perfil,
+                TenantProfile.id_tenant == user.id_tenant
+            ).first()
+            
+            if tenant_profile and tenant_profile.instrucciones_extra:
+                sys_prompt += f"\n\nInstrucciones Adicionales del Cliente:\n{tenant_profile.instrucciones_extra}"
 
     # Obtener historial
     mensajes_previos = db.query(ChatMessage).filter(
