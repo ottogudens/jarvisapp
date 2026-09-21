@@ -225,6 +225,38 @@ def delete_profile(id_perfil: int, usuario: dict = Depends(requiere_superadmin),
     db.commit()
     return {"message": "Perfil eliminado"}
 
+class TenantProfileUpdatePayload(BaseModel):
+    id_perfil: int
+    instrucciones_extra: str
+
+@router.put("/tenant/profiles")
+def update_tenant_profile_instructions(
+    data: TenantProfileUpdatePayload,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    """Actualiza las instrucciones extra de un perfil J.A.R.V.I.S. para un Tenant."""
+    from backend.models import TenantProfile
+    id_tenant = usuario["id_tenant"]
+    
+    tp = db.query(TenantProfile).filter(
+        TenantProfile.id_tenant == id_tenant,
+        TenantProfile.id_perfil == data.id_perfil
+    ).first()
+    
+    if not tp:
+        tp = TenantProfile(
+            id_tenant=id_tenant,
+            id_perfil=data.id_perfil,
+            instrucciones_extra=data.instrucciones_extra
+        )
+        db.add(tp)
+    else:
+        tp.instrucciones_extra = data.instrucciones_extra
+        
+    db.commit()
+    return {"status": "success", "message": "Instrucciones del cliente guardadas exitosamente"}
+
 # --- Endpoints Tenants (CRUD Completo) ---
 
 @router.get("/tenants", response_model=List[TenantDetailSchema])
