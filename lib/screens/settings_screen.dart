@@ -52,7 +52,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _mqttPasswordController = TextEditingController();
   bool? _mqttConnected;
   bool _testingMQTT = false;
-  String? _mqttStatusMessage;
+  bool _mqttAutoConnect = false;
+  List<dynamic> _mqttSubscriptions = [];
+  final _mqttTopicController = TextEditingController();
+  final _mqttPublishTopicController = TextEditingController();
+  final _mqttPublishPayloadController = TextEditingController();
 
   // MikroTik
   List<dynamic> _mikrotikRouters = [];
@@ -344,6 +348,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _testingHA = false);
     }
+  }
+
+  Future<void> _fetchMQTTConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/iot/mqtt/subscriptions'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+          _mqttSubscriptions = jsonDecode(res.body);
+        });
+      }
+    } catch (e) {}
+  }
+
+  Future<void> _toggleMQTTConnect(bool connect) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/iot/mqtt/connect'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({"connect": connect}),
+      );
+      if (res.statusCode == 200) {
+        setState(() => _mqttAutoConnect = connect);
+        final d = jsonDecode(res.body);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('MQTT ${d['status']}')));
+      }
+    } catch (e) {}
+  }
+
+  Future<void> _subscribeMQTT() async {
+    if (_mqttTopicController.text.trim().isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/iot/mqtt/subscribe'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({"topic": _mqttTopicController.text.trim()}),
+      );
+      if (res.statusCode == 200) {
+        _mqttTopicController.clear();
+        _fetchMQTTConfig();
+      }
+    } catch (e) {}
+  }
+
+  Future<void> _deleteMQTTSub(String topic) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    final encodedTopic = Uri.encodeComponent(topic);
+    try {
+      final res = await http.delete(
+        Uri.parse('$kApiBaseUrl/v1/iot/mqtt/subscribe/$encodedTopic'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        _fetchMQTTConfig();
+      }
+    } catch (e) {}
+  }
+  
+  Future<void> _publishMQTT() async {
+    if (_mqttPublishTopicController.text.trim().isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    // ...
   }
 
   Future<void> _testMQTTConnection() async {
@@ -1132,6 +1213,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.cyanAccent)),
                         ),
                       ),
+                      const SizedBox(height: 24),
+                      const Divider(color: Colors.white24, thickness: 1),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Conexión Constante (Daemon Backend)', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        subtitle: const Text('Mantener suscripciones activas en segundo plano leyendo latidos de IoT', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                        value: _mqttAutoConnect,
+                        activeColor: Colors.greenAccent,
+                        onChanged: (val) => _toggleMQTTConnect(val),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('Suscripción a Tópicos (Telemetría IA)', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(child: _buildTextField(_mqttTopicController, 'Nuevo Tópico (ej. sensores/temp)', Icons.topic)),
+                          const SizedBox(width: 10),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle, color: Colors.cyanAccent, size: 30),
+                            onPressed: _subscribeMQTT,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ..._mqttSubscriptions.map((s) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.compare_arrows, color: Colors.white54, size: 18),
+                            title: Text(s['topic'], style: const TextStyle(color: Colors.white)),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.redAccent, size: 20),
+                              onPressed: () => _deleteMQTTSub(s['topic']),
+                            ),
+                          )).toList(),
                     ],
                   ),
                 ),
