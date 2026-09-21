@@ -110,6 +110,14 @@ def inicializar_base_de_datos_remota():
     except Exception:
         pass
 
+    try:
+        with engine.connect() as conn:
+            # Fix: Permitir que un mismo telegram_chat_id pertenezca a varios tenants distintos sin colisionar
+            conn.execute(text('ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_telegram_chat_id_key'))
+            conn.commit()
+    except Exception as e:
+        print(f"Info: No se pudo eliminar constraint unique telegram (puede que ya no exista): {e}")
+
     # Migraciones MQTT (mqtt_auto_connect column + tablas MQTT)
     try:
         with engine.connect() as conn:
