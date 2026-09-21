@@ -50,6 +50,9 @@ from supabase import create_client, Client
 async def lifespan(app: FastAPI):
     """Inicializa la BD al arrancar y limpia recursos al cerrar."""
     inicializar_base_de_datos_remota()
+    # Insertar/actualizar perfiles por defecto automáticamente en cada arranque
+    from backend.seed_default_profiles import main as seed_profiles
+    seed_profiles()
     from backend.mqtt_daemon import MQTTDaemon
     MQTTDaemon.get_instance().start_daemon()
     yield
