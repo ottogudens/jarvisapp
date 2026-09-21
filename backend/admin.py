@@ -27,6 +27,8 @@ class SaaSPlanSchema(BaseModel):
     permite_inspeccion: bool
     permite_iot: bool
     permite_mikrotik: bool
+    permite_telegram: bool = False
+    permite_whatsapp: bool = False
 
 class JarvisProfileSchema(BaseModel):
     id_perfil: Optional[int] = None
@@ -158,7 +160,9 @@ def create_plan(
         permite_erp=plan.permite_erp,
         permite_inspeccion=plan.permite_inspeccion,
         permite_iot=plan.permite_iot,
-        permite_mikrotik=plan.permite_mikrotik
+        permite_mikrotik=plan.permite_mikrotik,
+        permite_telegram=plan.permite_telegram,
+        permite_whatsapp=plan.permite_whatsapp
     )
     db.add(db_plan)
     db.commit()
@@ -181,6 +185,8 @@ def update_plan(
     db_plan.permite_inspeccion = plan.permite_inspeccion
     db_plan.permite_iot = plan.permite_iot
     db_plan.permite_mikrotik = plan.permite_mikrotik
+    db_plan.permite_telegram = plan.permite_telegram
+    db_plan.permite_whatsapp = plan.permite_whatsapp
     
     db.commit()
     db.refresh(db_plan)

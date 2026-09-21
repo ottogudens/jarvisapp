@@ -37,6 +37,8 @@ class SaaSPlan(Base):
     permite_inspeccion = Column(Boolean, default=False)
     permite_iot = Column(Boolean, default=False)
     permite_mikrotik = Column(Boolean, default=False)
+    permite_telegram = Column(Boolean, default=False)
+    permite_whatsapp = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

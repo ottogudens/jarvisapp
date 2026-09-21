@@ -144,6 +144,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     bool pIns = planToEdit?['permite_inspeccion'] ?? false;
     bool pIot = planToEdit?['permite_iot'] ?? false;
     bool pMk = planToEdit?['permite_mikrotik'] ?? false;
+    bool pTele = planToEdit?['permite_telegram'] ?? false;
+    bool pWts = planToEdit?['permite_whatsapp'] ?? false;
 
     showDialog(context: context, builder: (ctx) {
       return StatefulBuilder(builder: (ctx, setDialogState) {
@@ -163,6 +165,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 SwitchListTile(title: const Text('Inspección', style: TextStyle(color: Colors.white)), value: pIns, onChanged: (val) => setDialogState(() => pIns = val)),
                 SwitchListTile(title: const Text('IoT', style: TextStyle(color: Colors.white)), value: pIot, onChanged: (val) => setDialogState(() => pIot = val)),
                 SwitchListTile(title: const Text('MikroTik', style: TextStyle(color: Colors.white)), value: pMk, onChanged: (val) => setDialogState(() => pMk = val)),
+                SwitchListTile(title: const Text('Telegram', style: TextStyle(color: Colors.white)), value: pTele, onChanged: (val) => setDialogState(() => pTele = val)),
+                SwitchListTile(title: const Text('WhatsApp', style: TextStyle(color: Colors.white)), value: pWts, onChanged: (val) => setDialogState(() => pWts = val)),
               ],
             ),
           ),
@@ -177,6 +181,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   'permite_inspeccion': pIns,
                   'permite_iot': pIot,
                   'permite_mikrotik': pMk,
+                  'permite_telegram': pTele,
+                  'permite_whatsapp': pWts,
                 });
                 
                 if (isNew) {
@@ -607,7 +613,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ListTile(
                   title: Text(p['nombre_plan'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Text("ERP: ${p['permite_erp']} | IoT: ${p['permite_iot']} | MT: ${p['permite_mikrotik']}", style: const TextStyle(color: Colors.grey)),
+                  subtitle: Text("ERP: ${p['permite_erp']} | IoT: ${p['permite_iot']} | MT: ${p['permite_mikrotik']} | TG: ${p['permite_telegram']} | WA: ${p['permite_whatsapp']}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   trailing: IconButton(
                     icon: const Icon(Icons.edit, color: Colors.cyanAccent),
                     onPressed: () => _showPlanEditor(planToEdit: p),

@@ -63,7 +63,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<dynamic> _perfiles = [];
   int? _activeProfileId;
 
+  bool _permiteTelegram = false;
+  bool _permiteWhatsapp = false;
+  bool _permiteIOT = false;
+  bool _permiteMikrotik = false;
+  bool _permiteERP = false;
+  bool _permiteInspeccion = false;
+
   final List<String> _sarcasmOptions = ['Bajo', 'Medio', 'Alto', 'Extremo'];
+
+  Widget _premiumBlock(Widget child, bool isPermitted) {
+    if (isPermitted) return child;
+    return Stack(
+      children: [
+        Opacity(
+          opacity: 0.3,
+          child: IgnorePointer(
+            child: child,
+          ),
+        ),
+        Positioned.fill(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock, color: Colors.cyanAccent, size: 40),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.cyanAccent.withOpacity(0.5))),
+                  child: const Text('Disponible en plan superior', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   void initState() {
@@ -108,6 +145,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _emailController.text = data['email'] ?? '';
           _activeProfileId = data['active_profile_id'];
           _perfiles = data['perfiles'] ?? [];
+          
+          if (data['plan_features'] != null) {
+            _permiteTelegram = data['plan_features']['telegram'] ?? false;
+            _permiteWhatsapp = data['plan_features']['whatsapp'] ?? false;
+            _permiteIOT = data['plan_features']['iot'] ?? false;
+            _permiteMikrotik = data['plan_features']['mikrotik'] ?? false;
+            _permiteERP = data['plan_features']['erp'] ?? false;
+            _permiteInspeccion = data['plan_features']['inspeccion'] ?? false;
+          }
         }
       } catch (e) {
         debugPrint('Error perfil: $e');
@@ -660,7 +706,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 32),
                 _buildSectionTitle('Integración Bot de Telegram'),
                 const SizedBox(height: 14),
-                Card(
+                _premiumBlock(Card(
                   color: const Color(0xFF1E293B),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ExpansionTile(
@@ -801,8 +847,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ],
                   ],
-                ),
-                ),
+                )),
                 
                 if (_perfiles.isNotEmpty) ...[
                   const SizedBox(height: 32),
@@ -977,8 +1022,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 32),
                 _buildSectionTitle('Integración IoT (Domótica)'),
                 const SizedBox(height: 14),
-                Card(
-                  color: const Color(0xFF1E293B),
+                _premiumBlock(
+                  Card(
+                    color: const Color(0xFF1E293B),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ExpansionTile(
                     leading: Icon(
@@ -1084,12 +1130,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
+                _permiteIOT,
+                ),
 
                 // INTEGRACIÓN MIKROTIK
                 const SizedBox(height: 32),
                 _buildSectionTitle('Integración de Red (MikroTik)'),
                 const SizedBox(height: 14),
-                if (_mikrotikRouters.isNotEmpty)
+                _premiumBlock(
+                  Column(
+                    children: [
+                      if (_mikrotikRouters.isNotEmpty)
                   ..._mikrotikRouters.map((r) {
                     final bool isConnected = r['is_connected'] ?? false;
                     final String? lastError = r['last_error'];
@@ -1169,8 +1220,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 48),
-                SizedBox(
+                ],
+              ),
+              _permiteMikrotik,
+            ),
+            const SizedBox(height: 48),
+            SizedBox(
                   height: 52,
                   child: ElevatedButton.icon(
                     onPressed: _saveSettings,
