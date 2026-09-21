@@ -405,6 +405,26 @@ async def telegram_webhook(bot_token: str, update: dict = Body(...), db: Session
             if tenant_profile and tenant_profile.instrucciones_extra:
                 sys_prompt += f"\n\nInstrucciones Adicionales del Cliente:\n{tenant_profile.instrucciones_extra}"
 
+    # Anexar routers MikroTik si es el perfil, admin o menciona palabras clave
+    is_superadmin = (user.rol == "superadmin") or getattr(user, "is_superadmin", False)
+    _keywords_red = ("red", "internet", "router", "mikrotik", "wifi", "wi-fi", "conexion", "conexión", "lento", "lenta", "cae", "caido", "caído", "desconect", "ping", "señal", "senal", "velocidad", "network", "enlace", "pppoe", "firewall", "ip ", "dhcp", "vlan")
+    
+    _menciona_red = (
+        is_superadmin or 
+        ("mikrotik" in sys_prompt.lower()) or 
+        any(kw in text.lower() for kw in _keywords_red)
+    )
+    
+    if _menciona_red:
+        from backend.models import MikrotikRouter
+        routers = db.query(MikrotikRouter).filter(MikrotikRouter.id_tenant == user.id_tenant).all()
+        if routers:
+            sys_prompt += "\n\n[ROUTERS MIKROTIK DISPONIBLES PARA GESTIÓN]\n"
+            sys_prompt += "Instrucción de Red: Eres proactivo. Si el usuario reporta problemas de red, usa las herramientas pasándole el 'id_router' para diagnosticar de forma autónoma.\n"
+            for r in routers:
+                estado = "Online" if r.is_connected else f"Offline (Error: {r.last_error})"
+                sys_prompt += f"- ID Router: {r.id_router} | Nombre: {r.nombre} | IP: {r.ip_address} | Estado: {estado}\n"
+
     # Obtener historial
     mensajes_previos = db.query(ChatMessage).filter(
         ChatMessage.id_session == session.id_session

@@ -1137,7 +1137,11 @@ async def enviar_mensaje_chat(
         "ping", "señal", "senal", "velocidad", "network", "enlace", "pppoe",
         "firewall", "ip ", "dhcp", "vlan",
     )
-    _menciona_red = any(kw in _texto_para_clasificar for kw in _KEYWORDS_RED)
+    _menciona_red = (
+        is_superadmin or 
+        ("mikrotik" in sys_prompt.lower()) or 
+        any(kw in _texto_para_clasificar for kw in _KEYWORDS_RED)
+    )
 
     from backend.models import MikrotikRouter
     if _menciona_red:
