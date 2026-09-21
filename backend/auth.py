@@ -112,9 +112,10 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
     rol_usuario = usuario.rol or (ROL_SUPERADMIN if usuario.is_superadmin else ROL_CLIENTE)
 
     nombre_perfil = usuario.perfil_jarvis or ""
-    if usuario.active_profile_id:
+    active_ids = usuario.active_profile_ids or []
+    if active_ids:
         from backend.models import JarvisProfile
-        jp = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == usuario.active_profile_id).first()
+        jp = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == active_ids[0]).first()
         if jp:
             nombre_perfil = jp.nombre
 

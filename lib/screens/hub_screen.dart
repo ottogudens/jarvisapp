@@ -57,11 +57,11 @@ class _HubScreenState extends State<HubScreen> {
           final newOrg = data['nombre_organizacion'] ?? _organizacion;
           final newContact = data['nombre_contacto'] ?? '';
           String newProfile = _perfil;
-          final actives = data['active_profile_id'];
+          final activeIds = data['active_profile_ids'] as List? ?? [];
           final perfs = data['perfiles'] as List? ?? [];
-          if (actives != null) {
+          if (activeIds.isNotEmpty) {
             for (var p in perfs) {
-              if (p['id_perfil'] == actives) {
+              if (p['id_perfil'] == activeIds[0]) {
                 newProfile = p['nombre'];
                 break;
               }
