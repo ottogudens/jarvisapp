@@ -1025,8 +1025,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildSectionTitle('Integración IoT (Domótica)'),
                 const SizedBox(height: 14),
                 _premiumBlock(
-                  Card(
-                    color: const Color(0xFF1E293B),
+                  Column(
+                    children: [
+                      Card(
+                        color: const Color(0xFF1E293B),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ExpansionTile(
                     leading: Icon(
@@ -1132,8 +1134,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
+                ],
+                  ),
                 _permiteIOT,
                 ),
+
 
                 // INTEGRACIÓN MIKROTIK
                 const SizedBox(height: 32),
