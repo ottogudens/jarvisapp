@@ -109,11 +109,18 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
     # Sincronizar is_superadmin con el campo rol (compatibilidad)
     rol_usuario = usuario.rol or (ROL_SUPERADMIN if usuario.is_superadmin else ROL_CLIENTE)
 
+    nombre_perfil = usuario.perfil_jarvis or ""
+    if usuario.active_profile_id:
+        from backend.models import JarvisProfile
+        jp = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == usuario.active_profile_id).first()
+        if jp:
+            nombre_perfil = jp.nombre
+
     token = crear_token_jwt({
         "id_usuario": usuario.id_usuario,
         "id_tenant": usuario.id_tenant,
         "email": usuario.email,
-        "perfil_jarvis": usuario.perfil_jarvis,
+        "perfil_jarvis": nombre_perfil,
         "rol": rol_usuario,
         "is_superadmin": rol_usuario in ROLS_STAFF,  # True para admin y superadmin
     })
@@ -121,7 +128,7 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
     tenant = usuario.tenant
     return TokenResponse(
         access_token=token,
-        perfil_jarvis=usuario.perfil_jarvis or "",
+        perfil_jarvis=nombre_perfil,
         nombre_organizacion=tenant.nombre_organizacion if tenant else "N/A",
         rol=rol_usuario,
     )
@@ -270,6 +277,8 @@ def get_profile(
         raise HTTPException(status_code=404, detail='Usuario no encontrado')
 
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
+    from backend.models import SaaSPlan
+    plan = db.query(SaaSPlan).filter(SaaSPlan.id_plan == tenant.id_plan).first() if tenant else None
 
     tp_list = db.query(TenantProfile).filter(TenantProfile.id_tenant == user.id_tenant).all()
     perfiles = [{"id_perfil": tp.perfil.id_perfil, "nombre": tp.perfil.nombre, "instrucciones_extra": tp.instrucciones_extra} for tp in tp_list]
@@ -281,4 +290,12 @@ def get_profile(
         'is_superadmin': user.rol in ROLS_STAFF if user.rol else user.is_superadmin,
         'active_profile_id': user.active_profile_id,
         'perfiles': perfiles,
+        'plan_features': {
+            'telegram': plan.permite_telegram if plan else False,
+            'whatsapp': plan.permite_whatsapp if plan else False,
+            'iot': plan.permite_iot if plan else False,
+            'mikrotik': plan.permite_mikrotik if plan else False,
+            'erp': plan.permite_erp if plan else False,
+            'inspeccion': plan.permite_inspeccion if plan else False,
+        }
     }

@@ -59,8 +59,10 @@ class _LoginScreenState extends State<LoginScreen> {
         final perfil = data['perfil_jarvis'] ?? '';
         final organizacion = data['nombre_organizacion'] ?? '';
 
-        // Guardar token y datos de perfil
+        // Guardar token y datos de perfil (limpiar caché previo)
         final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+
         await prefs.setString('jwt_token', token);
         await prefs.setString('perfil_jarvis', perfil);
         await prefs.setString('nombre_organizacion', organizacion);
