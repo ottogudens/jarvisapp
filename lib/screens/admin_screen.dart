@@ -233,9 +233,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 const SizedBox(height: 12),
                 _buildTextField(telefonoCtrl, 'Teléfono (Opcional)'),
                 const SizedBox(height: 12),
+                _buildTextField(emailCtrl, 'Email del Administrador'),
+                const SizedBox(height: 12),
                 if (isNew) ...[
-                  _buildTextField(emailCtrl, 'Email del Administrador'),
-                  const SizedBox(height: 12),
                   _buildTextField(passCtrl, 'Contraseña (Opcional)', obscure: true),
                   const SizedBox(height: 12),
                 ],
@@ -338,6 +338,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                       'nombre_organizacion': orgCtrl.text.trim(),
                       'nombre_contacto': contactoCtrl.text.trim(),
                       'telefono': telefonoCtrl.text.trim(),
+                      'email': emailCtrl.text.trim(),
                       'id_plan': selectedPlanId,
                       'ai_provider': aiProvider,
                       'ai_model': aiModelCtrl.text.trim(),
@@ -346,6 +347,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   );
                   if (res.statusCode == 200) {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente actualizado'), backgroundColor: Colors.green));
+                  } else {
+                    final err = jsonDecode(res.body);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${err['detail'] ?? 'Desconocido'}'), backgroundColor: Colors.redAccent));
                   }
                 }
                 if (mounted) Navigator.pop(ctx);
