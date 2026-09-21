@@ -110,6 +110,53 @@ def inicializar_base_de_datos_remota():
     except Exception:
         pass
 
+    # Migraciones MQTT (mqtt_auto_connect column + tablas MQTT)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE iot_configs ADD COLUMN mqtt_auto_connect BOOLEAN DEFAULT FALSE'))
+            conn.commit()
+    except Exception:
+        pass
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE usuarios ADD COLUMN active_profile_ids JSON'))
+            conn.commit()
+    except Exception:
+        pass
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('''
+                CREATE TABLE IF NOT EXISTS mqtt_subscriptions (
+                    id_subscription SERIAL PRIMARY KEY,
+                    id_usuario INTEGER NOT NULL REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+                    topic VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT now()
+                )
+            '''))
+            conn.execute(text('CREATE INDEX IF NOT EXISTS ix_mqtt_subscriptions_id_usuario ON mqtt_subscriptions (id_usuario)'))
+            conn.commit()
+    except Exception:
+        pass
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text('''
+                CREATE TABLE IF NOT EXISTS mqtt_message_cache (
+                    id_message SERIAL PRIMARY KEY,
+                    id_usuario INTEGER NOT NULL REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+                    topic VARCHAR(255) NOT NULL,
+                    payload TEXT NOT NULL,
+                    timestamp TIMESTAMPTZ DEFAULT now()
+                )
+            '''))
+            conn.execute(text('CREATE INDEX IF NOT EXISTS ix_mqtt_message_cache_id_usuario ON mqtt_message_cache (id_usuario)'))
+            conn.execute(text('CREATE INDEX IF NOT EXISTS ix_mqtt_message_cache_topic ON mqtt_message_cache (topic)'))
+            conn.commit()
+    except Exception:
+        pass
+
     Base.metadata.create_all(bind=engine)
 
     # Migraciones que dependen de tablas creadas en create_all
