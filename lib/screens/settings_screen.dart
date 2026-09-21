@@ -69,8 +69,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _permiteWhatsapp = false;
   bool _permiteIOT = false;
   bool _permiteMikrotik = false;
-  bool _permiteERP = false;
-  bool _permiteInspeccion = false;
 
   final List<String> _sarcasmOptions = ['Bajo', 'Medio', 'Alto', 'Extremo'];
 
@@ -155,8 +153,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _permiteWhatsapp = data['plan_features']['whatsapp'] ?? false;
             _permiteIOT = data['plan_features']['iot'] ?? false;
             _permiteMikrotik = data['plan_features']['mikrotik'] ?? false;
-            _permiteERP = data['plan_features']['erp'] ?? false;
-            _permiteInspeccion = data['plan_features']['inspeccion'] ?? false;
           }
         }
       } catch (e) {

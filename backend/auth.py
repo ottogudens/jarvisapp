@@ -303,7 +303,5 @@ def get_profile(
             'whatsapp': plan.permite_whatsapp if plan else False,
             'iot': plan.permite_iot if plan else False,
             'mikrotik': plan.permite_mikrotik if plan else False,
-            'erp': plan.permite_erp if plan else False,
-            'inspeccion': plan.permite_inspeccion if plan else False,
         }
     }

@@ -140,8 +140,6 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   void _showPlanEditor({Map<String, dynamic>? planToEdit}) {
     final isNew = planToEdit == null;
     final nameCtrl = TextEditingController(text: planToEdit?['nombre_plan'] ?? '');
-    bool pErp = planToEdit?['permite_erp'] ?? false;
-    bool pIns = planToEdit?['permite_inspeccion'] ?? false;
     bool pIot = planToEdit?['permite_iot'] ?? false;
     bool pMk = planToEdit?['permite_mikrotik'] ?? false;
     bool pTele = planToEdit?['permite_telegram'] ?? false;
@@ -161,8 +159,6 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(labelText: 'Nombre del Plan', labelStyle: TextStyle(color: Colors.cyan)),
                 ),
-                SwitchListTile(title: const Text('ERP', style: TextStyle(color: Colors.white)), value: pErp, onChanged: (val) => setDialogState(() => pErp = val)),
-                SwitchListTile(title: const Text('Inspección', style: TextStyle(color: Colors.white)), value: pIns, onChanged: (val) => setDialogState(() => pIns = val)),
                 SwitchListTile(title: const Text('IoT', style: TextStyle(color: Colors.white)), value: pIot, onChanged: (val) => setDialogState(() => pIot = val)),
                 SwitchListTile(title: const Text('MikroTik', style: TextStyle(color: Colors.white)), value: pMk, onChanged: (val) => setDialogState(() => pMk = val)),
                 SwitchListTile(title: const Text('Telegram', style: TextStyle(color: Colors.white)), value: pTele, onChanged: (val) => setDialogState(() => pTele = val)),
@@ -177,8 +173,6 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 final token = await _getToken();
                 final body = jsonEncode({
                   'nombre_plan': nameCtrl.text,
-                  'permite_erp': pErp,
-                  'permite_inspeccion': pIns,
                   'permite_iot': pIot,
                   'permite_mikrotik': pMk,
                   'permite_telegram': pTele,
@@ -618,7 +612,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ListTile(
                   title: Text(p['nombre_plan'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Text("ERP: ${p['permite_erp']} | IoT: ${p['permite_iot']} | MT: ${p['permite_mikrotik']} | TG: ${p['permite_telegram']} | WA: ${p['permite_whatsapp']}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  subtitle: Text("IoT: ${p['permite_iot']} | MikroTik: ${p['permite_mikrotik']} | Telegram: ${p['permite_telegram']} | WhatsApp: ${p['permite_whatsapp']}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   trailing: IconButton(
                     icon: const Icon(Icons.edit, color: Colors.cyanAccent),
                     onPressed: () => _showPlanEditor(planToEdit: p),

@@ -33,8 +33,6 @@ class SaaSPlan(Base):
 
     id_plan = Column(Integer, primary_key=True, autoincrement=True)
     nombre_plan = Column(String(50), unique=True, nullable=False)
-    permite_erp = Column(Boolean, default=False)
-    permite_inspeccion = Column(Boolean, default=False)
     permite_iot = Column(Boolean, default=False)
     permite_mikrotik = Column(Boolean, default=False)
     permite_telegram = Column(Boolean, default=False)

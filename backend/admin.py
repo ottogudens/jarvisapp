@@ -23,8 +23,6 @@ class SaaSPlanSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id_plan: Optional[int] = None
     nombre_plan: str
-    permite_erp: bool
-    permite_inspeccion: bool
     permite_iot: bool
     permite_mikrotik: bool
     permite_telegram: bool = False
@@ -157,8 +155,6 @@ def create_plan(
 ):
     db_plan = SaaSPlan(
         nombre_plan=plan.nombre_plan,
-        permite_erp=plan.permite_erp,
-        permite_inspeccion=plan.permite_inspeccion,
         permite_iot=plan.permite_iot,
         permite_mikrotik=plan.permite_mikrotik,
         permite_telegram=plan.permite_telegram,
@@ -181,8 +177,6 @@ def update_plan(
         raise HTTPException(status_code=404, detail="Plan no encontrado")
     
     db_plan.nombre_plan = plan.nombre_plan
-    db_plan.permite_erp = plan.permite_erp
-    db_plan.permite_inspeccion = plan.permite_inspeccion
     db_plan.permite_iot = plan.permite_iot
     db_plan.permite_mikrotik = plan.permite_mikrotik
     db_plan.permite_telegram = plan.permite_telegram
