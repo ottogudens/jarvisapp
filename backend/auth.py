@@ -70,6 +70,8 @@ def crear_token_jwt(data: dict) -> str:
 
 class ProfileUpdate(BaseModel):
     nombre_organizacion: str
+    nombre_contacto: Optional[str] = None
+    telefono: Optional[str] = None
     email: str
     password: Optional[str] = None
     active_profile_id: Optional[int] = None
@@ -249,6 +251,10 @@ def update_profile(
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
     if tenant:
         tenant.nombre_organizacion = data.nombre_organizacion
+        if data.nombre_contacto is not None:
+            tenant.nombre_contacto = data.nombre_contacto
+        if data.telefono is not None:
+            tenant.telefono = data.telefono
 
     if user.email != data.email:
         existing = db.query(Usuario).filter(Usuario.email == data.email).first()
@@ -286,6 +292,8 @@ def get_profile(
     return {
         'email': user.email,
         'nombre_organizacion': tenant.nombre_organizacion if tenant else '',
+        'nombre_contacto': tenant.nombre_contacto if tenant else '',
+        'telefono': tenant.telefono if tenant else '',
         'rol': user.rol or (ROL_SUPERADMIN if user.is_superadmin else ROL_CLIENTE),
         'is_superadmin': user.rol in ROLS_STAFF if user.rol else user.is_superadmin,
         'active_profile_id': user.active_profile_id,

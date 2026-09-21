@@ -24,6 +24,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   
   // Profile Config
   final _orgNameController = TextEditingController();
+  final _nombreContactoController = TextEditingController();
+  final _telefonoController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
@@ -141,6 +143,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (profileResp.statusCode == 200) {
           final data = jsonDecode(profileResp.body);
           _orgNameController.text = data['nombre_organizacion'] ?? '';
+          _nombreContactoController.text = data['nombre_contacto'] ?? '';
+          _telefonoController.text = data['telefono'] ?? '';
           _isSuperAdmin = data['is_superadmin'] ?? false;
           _emailController.text = data['email'] ?? '';
           _activeProfileId = data['active_profile_id'];
@@ -603,6 +607,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
           body: jsonEncode({
             'nombre_organizacion': _orgNameController.text.trim(),
+            'nombre_contacto': _nombreContactoController.text.trim(),
+            'telefono': _telefonoController.text.trim(),
             'email': _emailController.text.trim(),
             'password': _passwordController.text.isNotEmpty ? _passwordController.text : null,
             if (_activeProfileId != null) 'active_profile_id': _activeProfileId,
@@ -676,9 +682,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 _buildSectionTitle('Información de la Cuenta'),
                 const SizedBox(height: 14),
-                _buildTextField(_orgNameController, 'Nombre de la Empresa', Icons.business),
+                _buildTextField(_nombreContactoController, 'Nombre Completo', Icons.person),
+                const SizedBox(height: 10),
+                _buildTextField(_orgNameController, 'Nombre de la Empresa (Opcional)', Icons.business),
                 const SizedBox(height: 10),
                 _buildTextField(_emailController, 'Correo Electrónico', Icons.email),
+                const SizedBox(height: 10),
+                _buildTextField(_telefonoController, 'Número de Teléfono', Icons.phone),
                 const SizedBox(height: 10),
                 _buildTextField(_passwordController, 'Nueva Contraseña (Opcional)', Icons.lock, TextInputType.text, true),
 

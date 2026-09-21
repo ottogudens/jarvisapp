@@ -19,6 +19,7 @@ class HubScreen extends StatefulWidget {
 class _HubScreenState extends State<HubScreen> {
   String _perfil = 'Usuario';
   String _organizacion = 'Organización';
+  String _nombreContacto = '';
   String? _token;
   bool _isLoading = true;
 
@@ -39,6 +40,7 @@ class _HubScreenState extends State<HubScreen> {
     setState(() {
       _perfil = prefs.getString('perfil_jarvis') ?? 'Usuario';
       _organizacion = prefs.getString('nombre_organizacion') ?? 'Organización';
+      _nombreContacto = prefs.getString('nombre_contacto') ?? '';
       if (_perfil == 'Inspector_DGC') {
         _perfil = 'Inspector';
       }
@@ -53,6 +55,7 @@ class _HubScreenState extends State<HubScreen> {
         if (resp.statusCode == 200) {
           final data = jsonDecode(resp.body);
           final newOrg = data['nombre_organizacion'] ?? _organizacion;
+          final newContact = data['nombre_contacto'] ?? '';
           String newProfile = _perfil;
           final actives = data['active_profile_id'];
           final perfs = data['perfiles'] as List? ?? [];
@@ -66,10 +69,12 @@ class _HubScreenState extends State<HubScreen> {
           }
           await prefs.setString('perfil_jarvis', newProfile);
           await prefs.setString('nombre_organizacion', newOrg);
+          await prefs.setString('nombre_contacto', newContact);
           if (mounted) {
             setState(() {
               _perfil = newProfile == 'Inspector_DGC' ? 'Inspector' : newProfile;
               _organizacion = newOrg;
+              _nombreContacto = newContact;
             });
           }
         }
@@ -325,7 +330,7 @@ class _HubScreenState extends State<HubScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Hola, $_perfil',
+                              'Hola, ${_nombreContacto.isNotEmpty ? _nombreContacto : _perfil}',
                               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
@@ -333,7 +338,7 @@ class _HubScreenState extends State<HubScreen> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              _organizacion,
+                              '$_organizacion - $_perfil',
                               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                     color: Colors.cyanAccent.withOpacity(0.8),
                                   ),
