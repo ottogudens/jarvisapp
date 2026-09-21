@@ -241,6 +241,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _disconnectBotTelegram() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Desconectar Bot', style: TextStyle(color: Colors.redAccent)),
+        content: const Text('¿Estás seguro de desconectar totalmente tu Bot de Telegram? Esto borrará tu token y el bot dejará de responder.', style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Desconectar', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      )
+    );
+    
+    if (confirm != true) return;
+    
+    setState(() => _isConfiguringBot = true);
+    
+    try {
+      final res = await http.delete(
+        Uri.parse('$kApiBaseUrl/v1/telegram/config'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        setState(() {
+            _tenantBotConfigured = false;
+            _telegramBotTokenController.clear();
+        });
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bot de Telegram desconectado correctamente'), backgroundColor: Colors.orangeAccent));
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error desconectando bot'), backgroundColor: Colors.redAccent));
+      }
+    } catch (e) {
+      debugPrint('Error desconectando bot: $e');
+    } finally {
+      if (mounted) setState(() => _isConfiguringBot = false);
+    }
+  }
+
   Future<void> _generateTelegramLinkCode() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -846,6 +893,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(color: Colors.cyan.withOpacity(0.1), border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)), borderRadius: BorderRadius.circular(8)),
                           child: const Row(children: [Icon(Icons.check_circle, color: Colors.cyanAccent, size: 20), SizedBox(width: 8), Expanded(child: Text('El Bot Inteligente de tu organización está desplegado.', style: TextStyle(color: Colors.white, fontSize: 13)))]),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _isConfiguringBot ? null : _disconnectBotTelegram,
+                          icon: _isConfiguringBot 
+                            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orangeAccent))
+                            : const Icon(Icons.delete_forever, color: Colors.orangeAccent, size: 18),
+                          label: const Text('Desconectar Bot (Eliminar Token)', style: TextStyle(color: Colors.orangeAccent)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.orangeAccent),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            minimumSize: const Size(0, 36)
+                          ),
                         ),
                         const SizedBox(height: 16),
                         const Divider(color: Colors.white24),

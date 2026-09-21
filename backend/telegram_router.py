@@ -64,6 +64,28 @@ async def configurar_telegram_tenant(
     
     return {"status": "success", "message": "Bot de Telegram configurado exitosamente", "webhook_url": webhook_url}
 
+@router.delete("/config", summary="Desconectar el bot de Telegram del Tenant")
+async def desconectar_telegram_tenant(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    """Elimina el webhook en Telegram y borra el token del Tenant."""
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organización no encontrada")
+
+    if tenant.telegram_bot_token:
+        # Intentar eliminar el webhook, ignorar si falla
+        api_url = f"https://api.telegram.org/bot{tenant.telegram_bot_token}"
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(f"{api_url}/deleteWebhook")
+        except Exception as e:
+            logger.warning(f"No se pudo eliminar webhook de Telegram: {e}")
+
+    tenant.telegram_bot_token = None
+    db.commit()
+    return {"status": "success", "message": "Bot de Telegram desconectado"}
 
 @router.get("/debug")
 async def debug_telegram_webhook(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
@@ -364,8 +386,14 @@ async def telegram_webhook(bot_token: str, update: dict = Body(...), db: Session
         db.commit()
         db.refresh(session)
 
-    perfil = user.perfil_jarvis or "Mecanico"
-    sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS["Mecanico"])
+    perfil = "Mecanico"
+    if user.active_profile_ids and len(user.active_profile_ids) > 0:
+        from backend.models import JarvisProfile
+        first_profile = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == user.active_profile_ids[0]).first()
+        if first_profile:
+            perfil = first_profile.nombre
+            
+    sys_prompt = SYSTEM_PROMPTS.get(perfil, SYSTEM_PROMPTS.get("Mecanico", ""))
 
     # Obtener historial
     mensajes_previos = db.query(ChatMessage).filter(
