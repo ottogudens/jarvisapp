@@ -74,7 +74,7 @@ class ProfileUpdate(BaseModel):
     telefono: Optional[str] = None
     email: str
     password: Optional[str] = None
-    active_profile_id: Optional[int] = None
+    active_profile_ids: list[int] = []
 
 
 class LoginRequest(BaseModel):
@@ -265,8 +265,8 @@ def update_profile(
     if data.password:
         user.password_hash = bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-    if data.active_profile_id is not None:
-        user.active_profile_id = data.active_profile_id
+    if data.active_profile_ids is not None:
+        user.active_profile_ids = data.active_profile_ids
 
     db.commit()
     return {'message': 'Perfil actualizado correctamente'}
@@ -296,7 +296,7 @@ def get_profile(
         'telefono': tenant.telefono if tenant else '',
         'rol': user.rol or (ROL_SUPERADMIN if user.is_superadmin else ROL_CLIENTE),
         'is_superadmin': user.rol in ROLS_STAFF if user.rol else user.is_superadmin,
-        'active_profile_id': user.active_profile_id,
+        'active_profile_ids': user.active_profile_ids,
         'perfiles': perfiles,
         'plan_features': {
             'telegram': plan.permite_telegram if plan else False,

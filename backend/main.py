@@ -50,6 +50,8 @@ from supabase import create_client, Client
 async def lifespan(app: FastAPI):
     """Inicializa la BD al arrancar y limpia recursos al cerrar."""
     inicializar_base_de_datos_remota()
+    from backend.mqtt_daemon import MQTTDaemon
+    MQTTDaemon.get_instance().start_daemon()
     yield
 
 
@@ -1029,18 +1031,35 @@ async def enviar_mensaje_chat(
     if is_superadmin:
         sys_prompt = "Eres un administrador global nivel Dios. Tienes acceso total a todas las herramientas, bases de datos y configuraciones. Puedes gestionar cualquier módulo del ERP, inspecciones, IoT y MikroTik."
     else:
-        active_id = usuario.get("active_profile_id")
-        if active_id:
+        active_ids = usuario.get("active_profile_ids", [])
+        if active_ids:
             from backend.models import JarvisProfile, TenantProfile
-            jp = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == active_id).first()
-            if jp:
-                sys_prompt = jp.instrucciones_base
-                tp = db.query(TenantProfile).filter(
-                    TenantProfile.id_tenant == usuario["id_tenant"],
-                    TenantProfile.id_perfil == active_id
-                ).first()
-                if tp and tp.instrucciones_extra:
-                    sys_prompt += f"\n\n[Instrucciones Adicionales del Cliente]:\n{tp.instrucciones_extra}"
+            sys_prompt = "Eres J.A.R.V.I.S., asistente virtual muli-disciplinario asignado a varias tareas. Sigue estrictamente estas reglas:\n"
+            
+            for index, p_id in enumerate(active_ids):
+                jp = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == p_id).first()
+                if jp:
+                    sys_prompt += f"\n--- [PERFIL EXPERTO {index + 1}: {jp.nombre}] ---\n"
+                    sys_prompt += f"{jp.instrucciones_base}\n"
+                    
+                    tp = db.query(TenantProfile).filter(
+                        TenantProfile.id_tenant == usuario["id_tenant"],
+                        TenantProfile.id_perfil == p_id
+                    ).first()
+                    if tp and tp.instrucciones_extra:
+                        sys_prompt += f"\n[Instrucciones Adicionales para {jp.nombre}]:\n{tp.instrucciones_extra}\n"
+            
+            from backend.models import MQTTMessageCache
+            cached_msgs = db.query(MQTTMessageCache).filter(MQTTMessageCache.id_usuario == usuario["id_usuario"]).all()
+            if cached_msgs:
+                sys_prompt += "\n--- [TELEMETRÍA EN TIEMPO REAL MQTT] ---\n"
+                sys_prompt += "El sistema tiene acceso a los siguientes tópicos suscritos, listando el último valor conocido de los sensores detectado en background:\n"
+                for msg in cached_msgs:
+                    sys_prompt += f"- Tópico: `{msg.topic}` | Último Mensaje: {msg.payload}\n"
+                sys_prompt += "Usa estos valores reales para responder preguntas sobre sensores en vez de suponer estados.\n"
+
+        else:
+            sys_prompt = "Eres J.A.R.V.I.S., asistente virtual local."
 
     # Se elimina el override destructivo de x_custom_prompt para que SIEMPRE se respete
     # el Perfil Activo (JarvisProfile) y las Instrucciones Extra del cliente (TenantProfile).
@@ -1237,6 +1256,89 @@ async def test_ha_connection(
     except Exception as e:
         return {"status": "error", "connected": False, "message": str(e)}
 
+
+import paho.mqtt.client as mqtt
+
+class MQTTSubscriptionRequest(BaseModel):
+    topic: str
+
+@app.post("/v1/iot/mqtt/connect")
+async def toggle_mqtt_connection(
+    body: dict,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.mqtt_daemon import MQTTDaemon
+    from backend.models import IoTConfig
+    config = db.query(IoTConfig).filter(IoTConfig.id_usuario == usuario["id_usuario"]).first()
+    if not config:
+        raise HTTPException(status_code=400, detail="Dispositivo IoT no configurado.")
+    
+    config.mqtt_auto_connect = body.get("connect", False)
+    db.commit()
+    
+    daemon = MQTTDaemon.get_instance()
+    if config.mqtt_auto_connect:
+        daemon.add_or_update_client(usuario["id_usuario"])
+        return {"status": "conectando"}
+    else:
+        daemon.kill_client(usuario["id_usuario"])
+        return {"status": "desconectado"}
+
+@app.get("/v1/iot/mqtt/subscriptions")
+async def get_mqtt_subscriptions(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import MQTTSubscription
+    subs = db.query(MQTTSubscription).filter(MQTTSubscription.id_usuario == usuario["id_usuario"]).all()
+    return [{"id": s.id_subscription, "topic": s.topic} for s in subs]
+
+@app.post("/v1/iot/mqtt/subscribe")
+async def add_mqtt_subscription(
+    body: MQTTSubscriptionRequest,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import MQTTSubscription
+    from backend.mqtt_daemon import MQTTDaemon
+    
+    existing = db.query(MQTTSubscription).filter(
+        MQTTSubscription.id_usuario == usuario["id_usuario"],
+        MQTTSubscription.topic == body.topic
+    ).first()
+    
+    if not existing:
+        sub = MQTTSubscription(id_usuario=usuario["id_usuario"], topic=body.topic)
+        db.add(sub)
+        db.commit()
+        MQTTDaemon.get_instance().trigger_hot_reload(usuario["id_usuario"])
+    return {"message": "Suscrito con éxito"}
+
+@app.delete("/v1/iot/mqtt/subscribe/{topic:path}")
+async def remove_mqtt_subscription(
+    topic: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    from backend.models import MQTTSubscription, MQTTMessageCache
+    from backend.mqtt_daemon import MQTTDaemon
+    
+    db.query(MQTTSubscription).filter(
+        MQTTSubscription.id_usuario == usuario["id_usuario"],
+        MQTTSubscription.topic == topic
+    ).delete()
+    
+    db.query(MQTTMessageCache).filter(
+        MQTTMessageCache.id_usuario == usuario["id_usuario"],
+        MQTTMessageCache.topic == topic
+    ).delete()
+    
+    db.commit()
+    MQTTDaemon.get_instance().kill_client(usuario["id_usuario"]) # Para luego reconectar limpio
+    MQTTDaemon.get_instance().trigger_hot_reload(usuario["id_usuario"])
+    
+    return {"message": "Desuscrito con éxito"}
 
 @app.post("/v1/iot/test-mqtt")
 async def test_mqtt_connection(

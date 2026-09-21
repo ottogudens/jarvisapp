@@ -128,8 +128,8 @@ class Usuario(Base):
     id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), nullable=False)
     email = Column(String(100), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    perfil_jarvis = Column(String(50), nullable=True)  # Deprecado, se usa active_profile_id
-    active_profile_id = Column(Integer, ForeignKey('jarvis_profiles.id_perfil', ondelete='SET NULL'), nullable=True)
+    perfil_jarvis = Column(String(50), nullable=True)  # Deprecado
+    active_profile_ids = Column(JSON, default=list)
     rol = Column(String(20), nullable=False, default=ROL_CLIENTE)  # 'superadmin', 'admin', 'cliente'
     is_superadmin = Column(Boolean, default=False, nullable=False)  # Alias de compatibilidad: rol == 'superadmin'
     tokens_consumidos = Column(Integer, default=0, nullable=False)
@@ -282,6 +282,7 @@ class IoTConfig(Base):
     mqtt_port = Column(Integer, default=1883)
     mqtt_user = Column(String(100), nullable=True)
     mqtt_password = Column(String(255), nullable=True)
+    mqtt_auto_connect = Column(Boolean, default=False)
     
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -345,3 +346,20 @@ class MikrotikRouter(Base):
     is_connected = Column(Boolean, default=False)
     last_error = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class MQTTSubscription(Base):
+    __tablename__ = 'mqtt_subscriptions'
+
+    id_subscription = Column(Integer, primary_key=True, autoincrement=True)
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='CASCADE'), index=True, nullable=False)
+    topic = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class MQTTMessageCache(Base):
+    __tablename__ = 'mqtt_message_cache'
+
+    id_message = Column(Integer, primary_key=True, autoincrement=True)
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='CASCADE'), index=True, nullable=False)
+    topic = Column(String(255), index=True, nullable=False)
+    payload = Column(Text, nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

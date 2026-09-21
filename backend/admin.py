@@ -76,19 +76,19 @@ class UsuarioSchema(BaseModel):
     id_usuario: int
     email: str
     rol: str
-    active_profile_id: Optional[int] = None
+    active_profile_ids: list[int] = []
 
 class UsuarioCreateSchema(BaseModel):
     email: str
     password: str
     rol: str = ROL_CLIENTE
-    active_profile_id: Optional[int] = None
+    active_profile_ids: list[int] = []
 
 class UsuarioUpdateSchema(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
     rol: Optional[str] = None
-    active_profile_id: Optional[int] = None
+    active_profile_ids: list[int] = []
 
 # --- Endpoints Dashboard ---
 @router.get("/dashboard", response_model=DashboardStats)
@@ -307,7 +307,9 @@ def create_tenant(
         is_superadmin=False
     )
     if data.perfiles_ids:
-        new_user.active_profile_id = data.perfiles_ids[0]
+        new_user.active_profile_ids = [data.perfiles_ids[0]]
+    else:
+        new_user.active_profile_ids = []
         
     db.add(new_user)
     db.commit()
@@ -454,7 +456,7 @@ def get_tenant_users(
         id_usuario=u.id_usuario,
         email=u.email,
         rol=u.rol,
-        active_profile_id=u.active_profile_id
+        active_profile_ids=u.active_profile_ids or []
     ) for u in usuarios]
 
 
@@ -483,7 +485,7 @@ def create_tenant_user(
         password_hash=hash_password(data.password),
         rol=data.rol,
         is_superadmin=(data.rol == ROL_SUPERADMIN),
-        active_profile_id=data.active_profile_id
+        active_profile_ids=data.active_profile_ids or []
     )
     db.add(nuevo_usuario)
     db.commit()
@@ -493,7 +495,7 @@ def create_tenant_user(
         id_usuario=nuevo_usuario.id_usuario,
         email=nuevo_usuario.email,
         rol=nuevo_usuario.rol,
-        active_profile_id=nuevo_usuario.active_profile_id
+        active_profile_ids=nuevo_usuario.active_profile_ids or []
     )
 
 
@@ -534,8 +536,8 @@ def update_tenant_user(
         target_user.rol = data.rol
         target_user.is_superadmin = (data.rol == ROL_SUPERADMIN)
 
-    if data.active_profile_id is not None:
-        target_user.active_profile_id = data.active_profile_id
+    if data.active_profile_ids is not None:
+        target_user.active_profile_ids = data.active_profile_ids
 
     db.commit()
     db.refresh(target_user)
@@ -544,7 +546,7 @@ def update_tenant_user(
         id_usuario=target_user.id_usuario,
         email=target_user.email,
         rol=target_user.rol,
-        active_profile_id=target_user.active_profile_id
+        active_profile_ids=target_user.active_profile_ids or []
     )
 
 

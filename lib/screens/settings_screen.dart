@@ -63,7 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _mkPasswordController = TextEditingController();
 
   List<dynamic> _perfiles = [];
-  int? _activeProfileId;
+  List<int> _activeProfileIds = [];
 
   bool _permiteTelegram = false;
   bool _permiteWhatsapp = false;
@@ -145,7 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _telefonoController.text = data['telefono'] ?? '';
           _isSuperAdmin = data['is_superadmin'] ?? false;
           _emailController.text = data['email'] ?? '';
-          _activeProfileId = data['active_profile_id'];
+          _activeProfileIds = List<int>.from(data['active_profile_ids'] ?? []);
           _perfiles = data['perfiles'] ?? [];
           
           if (data['plan_features'] != null) {
@@ -607,7 +607,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'telefono': _telefonoController.text.trim(),
             'email': _emailController.text.trim(),
             'password': _passwordController.text.isNotEmpty ? _passwordController.text : null,
-            if (_activeProfileId != null) 'active_profile_id': _activeProfileId,
+            'active_profile_ids': _activeProfileIds,
           }),
         );
       } catch (e) {
@@ -867,32 +867,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 14),
                   if (_perfiles.length > 1) ...[
-                    DropdownButtonFormField<int>(
-                      value: _activeProfileId,
-                      dropdownColor: const Color(0xFF1E293B),
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Perfil Activo Actual',
-                        labelStyle: TextStyle(color: Colors.cyanAccent.withOpacity(0.8)),
-                        filled: true,
-                        fillColor: const Color(0xFF0F172A),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: Colors.cyan.withOpacity(0.2)),
-                        ),
-                      ),
-                      items: _perfiles.map<DropdownMenuItem<int>>((p) {
-                        return DropdownMenuItem<int>(
-                          value: p['id_perfil'],
-                          child: Text(p['nombre']),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        setState(() {
-                          _activeProfileId = val;
-                        });
-                      },
-                    ),
+                    const Text('Selecciona los perfiles que Jarvis usará concurrentemente:', style: TextStyle(color: Colors.cyan)),
+                    const SizedBox(height: 10),
+                    ..._perfiles.map((p) {
+                      final int pId = p['id_perfil'];
+                      return CheckboxListTile(
+                        title: Text(p['nombre'], style: const TextStyle(color: Colors.white)),
+                        value: _activeProfileIds.contains(pId),
+                        activeColor: Colors.cyanAccent,
+                        checkColor: Colors.black,
+                        side: const BorderSide(color: Colors.white54),
+                        onChanged: (bool? checked) {
+                          setState(() {
+                            if (checked == true) {
+                              _activeProfileIds.add(pId);
+                            } else {
+                              _activeProfileIds.remove(pId);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
                     const SizedBox(height: 16),
                   ],
                   ..._perfiles.map((p) => Padding(
