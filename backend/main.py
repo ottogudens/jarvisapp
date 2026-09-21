@@ -50,10 +50,67 @@ from supabase import create_client, Client
 async def lifespan(app: FastAPI):
     """Inicializa la BD al arrancar y limpia recursos al cerrar."""
     inicializar_base_de_datos_remota()
+
+    # ── Reset controlado por variable de entorno ──────────────
+    # Para activar: poner RESET_DB=true en las variables de Railway.
+    # ⚠️  ELIMINAR la variable inmediatamente después del deploy
+    # para que no se ejecute en reinicios posteriores.
+    if os.getenv("RESET_DB", "").lower() == "true":
+        print("[RESET_DB] ⚠️  Variable RESET_DB=true detectada. Ejecutando reset...")
+        try:
+            from sqlalchemy import text as _text
+            from backend.models import SaaSPlan, Tenant, Usuario, ROL_SUPERADMIN
+            from backend.auth import hash_password as _hash
+            from backend.database import engine as _engine, SessionLocal as _SL
+
+            with _engine.connect() as conn:
+                conn.execute(_text("TRUNCATE TABLE saas_tenants CASCADE;"))
+                conn.execute(_text("TRUNCATE TABLE saas_planes CASCADE;"))
+                conn.execute(_text("TRUNCATE TABLE jarvis_profiles CASCADE;"))
+                conn.execute(_text("TRUNCATE TABLE system_settings CASCADE;"))
+                conn.execute(_text("TRUNCATE TABLE ai_usage_stats CASCADE;"))
+                conn.commit()
+
+            _db = _SL()
+            try:
+                _plan = SaaSPlan(
+                    nombre_plan="Plan Starter",
+                    permite_iot=True, permite_mikrotik=True,
+                    permite_telegram=True, permite_whatsapp=True,
+                )
+                _db.add(_plan); _db.flush()
+
+                _tenant = Tenant(
+                    nombre_organizacion="Skale",
+                    nombre_contacto="Otto Gudenschwager",
+                    telefono="+56990819881",
+                    id_plan=_plan.id_plan,
+                    ai_provider="gemini", ai_model="gemini-1.5-flash",
+                )
+                _db.add(_tenant); _db.flush()
+
+                _user = Usuario(
+                    id_tenant=_tenant.id_tenant,
+                    email="admin@skale.cl",
+                    password_hash=_hash("GuD3Ns@#"),
+                    rol=ROL_SUPERADMIN, is_superadmin=True,
+                    active_profile_ids=[], tokens_consumidos=0,
+                )
+                _db.add(_user); _db.commit()
+                print("[RESET_DB] ✅ SuperAdmin recreado: admin@skale.cl")
+                print("[RESET_DB] ⚠️  ELIMINA la variable RESET_DB de Railway ahora.")
+            except Exception as e:
+                _db.rollback(); print(f"[RESET_DB] ❌ Error: {e}"); raise
+            finally:
+                _db.close()
+        except Exception as e:
+            print(f"[RESET_DB] ❌ Reset fallido: {e}")
+
     # Insertar/actualizar perfiles por defecto automáticamente en cada arranque
     from backend.seed_default_profiles import main as seed_profiles
     seed_profiles()
     from backend.mqtt_daemon import MQTTDaemon
+
     MQTTDaemon.get_instance().start_daemon()
     yield
 
