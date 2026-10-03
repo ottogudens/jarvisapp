@@ -8,6 +8,7 @@ import 'chat_list_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
 import 'documents_screen.dart';
+import '../brand.dart';
 
 class HubScreen extends StatefulWidget {
   const HubScreen({Key? key}) : super(key: key);
@@ -144,7 +145,7 @@ class _HubScreenState extends State<HubScreen> {
     final newTitle = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Renombrar Actividad', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: TextField(
           controller: titleController,
@@ -153,8 +154,8 @@ class _HubScreenState extends State<HubScreen> {
           decoration: const InputDecoration(
             hintText: 'Nuevo nombre de actividad',
             hintStyle: TextStyle(color: Colors.white30),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.cyanAccent)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.cyanAccent, width: 2)),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: BonsoBrand.aqua)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: BonsoBrand.aqua, width: 2)),
           ),
         ),
         actions: [
@@ -163,7 +164,7 @@ class _HubScreenState extends State<HubScreen> {
             child: const Text('CANCELAR', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
             onPressed: () => Navigator.pop(ctx, titleController.text.trim()),
             child: const Text('GUARDAR', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
@@ -187,7 +188,7 @@ class _HubScreenState extends State<HubScreen> {
         _fetchActivities();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Actividad renombrada exitosamente'), backgroundColor: Colors.cyan),
+            const SnackBar(content: Text('Actividad renombrada exitosamente'), backgroundColor: BonsoBrand.aqua),
           );
         }
       } else {
@@ -206,7 +207,7 @@ class _HubScreenState extends State<HubScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Eliminar Actividad', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: Text(
           '¿Estás seguro de que deseas eliminar la actividad "$title"? Esta acción no se puede deshacer.',
@@ -256,16 +257,16 @@ class _HubScreenState extends State<HubScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: Text('Gestión de $tipo', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         content: Text(
-          'Actualmente tienes contabilizados $tipo asociados a tus sesiones con J.A.R.V.I.S.\nPuedes gestionar o eliminar los archivos asociados eliminando o limpiando la sesión correspondiente.',
+          'Actualmente tienes contabilizados $tipo asociados a tus sesiones con Bonso.\nPuedes gestionar o eliminar los archivos asociados eliminando o limpiando la sesión correspondiente.',
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('ENTENDIDO', style: TextStyle(color: Colors.cyanAccent)),
+            child: const Text('ENTENDIDO', style: TextStyle(color: BonsoBrand.aqua)),
           ),
         ],
       ),
@@ -286,13 +287,25 @@ class _HubScreenState extends State<HubScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: BonsoBrand.ink,
       appBar: AppBar(
-        title: const Text('Workspace', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1)),
-        backgroundColor: const Color(0xFF1E293B),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/branding/bonso-mark.png',
+              width: 26,
+              height: 26,
+              semanticLabel: 'Bonso',
+            ),
+            const SizedBox(width: 9),
+            const Text('BONSO', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.6)),
+          ],
+        ),
+        backgroundColor: BonsoBrand.surface,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.cyanAccent),
+            icon: const Icon(Icons.refresh, color: BonsoBrand.aqua),
             tooltip: 'Actualizar',
             onPressed: () {
               setState(() => _isLoading = true);
@@ -301,7 +314,7 @@ class _HubScreenState extends State<HubScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white70),
-            tooltip: 'Configuración de J.A.R.V.I.S.',
+            tooltip: 'Configuración de Bonso',
             onPressed: () {
               Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) {
                 _loadProfileAndData();
@@ -317,10 +330,10 @@ class _HubScreenState extends State<HubScreen> {
       ),
       body: SafeArea(
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+            ? const Center(child: CircularProgressIndicator(color: BonsoBrand.aqua))
             : RefreshIndicator(
-                color: Colors.cyanAccent,
-                backgroundColor: const Color(0xFF1E293B),
+                color: BonsoBrand.aqua,
+                backgroundColor: BonsoBrand.surface,
                 onRefresh: _loadProfileAndData,
                 child: CustomScrollView(
                   slivers: [
@@ -333,7 +346,7 @@ class _HubScreenState extends State<HubScreen> {
                             Text(
                               'Hola, ${_nombreContacto.isNotEmpty ? _nombreContacto : _perfil}',
                               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                    color: Colors.white,
+                                    color: BonsoBrand.text,
                                     fontWeight: FontWeight.bold,
                                   ),
                             ),
@@ -341,7 +354,7 @@ class _HubScreenState extends State<HubScreen> {
                             Text(
                               '$_organizacion - $_perfil',
                               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    color: Colors.cyanAccent.withOpacity(0.8),
+                                    color: BonsoBrand.aqua.withOpacity(0.8),
                                   ),
                             ),
                             const SizedBox(height: 32),
@@ -361,7 +374,7 @@ class _HubScreenState extends State<HubScreen> {
                                 if (_activities.isNotEmpty)
                                   Text(
                                     '${_activities.length} activas',
-                                    style: const TextStyle(color: Colors.cyanAccent, fontSize: 12),
+                                    style: const TextStyle(color: BonsoBrand.aqua, fontSize: 12),
                                   ),
                               ],
                             ),
@@ -385,7 +398,7 @@ class _HubScreenState extends State<HubScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 const Text(
-                                  'Inicia una conversación con J.A.R.V.I.S. para comenzar.',
+                              'Inicia una conversación con Bonso para comenzar.',
                                   style: TextStyle(color: Colors.white30, fontSize: 12),
                                 ),
                               ],
@@ -420,14 +433,14 @@ class _HubScreenState extends State<HubScreen> {
               ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.cyan,
+        backgroundColor: BonsoBrand.lime,
         onPressed: () {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen())).then((_) {
             _loadProfileAndData();
           });
         },
         icon: const Icon(Icons.chat, color: Colors.black),
-        label: const Text('Sesiones de J.A.R.V.I.S.', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        label: const Text('Sesiones de Bonso', style: TextStyle(color: BonsoBrand.ink, fontWeight: FontWeight.bold)),
       ),
     );
   }
@@ -439,7 +452,7 @@ class _HubScreenState extends State<HubScreen> {
             title: 'Archivos Subidos',
             value: '$_archivosSubidos',
             icon: Icons.cloud_upload_outlined,
-            color: Colors.cyanAccent,
+            color: BonsoBrand.aqua,
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const DocumentsScreen()),
@@ -450,7 +463,7 @@ class _HubScreenState extends State<HubScreen> {
             value: '$_archivosGenerados',
             icon: Icons.auto_awesome,
             color: Colors.amberAccent,
-            onTap: () => _showFileManagementDialog('Archivos Generados por J.A.R.V.I.S.'),
+            onTap: () => _showFileManagementDialog('Archivos generados por Bonso'),
           );
       if (narrow) {
         return Column(children: [uploaded, const SizedBox(height: 16), generated]);
@@ -516,9 +529,9 @@ class _HubScreenState extends State<HubScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: BonsoBrand.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.cyan.withOpacity(0.12)),
+        border: Border.all(color: BonsoBrand.aqua.withOpacity(0.12)),
       ),
       child: Material(
         color: Colors.transparent,
@@ -542,10 +555,10 @@ class _HubScreenState extends State<HubScreen> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.cyan.withOpacity(0.1),
+                    color: BonsoBrand.aqua.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.assignment_outlined, color: Colors.cyanAccent, size: 22),
+                  child: const Icon(Icons.assignment_outlined, color: BonsoBrand.aqua, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -572,7 +585,7 @@ class _HubScreenState extends State<HubScreen> {
                 ),
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
-                  color: const Color(0xFF1E293B),
+                  color: BonsoBrand.surface,
                   onSelected: (value) {
                     if (value == 'rename') {
                       _renameActivity(id, titulo);
@@ -585,7 +598,7 @@ class _HubScreenState extends State<HubScreen> {
                       value: 'rename',
                       child: Row(
                         children: [
-                          Icon(Icons.edit, color: Colors.cyanAccent, size: 18),
+                          Icon(Icons.edit, color: BonsoBrand.aqua, size: 18),
                           SizedBox(width: 10),
                           Text('Renombrar', style: TextStyle(color: Colors.white, fontSize: 14)),
                         ],

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../brand.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 import 'admin_screen.dart';
 
@@ -93,11 +94,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.lock, color: Colors.cyanAccent, size: 40),
+                const Icon(Icons.lock, color: BonsoBrand.aqua, size: 40),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.cyanAccent.withOpacity(0.5))),
+                  decoration: BoxDecoration(color: Colors.black87, borderRadius: BorderRadius.circular(20), border: Border.all(color: BonsoBrand.aqua.withOpacity(0.5))),
                   child: const Text('Disponible en plan superior', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
               ],
@@ -251,7 +252,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Desconectar Bot', style: TextStyle(color: Colors.redAccent)),
         content: const Text('¿Estás seguro de desconectar totalmente tu Bot de Telegram? Esto borrará tu token y el bot dejará de responder.', style: TextStyle(color: Colors.white70)),
         actions: [
@@ -616,8 +617,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
-          title: const Text('Editar Router', style: TextStyle(color: Colors.cyanAccent)),
+          backgroundColor: BonsoBrand.surface,
+          title: const Text('Editar Router', style: TextStyle(color: BonsoBrand.aqua)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -651,7 +652,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 );
                 Navigator.pop(context);
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
+              style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
               child: const Text('Guardar', style: TextStyle(color: Colors.black)),
             ),
           ],
@@ -755,7 +756,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Configuración guardada exitosamente', style: TextStyle(color: Colors.black)),
-        backgroundColor: Colors.cyanAccent,
+        backgroundColor: BonsoBrand.aqua,
       ),
     );
   }
@@ -800,14 +801,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: BonsoBrand.ink,
       appBar: AppBar(
-        title: const Text('Configuración J.A.R.V.I.S.', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Configuración de Bonso', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        backgroundColor: BonsoBrand.surface,
         elevation: 0,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+          ? const Center(child: CircularProgressIndicator(color: BonsoBrand.aqua))
           : ListView(
               padding: const EdgeInsets.all(24.0),
               children: [
@@ -849,7 +850,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _buildSectionTitle('Integración Bot de Telegram'),
                 const SizedBox(height: 14),
                 _premiumBlock(Card(
-                  color: const Color(0xFF1E293B),
+                  color: BonsoBrand.surface,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ExpansionTile(
                     leading: Icon(
@@ -869,14 +870,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : 'Bot Principal No Configurado',
                       style: TextStyle(color: _tenantBotConfigured ? Colors.greenAccent : Colors.orangeAccent, fontSize: 12),
                     ),
-                    iconColor: Colors.cyanAccent,
-                    collapsedIconColor: Colors.cyanAccent,
+                    iconColor: BonsoBrand.aqua,
+                    collapsedIconColor: BonsoBrand.aqua,
                     childrenPadding: const EdgeInsets.all(16),
                     children: [
                       if (!_tenantBotConfigured) ...[
                         Container(
                           padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(color: const Color(0xFF0F172A), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.cyanAccent.withOpacity(0.5))),
+                          decoration: BoxDecoration(color: BonsoBrand.ink, borderRadius: BorderRadius.circular(12), border: Border.all(color: BonsoBrand.aqua.withOpacity(0.5))),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -890,7 +891,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 onPressed: _isConfiguringBot ? null : _configurarNuevoBotTelegram,
                                 icon: _isConfiguringBot ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : const Icon(Icons.rocket_launch, color: Colors.black),
                                 label: const Text('Conectar Bot', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+                                style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
                               ),
                             ],
                           ),
@@ -898,8 +899,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ] else ...[
                         Container(
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: Colors.cyan.withOpacity(0.1), border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)), borderRadius: BorderRadius.circular(8)),
-                          child: const Row(children: [Icon(Icons.check_circle, color: Colors.cyanAccent, size: 20), SizedBox(width: 8), Expanded(child: Text('El Bot Inteligente de tu organización está desplegado.', style: TextStyle(color: Colors.white, fontSize: 13)))]),
+                          decoration: BoxDecoration(color: BonsoBrand.aqua.withOpacity(0.1), border: Border.all(color: BonsoBrand.aqua.withOpacity(0.5)), borderRadius: BorderRadius.circular(8)),
+                          child: const Row(children: [Icon(Icons.check_circle, color: BonsoBrand.aqua, size: 20), SizedBox(width: 8), Expanded(child: Text('El Bot Inteligente de tu organización está desplegado.', style: TextStyle(color: Colors.white, fontSize: 13)))]),
                         ),
                         const SizedBox(height: 12),
                         OutlinedButton.icon(
@@ -917,7 +918,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(height: 16),
                         const Divider(color: Colors.white24),
                         const SizedBox(height: 12),
-                        const Text('Vincular tu cuenta personal al ChatBot', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 14)),
+                        const Text('Vincular tu cuenta personal al ChatBot', style: TextStyle(color: BonsoBrand.aqua, fontWeight: FontWeight.bold, fontSize: 14)),
                         const SizedBox(height: 8),
                       if (_telegramConnected) ...[
                         Container(
@@ -960,7 +961,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ] else ...[
                         Text(
-                          'Para conectar tu agente J.A.R.V.I.S. con Telegram, genera un código de vinculación e ingrésalo en tu bot.',
+                          'Para conectar Bonso con Telegram, genera un código de vinculación e ingrésalo en tu bot.',
                           style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
                         ),
                         const SizedBox(height: 16),
@@ -968,9 +969,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0F172A),
+                              color: BonsoBrand.ink,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)),
+                              border: Border.all(color: BonsoBrand.aqua.withOpacity(0.5)),
                             ),
                             child: Column(
                               children: [
@@ -978,7 +979,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 const SizedBox(height: 6),
                                 SelectableText(
                                   _linkCode!,
-                                  style: const TextStyle(color: Colors.cyanAccent, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
+                                  style: const TextStyle(color: BonsoBrand.aqua, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
@@ -997,7 +998,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
                               : const Icon(Icons.qr_code, color: Colors.black),
                           label: Text(_linkCode == null ? 'Generar Código de Vinculación' : 'Regenerar Código', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+                          style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
                         ),
                       ],
                     ],
@@ -1008,7 +1009,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 
                 if (_perfiles.isNotEmpty) ...[
                   const SizedBox(height: 32),
-                  _buildSectionTitle('Perfiles J.A.R.V.I.S. Asignados'),
+                  _buildSectionTitle('Perfiles de Bonso asignados'),
                   const SizedBox(height: 8),
                   Text(
                     'Instrucciones extra aplicadas al rol de estos perfiles.',
@@ -1016,14 +1017,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 14),
                   if (_perfiles.length > 1) ...[
-                    const Text('Selecciona los perfiles que Jarvis usará concurrentemente:', style: TextStyle(color: Colors.cyan)),
+                    const Text('Selecciona los perfiles que Bonso usará según cada consulta:', style: TextStyle(color: BonsoBrand.aqua)),
                     const SizedBox(height: 10),
                     ..._perfiles.map((p) {
                       final int pId = p['id_perfil'];
                       return CheckboxListTile(
                         title: Text(p['nombre'], style: const TextStyle(color: Colors.white)),
                         value: _activeProfileIds.contains(pId),
-                        activeColor: Colors.cyanAccent,
+                        activeColor: BonsoBrand.aqua,
                         checkColor: Colors.black,
                         side: const BorderSide(color: Colors.white54),
                         onChanged: _canManageTenant ? (bool? checked) {
@@ -1042,11 +1043,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ..._perfiles.map((p) => Padding(
                     padding: const EdgeInsets.only(bottom: 12.0),
                     child: ExpansionTile(
-                      title: Text(p['nombre'], style: const TextStyle(color: Colors.cyanAccent)),
-                      iconColor: Colors.cyanAccent,
-                      collapsedIconColor: Colors.cyanAccent,
-                      collapsedBackgroundColor: const Color(0xFF1E293B),
-                      backgroundColor: const Color(0xFF1E293B),
+                      title: Text(p['nombre'], style: const TextStyle(color: BonsoBrand.aqua)),
+                      iconColor: BonsoBrand.aqua,
+                      collapsedIconColor: BonsoBrand.aqua,
+                      collapsedBackgroundColor: BonsoBrand.surface,
+                      backgroundColor: BonsoBrand.surface,
                       childrenPadding: const EdgeInsets.all(12),
                       children: [
                         TextField(
@@ -1055,12 +1056,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           style: const TextStyle(color: Colors.white, fontSize: 13),
                           decoration: InputDecoration(
                             labelText: 'Instrucciones Extra',
-                            labelStyle: TextStyle(color: Colors.cyanAccent.withOpacity(0.8)),
+                            labelStyle: TextStyle(color: BonsoBrand.aqua.withOpacity(0.8)),
                             filled: true,
-                            fillColor: const Color(0xFF0F172A),
+                            fillColor: BonsoBrand.ink,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: Colors.cyan.withOpacity(0.2)),
+                              borderSide: BorderSide(color: BonsoBrand.aqua.withOpacity(0.2)),
                             ),
                           ),
                           onChanged: (val) {
@@ -1072,7 +1073,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           alignment: Alignment.centerRight,
                           child: ElevatedButton(
                             onPressed: () => _saveProfileInstructions(p['id_perfil'], p['instrucciones_extra']),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan, foregroundColor: Colors.black),
+                            style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua, foregroundColor: Colors.black),
                             child: const Text('Guardar Instrucciones'),
                           ),
                         ),
@@ -1093,12 +1094,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     hintText: 'Ej: 21m00Tcm4TlvDq8ikWAM',
                     hintStyle: TextStyle(color: Colors.white.withOpacity(0.2)),
                     filled: true,
-                    fillColor: const Color(0xFF1E293B),
+                    fillColor: BonsoBrand.surface,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
-                    prefixIcon: const Icon(Icons.record_voice_over, color: Colors.cyanAccent),
+                    prefixIcon: const Icon(Icons.record_voice_over, color: BonsoBrand.aqua),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -1113,20 +1114,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
+                    color: BonsoBrand.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.psychology, color: Colors.cyanAccent),
+                      const Icon(Icons.psychology, color: BonsoBrand.aqua),
                       const SizedBox(width: 16),
                       Expanded(
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
                             value: _sarcasmLevel,
-                            dropdownColor: const Color(0xFF1E293B),
+                            dropdownColor: BonsoBrand.surface,
                             style: const TextStyle(color: Colors.white, fontSize: 16),
-                            icon: const Icon(Icons.arrow_drop_down, color: Colors.cyanAccent),
+                            icon: const Icon(Icons.arrow_drop_down, color: BonsoBrand.aqua),
                             isExpanded: true,
                             items: _sarcasmOptions.map((String value) {
                               return DropdownMenuItem<String>(
@@ -1161,10 +1162,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   value: _handsFreeMode,
-                  activeColor: Colors.cyanAccent,
-                  tileColor: const Color(0xFF1E293B),
+                  activeColor: BonsoBrand.aqua,
+                  tileColor: BonsoBrand.surface,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  secondary: const Icon(Icons.headset_mic, color: Colors.cyanAccent),
+                  secondary: const Icon(Icons.headset_mic, color: BonsoBrand.aqua),
                   onChanged: (value) {
                     setState(() => _handsFreeMode = value);
                   },
@@ -1178,12 +1179,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Column(
                     children: [
                       Card(
-                        color: const Color(0xFF1E293B),
+                        color: BonsoBrand.surface,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ExpansionTile(
                     leading: Icon(
                       Icons.home_work,
-                      color: _haConnected == true ? Colors.greenAccent : Colors.cyanAccent,
+                      color: _haConnected == true ? Colors.greenAccent : BonsoBrand.aqua,
                     ),
                     title: Row(
                       children: [
@@ -1196,8 +1197,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _haUrlController.text.isNotEmpty ? _haUrlController.text : 'No configurado',
                       style: const TextStyle(color: Colors.white54, fontSize: 12),
                     ),
-                    iconColor: Colors.cyanAccent,
-                    collapsedIconColor: Colors.cyanAccent,
+                    iconColor: BonsoBrand.aqua,
+                    collapsedIconColor: BonsoBrand.aqua,
                     childrenPadding: const EdgeInsets.all(16),
                     children: [
                       _buildTextField(_haUrlController, 'Home Assistant URL', Icons.link),
@@ -1219,10 +1220,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _testingHA ? null : _testHAConnection,
                           icon: _testingHA 
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent))
-                              : const Icon(Icons.network_check, color: Colors.cyanAccent, size: 18),
-                          label: const Text('Probar Conexión HA', style: TextStyle(color: Colors.cyanAccent)),
-                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.cyanAccent)),
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: BonsoBrand.aqua))
+                              : const Icon(Icons.network_check, color: BonsoBrand.aqua, size: 18),
+                          label: const Text('Probar Conexión HA', style: TextStyle(color: BonsoBrand.aqua)),
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: BonsoBrand.aqua)),
                         ),
                       ),
                     ],
@@ -1230,12 +1231,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 10),
                 Card(
-                  color: const Color(0xFF1E293B),
+                  color: BonsoBrand.surface,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ExpansionTile(
                     leading: Icon(
                       Icons.hub,
-                      color: _mqttConnected == true ? Colors.greenAccent : Colors.cyanAccent,
+                      color: _mqttConnected == true ? Colors.greenAccent : BonsoBrand.aqua,
                     ),
                     title: Row(
                       children: [
@@ -1248,8 +1249,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _mqttBrokerController.text.isNotEmpty ? '${_mqttBrokerController.text}:${_mqttPortController.text}' : 'No configurado',
                       style: const TextStyle(color: Colors.white54, fontSize: 12),
                     ),
-                    iconColor: Colors.cyanAccent,
-                    collapsedIconColor: Colors.cyanAccent,
+                    iconColor: BonsoBrand.aqua,
+                    collapsedIconColor: BonsoBrand.aqua,
                     childrenPadding: const EdgeInsets.all(16),
                     children: [
                       _buildTextField(_mqttBrokerController, 'MQTT Broker Host', Icons.router),
@@ -1275,10 +1276,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _testingMQTT ? null : _testMQTTConnection,
                           icon: _testingMQTT 
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent))
-                              : const Icon(Icons.network_check, color: Colors.cyanAccent, size: 18),
-                          label: const Text('Probar Conexión MQTT', style: TextStyle(color: Colors.cyanAccent)),
-                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.cyanAccent)),
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: BonsoBrand.aqua))
+                              : const Icon(Icons.network_check, color: BonsoBrand.aqua, size: 18),
+                          label: const Text('Probar Conexión MQTT', style: TextStyle(color: BonsoBrand.aqua)),
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: BonsoBrand.aqua)),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -1292,14 +1293,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: (val) => _toggleMQTTConnect(val),
                       ),
                       const SizedBox(height: 16),
-                      const Text('Suscripción a Tópicos (Telemetría IA)', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
+                      const Text('Suscripción a Tópicos (Telemetría IA)', style: TextStyle(color: BonsoBrand.aqua, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(child: _buildTextField(_mqttTopicController, 'Nuevo Tópico (ej. sensores/temp)', Icons.topic)),
                           const SizedBox(width: 10),
                           IconButton(
-                            icon: const Icon(Icons.add_circle, color: Colors.cyanAccent, size: 30),
+                            icon: const Icon(Icons.add_circle, color: BonsoBrand.aqua, size: 30),
                             onPressed: _subscribeMQTT,
                           ),
                         ],
@@ -1335,7 +1336,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     final bool isConnected = r['is_connected'] ?? false;
                     final String? lastError = r['last_error'];
                     return Card(
-                      color: const Color(0xFF1E293B),
+                      color: BonsoBrand.surface,
                       margin: const EdgeInsets.only(bottom: 8),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       child: ListTile(
@@ -1358,7 +1359,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             if (!isConnected)
                               IconButton(
-                                icon: const Icon(Icons.link, color: Colors.cyanAccent),
+                                icon: const Icon(Icons.link, color: BonsoBrand.aqua),
                                 tooltip: 'Conectar',
                                 onPressed: () => _connectMikrotik(r['id_router']),
                               )
@@ -1384,12 +1385,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   }),
                 const SizedBox(height: 10),
                 Card(
-                  color: const Color(0xFF1E293B),
+                  color: BonsoBrand.surface,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   child: ExpansionTile(
-                    title: const Text('Agregar Nuevo Router', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
-                    iconColor: Colors.cyanAccent,
-                    collapsedIconColor: Colors.cyanAccent,
+                    title: const Text('Agregar Nuevo Router', style: TextStyle(color: BonsoBrand.aqua, fontWeight: FontWeight.bold)),
+                    iconColor: BonsoBrand.aqua,
+                    collapsedIconColor: BonsoBrand.aqua,
                     childrenPadding: const EdgeInsets.all(16),
                     children: [
                       _buildTextField(_mkNameController, 'Nombre (Ej: Oficina Principal)', Icons.router),
@@ -1404,7 +1405,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: _addMikrotikRouter,
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
+                        style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
                         child: const Text('Guardar Router', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                       )
                     ],
@@ -1422,7 +1423,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: const Icon(Icons.save, color: Colors.black87),
                     label: const Text('GUARDAR CONFIGURACIÓN', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, letterSpacing: 1)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.cyanAccent,
+                      backgroundColor: BonsoBrand.aqua,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
@@ -1459,7 +1460,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Text(
       title.toUpperCase(),
       style: const TextStyle(
-        color: Colors.cyan,
+        color: BonsoBrand.aqua,
         fontWeight: FontWeight.bold,
         letterSpacing: 1.5,
         fontSize: 13,
@@ -1478,12 +1479,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         labelText: label,
         labelStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
         filled: true,
-        fillColor: const Color(0xFF0F172A),
+        fillColor: BonsoBrand.ink,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
-        prefixIcon: Icon(icon, color: Colors.cyanAccent),
+        prefixIcon: Icon(icon, color: BonsoBrand.aqua),
       ),
     );
   }

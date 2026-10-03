@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'hub_screen.dart';
+import '../brand.dart';
 
 const String kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
@@ -110,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+            colors: [BonsoBrand.ink, BonsoBrand.surface],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -134,10 +135,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                      const Icon(Icons.blur_on, size: 64, color: Colors.cyanAccent),
+                      Image.asset('assets/branding/bonso-mark.png', width: 64, height: 64, semanticLabel: 'Bonso, desarrollado por SKALE IA'),
                       const SizedBox(height: 16),
                       Text(
-                        'J.A.R.V.I.S.',
+                        'BONSO',
                         style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
@@ -146,9 +147,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'JARVIS Tu agente de IA',
+                        'Inteligencia aplicada por SKALE IA',
                         style: TextStyle(
-                          color: Colors.cyanAccent.withOpacity(0.8),
+                          color: BonsoBrand.lime.withOpacity(0.85),
                           fontSize: 16,
                         ),
                       ),
@@ -183,8 +184,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _login,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.cyan,
-                            foregroundColor: Colors.black87,
+                            backgroundColor: BonsoBrand.lime,
+                            foregroundColor: BonsoBrand.ink,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -196,7 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   height: 24,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: Colors.black87,
+                                    color: BonsoBrand.ink,
                                   ),
                                 )
                               : const Text(
@@ -243,7 +244,7 @@ class _LoginScreenState extends State<LoginScreen> {
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-        prefixIcon: Icon(icon, color: Colors.cyanAccent.withOpacity(0.7)),
+        prefixIcon: Icon(icon, color: BonsoBrand.aqua),
         suffixIcon: onTogglePassword == null ? null : IconButton(
           tooltip: isObscure ? 'Mostrar contraseña' : 'Ocultar contraseña',
           onPressed: onTogglePassword,
@@ -261,7 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Colors.cyanAccent, width: 1),
+          borderSide: const BorderSide(color: BonsoBrand.lime, width: 1),
         ),
       ),
     );

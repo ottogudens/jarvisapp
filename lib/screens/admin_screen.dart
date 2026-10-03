@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../brand.dart';
 import 'login_screen.dart';
 
 
@@ -148,7 +149,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     showDialog(context: context, builder: (ctx) {
       return StatefulBuilder(builder: (ctx, setDialogState) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: BonsoBrand.surface,
           title: Text(isNew ? 'Nuevo Plan' : 'Editar Plan', style: const TextStyle(color: Colors.white)),
           content: SingleChildScrollView(
             child: Column(
@@ -157,7 +158,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 TextField(
                   controller: nameCtrl,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Nombre del Plan', labelStyle: TextStyle(color: Colors.cyan)),
+                  decoration: const InputDecoration(labelText: 'Nombre del Plan', labelStyle: TextStyle(color: BonsoBrand.aqua)),
                 ),
                 SwitchListTile(title: const Text('IoT', style: TextStyle(color: Colors.white)), value: pIot, onChanged: (val) => setDialogState(() => pIot = val)),
                 SwitchListTile(title: const Text('MikroTik', style: TextStyle(color: Colors.white)), value: pMk, onChanged: (val) => setDialogState(() => pMk = val)),
@@ -232,7 +233,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     showDialog(context: context, builder: (ctx) {
       return StatefulBuilder(builder: (ctx, setDialogState) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: BonsoBrand.surface,
           title: Text(isNew ? 'Agregar Cliente' : 'Editar Cliente', style: const TextStyle(color: Colors.white)),
           content: SingleChildScrollView(
             child: Column(
@@ -251,7 +252,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 // Perfiles multi-select
                 const Align(
                   alignment: Alignment.centerLeft,
-                  child: Text("Perfiles Asignados:", style: TextStyle(color: Colors.cyan)),
+                  child: Text("Perfiles Asignados:", style: TextStyle(color: BonsoBrand.aqua)),
                 ),
                 Container(
                   height: 120,
@@ -268,7 +269,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                       return CheckboxListTile(
                         title: Text(p['nombre'], style: const TextStyle(color: Colors.white)),
                         value: selectedProfiles.contains(pId),
-                        activeColor: Colors.cyanAccent,
+                        activeColor: BonsoBrand.aqua,
                         checkColor: Colors.black,
                         onChanged: (val) {
                           setDialogState(() {
@@ -285,9 +286,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 ),
                 DropdownButtonFormField<int>(
                   value: selectedPlanId,
-                  dropdownColor: const Color(0xFF1E293B),
+                  dropdownColor: BonsoBrand.surface,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Plan', labelStyle: TextStyle(color: Colors.cyan)),
+                  decoration: const InputDecoration(labelText: 'Plan', labelStyle: TextStyle(color: BonsoBrand.aqua)),
                   items: _plans.map<DropdownMenuItem<int>>((p) {
                     return DropdownMenuItem<int>(value: p['id_plan'], child: Text(p['nombre_plan']));
                   }).toList(),
@@ -296,9 +297,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: aiProvider,
-                  dropdownColor: const Color(0xFF1E293B),
+                  dropdownColor: BonsoBrand.surface,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Proveedor IA', labelStyle: TextStyle(color: Colors.cyan)),
+                  decoration: const InputDecoration(labelText: 'Proveedor IA', labelStyle: TextStyle(color: BonsoBrand.aqua)),
                   items: ['gemini', 'openai', 'anthropic', 'deepseek'].map((p) => DropdownMenuItem(value: p, child: Text(p.toUpperCase()))).toList(),
                   onChanged: (v) {
                     setDialogState(() {
@@ -312,9 +313,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: aiModel,
-                  dropdownColor: const Color(0xFF1E293B),
+                  dropdownColor: BonsoBrand.surface,
                   style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Modelo IA', labelStyle: TextStyle(color: Colors.cyan)),
+                  decoration: const InputDecoration(labelText: 'Modelo IA', labelStyle: TextStyle(color: BonsoBrand.aqua)),
                   items: modelsByProvider[aiProvider]?.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList() ?? [],
                   onChanged: (v) => setDialogState(() => aiModel = v ?? aiModel),
                 ),
@@ -324,7 +325,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent, foregroundColor: Colors.black),
+              style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua, foregroundColor: Colors.black),
               onPressed: () async {
                 final token = await _getToken();
                 if (isNew) {
@@ -391,7 +392,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Confirmar Eliminación', style: TextStyle(color: Colors.redAccent)),
         content: Text('¿Estás seguro de eliminar al cliente "$name" y todos sus datos? Esta acción no se puede deshacer.',
             style: const TextStyle(color: Colors.white70)),
@@ -431,13 +432,13 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: BonsoBrand.ink,
       appBar: AppBar(
         title: const Text("Panel de Control (SuperAdmin)"),
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: Colors.cyanAccent,
+          indicatorColor: BonsoBrand.aqua,
           tabs: const [
             Tab(icon: Icon(Icons.dashboard), text: "Dashboard"),
             Tab(icon: Icon(Icons.business), text: "Clientes"),
@@ -448,7 +449,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+          ? const Center(child: CircularProgressIndicator(color: BonsoBrand.aqua))
           : TabBarView(
               controller: _tabController,
               children: [
@@ -489,11 +490,11 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildMetricCard(String title, String value, IconData icon, {Color color = Colors.cyanAccent}) {
+  Widget _buildMetricCard(String title, String value, IconData icon, {Color color = BonsoBrand.aqua}) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: BonsoBrand.surface,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -515,7 +516,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           padding: const EdgeInsets.all(16),
           child: ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.cyanAccent,
+              backgroundColor: BonsoBrand.aqua,
               foregroundColor: Colors.black,
               minimumSize: const Size(double.infinity, 50),
             ),
@@ -531,7 +532,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             itemBuilder: (ctx, i) {
               final t = _tenants[i];
               return Card(
-                color: const Color(0xFF1E293B),
+                color: BonsoBrand.surface,
                 margin: const EdgeInsets.only(bottom: 10),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: Padding(
@@ -553,7 +554,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.cyanAccent, size: 20),
+                                icon: const Icon(Icons.edit, color: BonsoBrand.aqua, size: 20),
                                 tooltip: 'Editar',
                                 onPressed: () => _showTenantEditor(tenantToEdit: t),
                               ),
@@ -580,10 +581,10 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: Colors.cyan.withOpacity(0.15),
+                              color: BonsoBrand.aqua.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text(t['nombre_plan'] ?? 'Sin plan', style: const TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.w600)),
+                            child: Text(t['nombre_plan'] ?? 'Sin plan', style: const TextStyle(color: BonsoBrand.aqua, fontSize: 11, fontWeight: FontWeight.w600)),
                           ),
                           const SizedBox(width: 10),
                           Container(
@@ -621,7 +622,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           padding: const EdgeInsets.all(16),
           child: ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.cyanAccent,
+              backgroundColor: BonsoBrand.aqua,
               foregroundColor: Colors.black,
               minimumSize: const Size(double.infinity, 50),
             ),
@@ -636,13 +637,13 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             itemBuilder: (ctx, i) {
               final p = _plans[i];
               return Card(
-                color: const Color(0xFF1E293B),
+                color: BonsoBrand.surface,
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ListTile(
                   title: Text(p['nombre_plan'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   subtitle: Text("IoT: ${p['permite_iot']} | MikroTik: ${p['permite_mikrotik']} | Telegram: ${p['permite_telegram']} | WhatsApp: ${p['permite_whatsapp']}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   trailing: IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.cyanAccent),
+                    icon: const Icon(Icons.edit, color: BonsoBrand.aqua),
                     onPressed: () => _showPlanEditor(planToEdit: p),
                   ),
                 ),
@@ -663,7 +664,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             onPressed: () => _showProfileDialog(),
             icon: const Icon(Icons.add),
             label: const Text("Crear Perfil"),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent, foregroundColor: Colors.black),
+            style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua, foregroundColor: Colors.black),
           ),
         ),
         Expanded(
@@ -672,7 +673,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
             itemBuilder: (context, i) {
               final p = _profiles[i];
               return Card(
-                color: const Color(0xFF1E293B),
+                color: BonsoBrand.surface,
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ListTile(
                   title: Text(p['nombre'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -708,7 +709,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF1E293B),
+          backgroundColor: BonsoBrand.surface,
           title: Text(isEdit ? "Editar Perfil" : "Nuevo Perfil", style: const TextStyle(color: Colors.white)),
           content: SingleChildScrollView(
             child: Column(
@@ -724,7 +725,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                     labelText: "Instrucciones Base",
                     labelStyle: TextStyle(color: Colors.white70),
                     enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.cyanAccent)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: BonsoBrand.aqua)),
                   ),
                 ),
               ],
@@ -755,7 +756,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   debugPrint("Error save profile: $e");
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent, foregroundColor: Colors.black),
+              style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua, foregroundColor: Colors.black),
               child: const Text("Guardar"),
             ),
           ],
@@ -779,7 +780,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         labelText: label,
         labelStyle: const TextStyle(color: Colors.white70),
         enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-        focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.cyanAccent)),
+        focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: BonsoBrand.aqua)),
       ),
     );
   }
@@ -792,7 +793,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     return Container(
       height: 200,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(color: BonsoBrand.surface, borderRadius: BorderRadius.circular(12)),
       child: Column(
         children: [
           const Text('Consumo por Proveedor IA (Tokens)', style: TextStyle(color: Colors.white)),

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
+import '../brand.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 
 class DocumentsScreen extends StatefulWidget {
@@ -88,10 +89,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Eliminar documento', style: TextStyle(color: Colors.white)),
         content: const Text(
-          'Este documento será eliminado permanentemente y J.A.R.V.I.S. dejará de tenerlo como conocimiento.',
+          'Este documento será eliminado permanentemente y Bonso dejará de tenerlo como conocimiento.',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -135,10 +136,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Eliminar memoria', style: TextStyle(color: Colors.white)),
         content: const Text(
-          'Este documento será eliminado permanentemente de la memoria RAG y J.A.R.V.I.S. dejará de tenerlo como conocimiento.',
+          'Este documento será eliminado permanentemente de la memoria RAG y Bonso dejará de tenerlo como conocimiento.',
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -182,7 +183,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     showDialog(
       context: context,
       builder: (_) => Dialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Container(
           padding: const EdgeInsets.all(24),
@@ -193,7 +194,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Contenido Extraído', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.cyanAccent)),
+              Text('Contenido Extraído', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: BonsoBrand.aqua)),
               const SizedBox(height: 16),
               Expanded(
                 child: SingleChildScrollView(
@@ -214,7 +215,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.cyan,
+                      backgroundColor: BonsoBrand.aqua,
                       foregroundColor: Colors.white,
                     ),
                     onPressed: () async {
@@ -259,7 +260,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         if (esGenerado) icono = Icons.auto_awesome;
 
         return Card(
-          color: const Color(0xFF1E293B),
+          color: BonsoBrand.surface,
           margin: const EdgeInsets.only(bottom: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
@@ -267,8 +268,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
           ),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: esGenerado ? Colors.cyan.withOpacity(0.2) : Colors.cyanAccent.withOpacity(0.1),
-              child: Icon(icono, color: esGenerado ? Colors.cyan : Colors.cyanAccent),
+              backgroundColor: esGenerado ? BonsoBrand.aqua.withOpacity(0.2) : BonsoBrand.aqua.withOpacity(0.1),
+              child: Icon(icono, color: esGenerado ? BonsoBrand.aqua : BonsoBrand.aqua),
             ),
             title: Text(
               doc['nombre_archivo'] ?? doc['id_mensaje'] ?? 'Documento',
@@ -285,7 +286,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.visibility, color: Colors.cyanAccent),
+                  icon: const Icon(Icons.visibility, color: BonsoBrand.aqua),
                   onPressed: () => _verContenido(doc),
                   tooltip: 'Ver contenido',
                 ),
@@ -307,7 +308,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     final result = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Nueva Carpeta', style: TextStyle(color: Colors.white)),
         content: TextField(
           controller: nameController,
@@ -320,7 +321,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(color: Colors.white54))),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent),
+            style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
             onPressed: () => Navigator.pop(context, nameController.text),
             child: const Text('Crear', style: TextStyle(color: Colors.black)),
           ),
@@ -353,7 +354,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Eliminar Carpeta', style: TextStyle(color: Colors.white)),
         content: const Text('¿Estás seguro? Los documentos dentro quedarán sin carpeta.', style: TextStyle(color: Colors.white70)),
         actions: [
@@ -377,7 +378,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     final result = await showDialog<String?>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text('Mover a...', style: TextStyle(color: Colors.white)),
         content: SizedBox(
           width: double.maxFinite,
@@ -385,12 +386,12 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
             shrinkWrap: true,
             children: [
               ListTile(
-                leading: const Icon(Icons.home, color: Colors.cyanAccent),
+                leading: const Icon(Icons.home, color: BonsoBrand.aqua),
                 title: const Text('Carpeta Principal', style: TextStyle(color: Colors.white)),
                 onTap: () => Navigator.pop(context, 'ROOT'),
               ),
               ..._carpetas.map((c) => ListTile(
-                leading: const Icon(Icons.folder, color: Colors.cyanAccent),
+                leading: const Icon(Icons.folder, color: BonsoBrand.aqua),
                 title: Text(c['nombre'], style: const TextStyle(color: Colors.white)),
                 onTap: () => Navigator.pop(context, c['id_folder']),
               )),
@@ -430,7 +431,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
             children: [
               if (_currentFolderId != null)
                 IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.cyanAccent),
+                  icon: const Icon(Icons.arrow_back, color: BonsoBrand.aqua),
                   onPressed: () => setState(() => _currentFolderId = null),
                 ),
               Text(
@@ -443,25 +444,25 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               if (_currentFolderId == null)
                 TextButton.icon(
                   onPressed: _crearCarpeta,
-                  icon: const Icon(Icons.create_new_folder, color: Colors.cyanAccent),
-                  label: const Text('Nueva Carpeta', style: TextStyle(color: Colors.cyanAccent)),
+                  icon: const Icon(Icons.create_new_folder, color: BonsoBrand.aqua),
+                  label: const Text('Nueva Carpeta', style: TextStyle(color: BonsoBrand.aqua)),
                 ),
             ],
           ),
         ),
         Expanded(
           child: _carpetas.isEmpty && _conocimiento.isEmpty
-            ? const Center(child: Text('La memoria de JARVIS está vacía', style: TextStyle(color: Colors.white54)))
+            ? const Center(child: Text('La memoria de Bonso está vacía', style: TextStyle(color: Colors.white54)))
             : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
                   if (_currentFolderId == null)
                     ..._carpetas.map((c) => Card(
-                      color: const Color(0xFF1E293B),
+                      color: BonsoBrand.surface,
                       margin: const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.cyan.withOpacity(0.3))),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: BonsoBrand.aqua.withOpacity(0.3))),
                       child: ListTile(
-                        leading: const Icon(Icons.folder, color: Colors.cyanAccent, size: 40),
+                        leading: const Icon(Icons.folder, color: BonsoBrand.aqua, size: 40),
                         title: Text(c['nombre'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                         subtitle: const Text('Carpeta', style: TextStyle(color: Colors.white54, fontSize: 12)),
                         onTap: () => setState(() => _currentFolderId = c['id_folder']),
@@ -472,7 +473,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                       ),
                     )),
                   ...itemsToShow.map((doc) => Card(
-                    color: const Color(0xFF1E293B),
+                    color: BonsoBrand.surface,
                     margin: const EdgeInsets.only(bottom: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withOpacity(0.05))),
                     child: ListTile(
@@ -482,7 +483,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(icon: const Icon(Icons.drive_file_move, color: Colors.cyan), onPressed: () => _moverDocumento(doc['id_document'])),
+                          IconButton(icon: const Icon(Icons.drive_file_move, color: BonsoBrand.aqua), onPressed: () => _moverDocumento(doc['id_document'])),
                           IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => _eliminarConocimiento(doc['id_document'])),
                         ],
                       ),
@@ -548,25 +549,25 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     final generados = _documentos.where((d) => d['rol'] == 'jarvis').toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: BonsoBrand.ink,
       appBar: AppBar(
         title: const Text('Mis Documentos', style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         iconTheme: const IconThemeData(color: Colors.white),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: Colors.cyanAccent,
-          labelColor: Colors.cyanAccent,
+          indicatorColor: BonsoBrand.aqua,
+          labelColor: BonsoBrand.aqua,
           unselectedLabelColor: Colors.white54,
           tabs: const [
             Tab(icon: Icon(Icons.upload_file), text: 'Subidos'),
-            Tab(icon: Icon(Icons.auto_awesome), text: 'Generados por JARVIS'),
-            Tab(icon: Icon(Icons.memory), text: 'Memoria JARVIS'),
+            Tab(icon: Icon(Icons.auto_awesome), text: 'Generados por Bonso'),
+            Tab(icon: Icon(Icons.memory), text: 'Memoria Bonso'),
           ],
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+          ? const Center(child: CircularProgressIndicator(color: BonsoBrand.aqua))
           : TabBarView(
               controller: _tabController,
               children: [
@@ -577,7 +578,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _subirDocumentoRAG,
-        backgroundColor: Colors.cyanAccent,
+        backgroundColor: BonsoBrand.aqua,
         icon: const Icon(Icons.upload_file, color: Colors.black),
         label: const Text('Subir a Memoria', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
       ),

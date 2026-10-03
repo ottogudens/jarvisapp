@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../brand.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 import 'chat_screen.dart';
 
@@ -86,16 +87,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: BonsoBrand.ink,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         title: const Text(
-          'Chats con J.A.R.V.I.S.',
+          'Chats con Bonso',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
         ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+          ? const Center(child: CircularProgressIndicator(color: BonsoBrand.aqua))
           : _sessions.isEmpty
               ? _buildEmptySessions()
               : RefreshIndicator(
@@ -110,7 +111,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   ),
                 ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: Colors.cyan,
+        backgroundColor: BonsoBrand.aqua,
         onPressed: _createNewSession,
         icon: const Icon(Icons.add_comment, color: Colors.black),
         label: const Text(
@@ -131,10 +132,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.1),
+                color: BonsoBrand.aqua.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.forum, size: 64, color: Colors.cyanAccent),
+              child: const Icon(Icons.forum, size: 64, color: BonsoBrand.aqua),
             ),
             const SizedBox(height: 24),
             const Text(
@@ -144,14 +145,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Inicia una sesión de chat multimodal para comunicarte con J.A.R.V.I.S. por texto y archivos.',
+              'Inicia una sesión de chat multimodal para comunicarte con Bonso por texto y archivos.',
               style: TextStyle(color: Colors.white54, fontSize: 14),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.cyan,
+                backgroundColor: BonsoBrand.aqua,
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
               onPressed: _createNewSession,
@@ -171,15 +172,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: BonsoBrand.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white10),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         leading: const CircleAvatar(
-          backgroundColor: Color(0xFF0F172A),
-          child: Icon(Icons.chat, color: Colors.cyanAccent),
+          backgroundColor: BonsoBrand.ink,
+          child: Icon(Icons.chat, color: BonsoBrand.aqua),
         ),
         title: Text(
           session['titulo'] ?? 'Conversación',

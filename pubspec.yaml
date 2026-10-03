@@ -1,5 +1,5 @@
 name: jarvis_app
-description: "J.A.R.V.I.S. — Asistente Virtual de Voz Multi-Tenant SaaS"
+description: "Bonso — Asistente virtual inteligente de SKALE IA"
 
 publish_to: 'none'
 version: 1.0.0+1
@@ -26,3 +26,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/branding/bonso-mark.png

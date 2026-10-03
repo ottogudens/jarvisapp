@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import '../brand.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 
 class ChatScreen extends StatefulWidget {
@@ -70,7 +71,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Listener de fin de audio de J.A.R.V.I.S.
+    // Listener de fin de audio de Bonso.
     _player.onPlayerComplete.listen((event) {
       if (mounted) {
         setState(() => _isPlayingAudio = false);
@@ -138,7 +139,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
   void _onHeadsetButtonPressed() {
     if (_isPlayingAudio) {
-      // Si JARVIS está hablando, cancelar lectura y empezar a escuchar
+      // Si Bonso está hablando, cancelar lectura y empezar a escuchar.
       _stopSpeaking();
       _startRecording();
     } else if (_isRecording) {
@@ -336,7 +337,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: BonsoBrand.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         return StatefulBuilder(
@@ -349,7 +350,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                 children: [
                   const Text('Enfocar Documentos', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  const Text('Selecciona los archivos sobre los que JARVIS debe basar su respuesta.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  const Text('Selecciona los archivos sobre los que Bonso debe basar su respuesta.', style: TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(height: 16),
                   Expanded(
                     child: ListView.builder(
@@ -362,11 +363,11 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                         final isPdf = urls.any((u) => u.toString().contains('pdf'));
                         
                         return CheckboxListTile(
-                          activeColor: Colors.cyanAccent,
+                          activeColor: BonsoBrand.aqua,
                           checkColor: Colors.black,
                           title: Text('Doc #${id.substring(id.length - 4)}', style: const TextStyle(color: Colors.white)),
                           subtitle: Text(doc['contenido'] ?? 'Archivo', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54)),
-                          secondary: Icon(isPdf ? Icons.picture_as_pdf : Icons.insert_drive_file, color: Colors.cyanAccent),
+                          secondary: Icon(isPdf ? Icons.picture_as_pdf : Icons.insert_drive_file, color: BonsoBrand.aqua),
                           value: isSelected,
                           onChanged: (val) {
                             setSheetState(() {
@@ -385,7 +386,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   Align(
                     alignment: Alignment.centerRight,
                     child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.cyan),
+                      style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
                       onPressed: () => Navigator.pop(context),
                       child: const Text('Confirmar', style: TextStyle(color: Colors.white)),
                     ),
@@ -586,14 +587,14 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: BonsoBrand.ink,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: BonsoBrand.surface,
         elevation: 2,
         title: Row(
           children: [
             const CircleAvatar(
-              backgroundColor: Colors.cyan,
+              backgroundColor: BonsoBrand.aqua,
               radius: 16,
               child: Icon(Icons.smart_toy, size: 18, color: Colors.black),
             ),
@@ -611,7 +612,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
           IconButton(
             icon: Icon(
               _handsFreeMode ? Icons.headset_mic : Icons.headset_off,
-              color: _handsFreeMode ? Colors.cyanAccent : Colors.white38,
+              color: _handsFreeMode ? BonsoBrand.aqua : Colors.white38,
             ),
             tooltip: _handsFreeMode ? 'Manos Libres Activo' : 'Manos Libres Inactivo',
             onPressed: () async {
@@ -639,7 +640,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             children: [
               Expanded(
                 child: _isLoading
-                    ? const Center(child: CircularProgressIndicator(color: Colors.cyanAccent))
+                    ? const Center(child: CircularProgressIndicator(color: BonsoBrand.aqua))
                     : _messages.isEmpty
                         ? _buildEmptyState()
                         : ListView.builder(
@@ -658,9 +659,9 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: const [
-                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.cyanAccent)),
+                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: BonsoBrand.aqua)),
                       SizedBox(width: 10),
-                      Text('J.A.R.V.I.S. está procesando...', style: TextStyle(color: Colors.cyanAccent, fontSize: 12, fontStyle: FontStyle.italic)),
+                      Text('Bonso está procesando...', style: TextStyle(color: BonsoBrand.aqua, fontSize: 12, fontStyle: FontStyle.italic)),
                     ],
                   ),
                 ),
@@ -669,7 +670,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             ],
           ),
 
-          // Botón flotante prominente para Cancelar / Detener Lectura de J.A.R.V.I.S.
+          // Botón flotante prominente para cancelar o detener a Bonso.
           if (_isPlayingAudio)
             Positioned(
               bottom: 80,
@@ -701,7 +702,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
           const Icon(Icons.chat_bubble_outline, size: 64, color: Colors.white24),
           const SizedBox(height: 16),
           const Text(
-            'Inicia la conversación con J.A.R.V.I.S.',
+            'Inicia la conversación con Bonso.',
             style: TextStyle(color: Colors.white54, fontSize: 16),
           ),
           const SizedBox(height: 8),
@@ -714,16 +715,16 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.cyan.withOpacity(0.1),
+                color: BonsoBrand.aqua.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
+                border: Border.all(color: BonsoBrand.aqua.withOpacity(0.4)),
               ),
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.headset_mic, color: Colors.cyanAccent, size: 18),
+                  Icon(Icons.headset_mic, color: BonsoBrand.aqua, size: 18),
                   SizedBox(width: 8),
-                  Text('Presiona el botón de tu auricular para hablar', style: TextStyle(color: Colors.cyanAccent, fontSize: 13, fontWeight: FontWeight.w500)),
+                  Text('Presiona el botón de tu auricular para hablar', style: TextStyle(color: BonsoBrand.aqua, fontSize: 13, fontWeight: FontWeight.w500)),
                 ],
               ),
             )
@@ -741,7 +742,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         decoration: BoxDecoration(
-          color: isUser ? const Color(0xFF0284C7) : const Color(0xFF1E293B),
+          color: isUser ? BonsoBrand.aqua : BonsoBrand.surface,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
@@ -749,7 +750,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             bottomRight: Radius.circular(isUser ? 4 : 16),
           ),
           border: Border.all(
-            color: isUser ? Colors.cyan.withOpacity(0.5) : const Color(0xFF334155),
+            color: isUser ? BonsoBrand.aqua.withOpacity(0.5) : BonsoBrand.surfaceRaised,
             width: 1,
           ),
         ),
@@ -762,13 +763,13 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('J.A.R.V.I.S.', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+                    const Text('BONSO', style: TextStyle(color: BonsoBrand.aqua, fontWeight: FontWeight.bold, fontSize: 11)),
                     IconButton(
                       constraints: const BoxConstraints(),
                       padding: EdgeInsets.zero,
                       icon: Icon(
                         _isPlayingAudio ? Icons.volume_up : Icons.volume_down,
-                        color: _isPlayingAudio ? Colors.cyanAccent : Colors.white60,
+                        color: _isPlayingAudio ? BonsoBrand.aqua : Colors.white60,
                         size: 18,
                       ),
                       tooltip: 'Escuchar respuesta',
@@ -780,7 +781,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             if (msg['contenido'] == '(Audio de voz)')
                const Row(
                  children: [
-                   Icon(Icons.mic, color: Colors.cyanAccent, size: 16),
+                   Icon(Icons.mic, color: BonsoBrand.aqua, size: 16),
                    SizedBox(width: 6),
                    Text('Procesando transcripción...', style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic)),
                  ],
@@ -788,7 +789,11 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             else
               SelectableText(
                 msg['contenido'] ?? '',
-                style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                style: TextStyle(
+                  color: isUser ? BonsoBrand.ink : BonsoBrand.text,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
               ),
             if (fileUrls.isNotEmpty)
               Padding(
@@ -828,10 +833,10 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                       return GestureDetector(
                         onTap: () {
                           showDialog(context: context, builder: (ctx) => AlertDialog(
-                            backgroundColor: const Color(0xFF1E293B),
+                            backgroundColor: BonsoBrand.surface,
                             title: const Text('Documento PDF', style: TextStyle(color: Colors.white)),
-                            content: const Text('El contenido del PDF ya fue procesado por J.A.R.V.I.S. y está incluido en el análisis del chat.', style: TextStyle(color: Colors.white70)),
-                            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: Colors.cyanAccent)))],
+                            content: const Text('El contenido del PDF ya fue procesado por Bonso y está incluido en el análisis del chat.', style: TextStyle(color: Colors.white70)),
+                            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: BonsoBrand.aqua)))],
                           ));
                         },
                         child: _buildFileChip(Icons.picture_as_pdf, 'PDF procesado'),
@@ -846,13 +851,13 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                             final b64Part = url.split('base64,')[1];
                             final textContent = utf8.decode(base64Decode(b64Part));
                             showDialog(context: context, builder: (ctx) => AlertDialog(
-                              backgroundColor: const Color(0xFF1E293B),
+                              backgroundColor: BonsoBrand.surface,
                               title: const Text('Contenido del Documento', style: TextStyle(color: Colors.white)),
                               content: SingleChildScrollView(
                                 child: SelectableText(textContent.length > 5000 ? '${textContent.substring(0, 5000)}...' : textContent,
                                     style: const TextStyle(color: Colors.white70, fontSize: 12)),
                               ),
-                              actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: Colors.cyanAccent)))],
+                              actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: BonsoBrand.aqua)))],
                             ));
                           } catch (_) {}
                         },
@@ -892,12 +897,12 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
         decoration: BoxDecoration(
           color: Colors.black26,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
+          border: Border.all(color: BonsoBrand.aqua.withOpacity(0.4)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14, color: Colors.cyanAccent),
+            Icon(icon, size: 14, color: BonsoBrand.aqua),
             const SizedBox(width: 4),
             Text(label, style: const TextStyle(color: Colors.white70, fontSize: 10)),
           ],
@@ -908,7 +913,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
   Widget _buildSelectedFilesPreview() {
     return Container(
-      color: const Color(0xFF1E293B),
+      color: BonsoBrand.surface,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       height: 44,
       child: ListView.builder(
@@ -920,13 +925,13 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             margin: const EdgeInsets.only(right: 8),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.cyan.withOpacity(0.2),
+              color: BonsoBrand.aqua.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.cyanAccent),
+              border: Border.all(color: BonsoBrand.aqua),
             ),
             child: Row(
               children: [
-                const Icon(Icons.insert_drive_file, size: 16, color: Colors.cyanAccent),
+                const Icon(Icons.insert_drive_file, size: 16, color: BonsoBrand.aqua),
                 const SizedBox(width: 6),
                 Text(file.name, style: const TextStyle(color: Colors.white, fontSize: 12)),
                 const SizedBox(width: 6),
@@ -948,7 +953,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
   Widget _buildInputBar() {
     return Container(
       padding: const EdgeInsets.all(12),
-      color: const Color(0xFF1E293B),
+      color: BonsoBrand.surface,
       child: SafeArea(
         child: Row(
           children: [
@@ -958,7 +963,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
               tooltip: 'Enfocar documentos',
             ),
             IconButton(
-              icon: const Icon(Icons.attach_file, color: Colors.cyanAccent),
+              icon: const Icon(Icons.attach_file, color: BonsoBrand.aqua),
               onPressed: _pickFiles,
               tooltip: 'Adjuntar archivos',
             ),
@@ -967,13 +972,13 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                 controller: _messageController,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: _isRecording ? 'Escuchando... (pausa de 3s envía)' : 'Escribe a J.A.R.V.I.S...',
+                  hintText: _isRecording ? 'Escuchando... (pausa de 3s envía)' : 'Escribe a Bonso...',
                   hintStyle: TextStyle(
                     color: _isRecording ? Colors.redAccent : Colors.white38,
                     fontWeight: _isRecording ? FontWeight.bold : FontWeight.normal,
                   ),
                   filled: true,
-                  fillColor: const Color(0xFF0F172A),
+                  fillColor: BonsoBrand.ink,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
@@ -1005,7 +1010,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   return Transform.scale(
                     scale: _isRecording ? _pulseAnimation.value : 1.0,
                     child: CircleAvatar(
-                      backgroundColor: _isRecording ? Colors.redAccent : const Color(0xFF334155),
+                      backgroundColor: _isRecording ? Colors.redAccent : BonsoBrand.surfaceRaised,
                       radius: 22,
                       child: Icon(
                         _isRecording ? Icons.mic : Icons.mic_none,
@@ -1021,7 +1026,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             
             const SizedBox(width: 8),
             CircleAvatar(
-              backgroundColor: Colors.cyan,
+              backgroundColor: BonsoBrand.aqua,
               radius: 22,
               child: IconButton(
                 icon: const Icon(Icons.send, color: Colors.black, size: 20),

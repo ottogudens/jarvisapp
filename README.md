@@ -1,4 +1,6 @@
-# 🤖 J.A.R.V.I.S. — Multi-Tenant SaaS Voice Assistant
+# BONSO — Asistente virtual de SKALE IA
+
+> BONSO es la experiencia comercial de esta aplicación, desarrollada por SKALE IA. Los identificadores técnicos históricos `jarvis` se conservan en rutas y configuración para no interrumpir integraciones desplegadas.
 
 > Sistema de asistentes virtuales de voz especializados por industria, potenciado por GPT-4, Whisper y ElevenLabs.
 
