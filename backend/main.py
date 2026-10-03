@@ -1240,20 +1240,23 @@ async def enviar_mensaje_chat(
         active_ids = usuario.get("active_profile_ids", [])
         if active_ids:
             from backend.models import JarvisProfile, TenantProfile
-            sys_prompt = "Eres J.A.R.V.I.S., asistente virtual muli-disciplinario asignado a varias tareas. Sigue estrictamente estas reglas:\n"
-            
-            for index, p_id in enumerate(active_ids):
+            from backend.profile_router import select_profiles
+            candidate_profiles = []
+            for p_id in active_ids:
                 jp = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == p_id).first()
                 if jp:
-                    sys_prompt += f"\n--- [PERFIL EXPERTO {index + 1}: {jp.nombre}] ---\n"
-                    sys_prompt += f"{jp.instrucciones_base}\n"
-                    
                     tp = db.query(TenantProfile).filter(
                         TenantProfile.id_tenant == usuario["id_tenant"],
                         TenantProfile.id_perfil == p_id
                     ).first()
-                    if tp and tp.instrucciones_extra:
-                        sys_prompt += f"\n[Instrucciones Adicionales para {jp.nombre}]:\n{tp.instrucciones_extra}\n"
+                    instructions = jp.instrucciones_base + (f"\n{tp.instrucciones_extra}" if tp and tp.instrucciones_extra else "")
+                    candidate_profiles.append({"nombre": jp.nombre, "instrucciones": instructions})
+
+            query_for_routing = f"{mensaje or ''} {transcripcion_audio or ''}"
+            selected_profiles = select_profiles(candidate_profiles, query_for_routing)
+            sys_prompt = "Eres J.A.R.V.I.S. Sigue estrictamente las reglas de los perfiles expertos seleccionados para esta consulta:\n"
+            for index, profile in enumerate(selected_profiles):
+                sys_prompt += f"\n--- [PERFIL ACTIVO {index + 1}: {profile['nombre']}] ---\n{profile['instrucciones']}\n"
             
             from backend.models import MQTTMessageCache
             cached_msgs = db.query(MQTTMessageCache).filter(MQTTMessageCache.id_usuario == usuario["id_usuario"]).all()
