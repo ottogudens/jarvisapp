@@ -6,6 +6,7 @@ import paho.mqtt.client as mqtt
 from sqlalchemy.orm import Session
 from backend.database import SessionLocal
 from backend.models import IoTConfig, MQTTSubscription, MQTTMessageCache
+from backend.crypto_utils import decrypt_secret
 
 class MQTTDaemon:
     _instance = None
@@ -87,7 +88,7 @@ class MQTTDaemon:
                     client = mqtt.Client(userdata={'id_usuario': id_usuario})
                     
                 if config.mqtt_user and config.mqtt_password:
-                    client.username_pw_set(config.mqtt_user, config.mqtt_password)
+                    client.username_pw_set(config.mqtt_user, decrypt_secret(config.mqtt_password))
 
                 client.on_connect = self._on_connect
                 client.on_message = self._on_message

@@ -3,6 +3,7 @@ import json
 import httpx
 import paho.mqtt.client as mqtt
 from typing import Optional, Dict, Any
+from backend.crypto_utils import decrypt_secret
 
 class IoTService:
     """Servicio para controlar la integracion con Home Assistant y MQTT."""
@@ -16,7 +17,7 @@ class IoTService:
         if not self.config or not self.config.ha_token:
             raise Exception("No hay token de Home Assistant configurado para este usuario.")
         return {
-            "Authorization": f"Bearer {self.config.ha_token}",
+            "Authorization": f"Bearer {decrypt_secret(self.config.ha_token)}",
             "Content-Type": "application/json"
         }
 
@@ -79,7 +80,7 @@ class IoTService:
                 client = mqtt.Client() # Fallback para v1.x
                 
             if self.config.mqtt_user and self.config.mqtt_password:
-                client.username_pw_set(self.config.mqtt_user, self.config.mqtt_password)
+                client.username_pw_set(self.config.mqtt_user, decrypt_secret(self.config.mqtt_password))
                 
             port = self.config.mqtt_port if self.config.mqtt_port else 1883
             host = self.config.mqtt_broker.strip()
@@ -94,8 +95,7 @@ class IoTService:
             # Soporte TLS/SSL si usan servidores Cloud (HiveMQ, AWS, etc)
             if port == 8883 or str(port) == "8883" or use_tls:
                 import ssl
-                client.tls_set(cert_reqs=ssl.CERT_NONE)
-                client.tls_insecure_set(True)
+                client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
                 
             client.connect(host, int(port), keepalive=60)
             client.publish(topic, payload)

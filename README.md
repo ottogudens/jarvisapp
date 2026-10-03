@@ -107,6 +107,7 @@ Cada perfil recibe un system prompt especializado y contexto operativo del domin
 | `ELEVENLABS_API_KEY` | Clave de API de ElevenLabs |
 | `ELEVENLABS_VOICE_ID` | ID de la voz de ElevenLabs |
 | `JWT_SECRET_KEY` | Clave secreta para firmar JWT |
+| `APP_ENCRYPTION_KEY` | Clave Fernet para cifrar secretos almacenados en PostgreSQL |
 | `MP_WEBHOOK_SECRET` | Secret del webhook de MercadoPago |
 | `CORS_ORIGINS` | Orígenes permitidos (separados por coma) |
 

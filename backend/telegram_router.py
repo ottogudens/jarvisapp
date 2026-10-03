@@ -6,21 +6,28 @@ import re
 import httpx
 import secrets
 import logging
+import hashlib
+import hmac
+import time
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Body, Request
+from fastapi import APIRouter, Depends, HTTPException, Body, Request, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.auth import obtener_usuario_actual
+from backend.auth import obtener_usuario_actual, requiere_staff, requiere_plan
 from backend.models import Usuario, ChatSession, ChatMessage, Tenant
 from backend.prompts import SYSTEM_PROMPTS
+from backend.crypto_utils import encrypt_secret, decrypt_secret
 
 router = APIRouter(prefix="/v1/telegram", tags=["Telegram Integration"])
 logger = logging.getLogger(__name__)
 
-# Almacenamiento temporal en memoria de tokens de vinculación (token -> id_usuario)
+# Almacenamiento temporal en memoria de tokens de vinculación
+# (token -> (id_usuario, expiración monotónica)). En despliegues con más de una
+# instancia debe sustituirse por Redis o una tabla con TTL.
 _LINK_TOKENS = {}
+LINK_TOKEN_TTL_SECONDS = 10 * 60
 
 class LinkTokenResponse(BaseModel):
     link_code: str
@@ -34,13 +41,15 @@ class TelegramConfigPayload(BaseModel):
 async def configurar_telegram_tenant(
     payload: TelegramConfigPayload,
     request: Request,
-    usuario: dict = Depends(obtener_usuario_actual),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     """Guarda el token de Telegram y registra automáticamente el Webhook dinámico."""
     tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Organización no encontrada")
+    if not tenant.plan or not tenant.plan.permite_telegram:
+        raise HTTPException(status_code=403, detail="Telegram no está habilitado para este tenant.")
 
     token = payload.bot_token.strip()
     
@@ -48,35 +57,43 @@ async def configurar_telegram_tenant(
     if "up.railway.app" in base_url and base_url.startswith("http://"):
         base_url = base_url.replace("http://", "https://")
         
-    webhook_url = f"{base_url}/v1/telegram/webhook/{token}"
+    webhook_url = f"{base_url}/v1/telegram/webhook/{tenant.id_tenant}"
+    webhook_secret = secrets.token_urlsafe(32)
     
     api_url = f"https://api.telegram.org/bot{token}"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{api_url}/setWebhook",
-            json={"url": webhook_url, "allowed_updates": ["message"]}
+            json={
+                "url": webhook_url,
+                "secret_token": webhook_secret,
+                "allowed_updates": ["message"],
+            },
         )
         if resp.status_code != 200:
             raise HTTPException(status_code=400, detail="El token es inválido o Telegram rechazó el Webhook.")
             
-    tenant.telegram_bot_token = token
+    tenant.telegram_bot_token = encrypt_secret(token)
+    tenant.telegram_webhook_secret = hashlib.sha256(webhook_secret.encode()).hexdigest()
     db.commit()
     
     return {"status": "success", "message": "Bot de Telegram configurado exitosamente", "webhook_url": webhook_url}
 
 @router.delete("/config", summary="Desconectar el bot de Telegram del Tenant")
 async def desconectar_telegram_tenant(
-    usuario: dict = Depends(obtener_usuario_actual),
+    usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
     """Elimina el webhook en Telegram y borra el token del Tenant."""
     tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Organización no encontrada")
+    if not tenant.plan or not tenant.plan.permite_telegram:
+        raise HTTPException(status_code=403, detail="Telegram no está habilitado para este tenant.")
 
     if tenant.telegram_bot_token:
         # Intentar eliminar el webhook, ignorar si falla
-        api_url = f"https://api.telegram.org/bot{tenant.telegram_bot_token}"
+        api_url = f"https://api.telegram.org/bot{decrypt_secret(tenant.telegram_bot_token)}"
         try:
             async with httpx.AsyncClient() as client:
                 await client.post(f"{api_url}/deleteWebhook")
@@ -84,6 +101,7 @@ async def desconectar_telegram_tenant(
             logger.warning(f"No se pudo eliminar webhook de Telegram: {e}")
 
     tenant.telegram_bot_token = None
+    tenant.telegram_webhook_secret = None
     db.commit()
     return {"status": "success", "message": "Bot de Telegram desconectado"}
 
@@ -97,7 +115,7 @@ async def debug_telegram_webhook(usuario: dict = Depends(obtener_usuario_actual)
         return {"error": "Falta el Bot Token del Tenant"}
     
     async with httpx.AsyncClient() as client:
-        api_url = f"https://api.telegram.org/bot{tenant.telegram_bot_token}"
+        api_url = f"https://api.telegram.org/bot{decrypt_secret(tenant.telegram_bot_token)}"
         resp = await client.get(f"{api_url}/getWebhookInfo")
     return resp.json()
 
@@ -106,11 +124,11 @@ async def generar_codigo_vinculacion(
     usuario: dict = Depends(obtener_usuario_actual),
 ):
     """
-    Genera un código de 6 dígitos temporal para vincular la cuenta web con Telegram.
+    Genera un código aleatorio temporal para vincular la cuenta web con Telegram.
     El usuario en Telegram enviará el código.
     """
-    code = f"{secrets.randbelow(900000) + 100000}"
-    _LINK_TOKENS[code] = usuario["id_usuario"]
+    code = secrets.token_urlsafe(18)
+    _LINK_TOKENS[code] = (usuario["id_usuario"], time.monotonic() + LINK_TOKEN_TTL_SECONDS)
     
     return LinkTokenResponse(
         link_code=code,
@@ -170,17 +188,18 @@ async def send_telegram_document(bot_token: str, chat_id: str, filename: str, fi
 
 async def handle_link_code(db: Session, bot_token: str, id_tenant: int, chat_id: str, username: str, text: str) -> bool:
     """Intenta capturar un código de vinculación en el mensaje de Telegram."""
-    match = re.search(r'\b\d{6}\b', text)
+    match = re.search(r'[A-Za-z0-9_-]{20,}', text)
     if not match: 
         return False
     
     code = match.group(0)
-    id_usuario = _LINK_TOKENS.pop(code, None)
-    if not id_usuario:
+    link_data = _LINK_TOKENS.pop(code, None)
+    if not link_data or link_data[1] < time.monotonic():
         if len(text.strip()) <= 15:
             await send_telegram_message(bot_token, chat_id, "❌ Código de vinculación inválido o expirado. Por favor genera uno nuevo en tu panel web.")
             return True
         return False 
+    id_usuario = link_data[0]
         
     user = db.query(Usuario).filter(Usuario.id_usuario == id_usuario, Usuario.id_tenant == id_tenant).first()
     if not user:
@@ -198,15 +217,28 @@ async def handle_link_code(db: Session, bot_token: str, id_tenant: int, chat_id:
     )
     return True
 
-@router.post("/webhook/{bot_token}")
-async def telegram_webhook(bot_token: str, update: dict = Body(...), db: Session = Depends(get_db)):
+@router.post("/webhook/{tenant_id}")
+async def telegram_webhook(
+    tenant_id: int,
+    update: dict = Body(...),
+    x_telegram_bot_api_secret_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
     """Recepciona eventos nativos desde los servidores de Telegram (Webhook)."""
     if "message" not in update:
         return {"status": "ignored"}
         
-    tenant = db.query(Tenant).filter(Tenant.telegram_bot_token == bot_token).first()
-    if not tenant:
-        return {"status": "ignored", "reason": "token not mapped"}
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == tenant_id).first()
+    incoming_secret_hash = hashlib.sha256(
+        (x_telegram_bot_api_secret_token or "").encode()
+    ).hexdigest()
+    if not tenant or not tenant.telegram_webhook_secret or not hmac.compare_digest(
+        tenant.telegram_webhook_secret, incoming_secret_hash
+    ):
+        raise HTTPException(status_code=403, detail="Webhook de Telegram no autorizado.")
+    if not tenant.telegram_bot_token:
+        return {"status": "ignored", "reason": "bot not configured"}
+    bot_token = decrypt_secret(tenant.telegram_bot_token)
         
     msg = update["message"]
     chat_id = msg["chat"]["id"]

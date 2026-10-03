@@ -1,9 +1,11 @@
 import requests
 import urllib3
+import os
 
-# Suprime warnings de certificados autofirmados (comunes en MikroTik) — no oculta
-# errores de conexión, solo el warning de verificación de certificado.
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+_environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower()
+_allow_insecure_tls = os.getenv("MIKROTIK_ALLOW_INSECURE_TLS", "").lower() == "true"
+if _allow_insecure_tls and _environment in {"production", "prod"}:
+    raise RuntimeError("MIKROTIK_ALLOW_INSECURE_TLS no se permite en producción.")
 
 # Verbos/paths que RouterOS trata como mutación de estado. Se usa para clasificar
 # si un comando raw requiere confirmación antes de ejecutarse (ver mikrotik_tools.py).
@@ -22,7 +24,10 @@ class MikrotikService:
         self.port = port
         self.timeout = timeout
         scheme = "https" if use_https else "http"
+        if not use_https and _environment in {"production", "prod"}:
+            raise ValueError("MikroTik requiere HTTPS en producción.")
         self.base_url = f"{scheme}://{self.ip}:{self.port}/rest"
+        self.verify_tls = False if _allow_insecure_tls else (os.getenv("MIKROTIK_CA_BUNDLE") or True)
 
     def _request(self, method: str, path: str, data=None, query: dict = None):
         url = f"{self.base_url}{path}"
@@ -33,7 +38,7 @@ class MikrotikService:
                 auth=(self.username, self.password),
                 json=data if method != "GET" else None,
                 params=query if method == "GET" else None,
-                verify=False,
+                verify=self.verify_tls,
                 timeout=self.timeout,
             )
             # Intenta parsear el cuerpo de la respuesta SIEMPRE, incluso en error,

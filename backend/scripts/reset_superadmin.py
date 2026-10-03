@@ -29,18 +29,33 @@ from backend.models import (
 from backend.auth import hash_password
 
 # ──────────────────────────────────────────────────────────────
-# DATOS DEL SUPERADMIN CORRECTO
+# DATOS DEL SUPERADMIN
+#
+# Este script está deliberadamente separado del arranque de la API. No contiene
+# credenciales ni datos personales: todos los valores deben entregarse por
+# variables de entorno en una consola controlada.
 # ──────────────────────────────────────────────────────────────
 SUPERADMIN = {
-    "nombre_organizacion": "Skale",
-    "nombre_contacto": "Otto Gudenschwager",
-    "telefono": "+56990819881",
-    "email": "admin@skale.cl",
-    "password": "GuD3Ns@#",
+    "nombre_organizacion": os.getenv("RESET_SUPERADMIN_ORG", ""),
+    "nombre_contacto": os.getenv("RESET_SUPERADMIN_CONTACT", ""),
+    "telefono": os.getenv("RESET_SUPERADMIN_PHONE", ""),
+    "email": os.getenv("RESET_SUPERADMIN_EMAIL", ""),
+    "password": os.getenv("RESET_SUPERADMIN_PASSWORD", ""),
 }
 
 
 def reset():
+    if os.getenv("ALLOW_DESTRUCTIVE_RESET") != "I_UNDERSTAND_THIS_DELETES_DATA":
+        raise RuntimeError(
+            "Reset bloqueado. Configure ALLOW_DESTRUCTIVE_RESET="
+            "I_UNDERSTAND_THIS_DELETES_DATA en una sesión controlada."
+        )
+    required_fields = ("nombre_organizacion", "email", "password")
+    if any(not SUPERADMIN[field] for field in required_fields):
+        raise RuntimeError(
+            "Faltan RESET_SUPERADMIN_ORG, RESET_SUPERADMIN_EMAIL o "
+            "RESET_SUPERADMIN_PASSWORD."
+        )
     print("=" * 60)
     print("  RESET COMPLETO DE BASE DE DATOS")
     print("=" * 60)

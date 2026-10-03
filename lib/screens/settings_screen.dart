@@ -21,6 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _defaultPrompt = '';
   String _userId = '';
   bool _isSuperAdmin = false;
+  bool _canManageTenant = false;
   
   // Profile Config
   final _orgNameController = TextEditingController();
@@ -149,6 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _nombreContactoController.text = data['nombre_contacto'] ?? '';
           _telefonoController.text = data['telefono'] ?? '';
           _isSuperAdmin = data['is_superadmin'] ?? false;
+          _canManageTenant = ['admin', 'superadmin'].contains(data['rol']);
           _emailController.text = data['email'] ?? '';
           _activeProfileIds = List<int>.from(data['active_profile_ids'] ?? []);
           _perfiles = data['perfiles'] ?? [];
@@ -724,20 +726,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (token != null) {
       try {
+        final profilePayload = <String, dynamic>{
+          'email': _emailController.text.trim(),
+          'password': _passwordController.text.isNotEmpty ? _passwordController.text : null,
+        };
+        if (_canManageTenant) {
+          profilePayload.addAll({
+            'nombre_organizacion': _orgNameController.text.trim(),
+            'nombre_contacto': _nombreContactoController.text.trim(),
+            'telefono': _telefonoController.text.trim(),
+            'active_profile_ids': _activeProfileIds,
+          });
+        }
         await http.put(
           Uri.parse('$kApiBaseUrl/v1/auth/profile'),
           headers: {
             'Authorization': 'Bearer $token',
             'Content-Type': 'application/json',
           },
-          body: jsonEncode({
-            'nombre_organizacion': _orgNameController.text.trim(),
-            'nombre_contacto': _nombreContactoController.text.trim(),
-            'telefono': _telefonoController.text.trim(),
-            'email': _emailController.text.trim(),
-            'password': _passwordController.text.isNotEmpty ? _passwordController.text : null,
-            'active_profile_ids': _activeProfileIds,
-          }),
+          body: jsonEncode(profilePayload),
         );
       } catch (e) {
         debugPrint('Error saving profile: $e');
@@ -807,13 +814,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 _buildSectionTitle('Información de la Cuenta'),
                 const SizedBox(height: 14),
-                _buildTextField(_nombreContactoController, 'Nombre Completo', Icons.person),
+                _buildTextField(_nombreContactoController, 'Nombre Completo', Icons.person, TextInputType.text, false, _canManageTenant),
                 const SizedBox(height: 10),
-                _buildTextField(_orgNameController, 'Nombre de la Empresa (Opcional)', Icons.business),
+                _buildTextField(_orgNameController, 'Nombre de la Empresa (Opcional)', Icons.business, TextInputType.text, false, _canManageTenant),
                 const SizedBox(height: 10),
                 _buildTextField(_emailController, 'Correo Electrónico', Icons.email),
                 const SizedBox(height: 10),
-                _buildTextField(_telefonoController, 'Número de Teléfono', Icons.phone),
+                _buildTextField(_telefonoController, 'Número de Teléfono', Icons.phone, TextInputType.text, false, _canManageTenant),
                 const SizedBox(height: 10),
                 _buildTextField(_passwordController, 'Nueva Contraseña (Opcional)', Icons.lock, TextInputType.text, true),
 
@@ -1019,7 +1026,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         activeColor: Colors.cyanAccent,
                         checkColor: Colors.black,
                         side: const BorderSide(color: Colors.white54),
-                        onChanged: (bool? checked) {
+                        onChanged: _canManageTenant ? (bool? checked) {
                           setState(() {
                             if (checked == true) {
                               _activeProfileIds.add(pId);
@@ -1027,7 +1034,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               _activeProfileIds.remove(pId);
                             }
                           });
-                        },
+                        } : null,
                       );
                     }).toList(),
                     const SizedBox(height: 16),
@@ -1460,9 +1467,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String label, IconData icon, [TextInputType type = TextInputType.text, bool obscure = false]) {
+  Widget _buildTextField(TextEditingController controller, String label, IconData icon, [TextInputType type = TextInputType.text, bool obscure = false, bool enabled = true]) {
     return TextField(
       controller: controller,
+      enabled: enabled,
       style: const TextStyle(color: Colors.white),
       keyboardType: type,
       obscureText: obscure,

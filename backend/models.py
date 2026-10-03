@@ -58,6 +58,7 @@ class Tenant(Base):
     ai_provider = Column(String(50), default="gemini", nullable=False)
     ai_model = Column(String(50), default="gemini-1.5-flash", nullable=False)
     telegram_bot_token = Column(String(200), unique=True, nullable=True)
+    telegram_webhook_secret = Column(String(128), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

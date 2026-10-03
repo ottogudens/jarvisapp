@@ -5,7 +5,7 @@ from typing import List
 
 from backend.database import get_db
 from backend.models import MikrotikRouter
-from backend.auth import obtener_usuario_actual
+from backend.auth import requiere_plan
 from backend.crypto_utils import encrypt_secret
 
 router = APIRouter(prefix="/v1/mikrotik", tags=["MikroTik"])
@@ -37,7 +37,7 @@ class RouterResponse(BaseModel):
         from_attributes = True
 
 @router.get("/routers", response_model=List[RouterResponse])
-def listar_routers(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+def listar_routers(usuario: dict = Depends(requiere_plan("mikrotik")), db: Session = Depends(get_db)):
     from backend.models import Usuario
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
@@ -47,7 +47,7 @@ def listar_routers(usuario: dict = Depends(obtener_usuario_actual), db: Session 
     return routers
 
 @router.post("/routers", response_model=RouterResponse)
-def crear_router(data: RouterCreate, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+def crear_router(data: RouterCreate, usuario: dict = Depends(requiere_plan("mikrotik")), db: Session = Depends(get_db)):
     from backend.models import Usuario
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
@@ -67,7 +67,7 @@ def crear_router(data: RouterCreate, usuario: dict = Depends(obtener_usuario_act
     return nuevo_router
 
 @router.put("/routers/{id_router}", response_model=RouterResponse)
-def actualizar_router(id_router: int, data: RouterUpdate, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+def actualizar_router(id_router: int, data: RouterUpdate, usuario: dict = Depends(requiere_plan("mikrotik")), db: Session = Depends(get_db)):
     from backend.models import Usuario
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
@@ -97,7 +97,7 @@ def actualizar_router(id_router: int, data: RouterUpdate, usuario: dict = Depend
     return router_db
 
 @router.delete("/routers/{id_router}")
-def eliminar_router(id_router: int, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+def eliminar_router(id_router: int, usuario: dict = Depends(requiere_plan("mikrotik")), db: Session = Depends(get_db)):
     from backend.models import Usuario
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     
@@ -114,7 +114,7 @@ def eliminar_router(id_router: int, usuario: dict = Depends(obtener_usuario_actu
     return {"message": "Router eliminado correctamente"}
 
 @router.post("/routers/{id_router}/connect")
-def connect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+def connect_router(id_router: int, usuario: dict = Depends(requiere_plan("mikrotik")), db: Session = Depends(get_db)):
     from backend.models import Usuario
     from backend.mikrotik_service import MikrotikService
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
@@ -144,7 +144,7 @@ def connect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actua
     return {"message": "Prueba de conexión completada", "is_connected": router_obj.is_connected, "last_error": router_obj.last_error}
 
 @router.post("/routers/{id_router}/disconnect")
-def disconnect_router(id_router: int, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+def disconnect_router(id_router: int, usuario: dict = Depends(requiere_plan("mikrotik")), db: Session = Depends(get_db)):
     from backend.models import Usuario
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:

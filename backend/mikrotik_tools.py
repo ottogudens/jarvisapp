@@ -4,9 +4,12 @@ from backend.mikrotik_service import MikrotikService
 from backend.crypto_utils import decrypt_secret
 
 
-def _get_service(id_router: int):
+def _get_service(id_router: int, id_tenant: int):
     with SessionLocal() as db:
-        router = db.query(MikrotikRouter).filter(MikrotikRouter.id_router == id_router).first()
+        router = db.query(MikrotikRouter).filter(
+            MikrotikRouter.id_router == id_router,
+            MikrotikRouter.id_tenant == id_tenant,
+        ).first()
         if not router:
             return None, {"error": "Router no encontrado"}
         password = decrypt_secret(router.password)
@@ -21,9 +24,9 @@ def _get_service(id_router: int):
         return svc, None
 
 
-def obtener_estado_red_mikrotik(id_router: int, ping_target: str = None) -> dict:
+def obtener_estado_red_mikrotik(id_router: int, id_tenant: int, ping_target: str = None) -> dict:
     """Obtiene el estado general de la red, uso de CPU, uptime y memoria del router MikroTik especificado."""
-    svc, err = _get_service(id_router)
+    svc, err = _get_service(id_router, id_tenant)
     if err:
         return err
     resultado = svc.get_system_resource()
@@ -36,23 +39,23 @@ def obtener_estado_red_mikrotik(id_router: int, ping_target: str = None) -> dict
     return resultado
 
 
-def listar_interfaces_mikrotik(id_router: int, filter_name: str = None) -> dict:
+def listar_interfaces_mikrotik(id_router: int, id_tenant: int, filter_name: str = None) -> dict:
     """Obtiene la lista de interfaces de red del router MikroTik especificado y su estado actual (link, trafico)."""
-    svc, err = _get_service(id_router)
+    svc, err = _get_service(id_router, id_tenant)
     if err:
         return err
     return svc.get_interfaces()
 
 
-def ver_clientes_dhcp_mikrotik(id_router: int) -> dict:
+def ver_clientes_dhcp_mikrotik(id_router: int, id_tenant: int) -> dict:
     """Obtiene la lista de dispositivos conectados a la red del router MikroTik especificado a través del servidor DHCP."""
-    svc, err = _get_service(id_router)
+    svc, err = _get_service(id_router, id_tenant)
     if err:
         return err
     return svc.get_dhcp_leases()
 
 
-def comando_mikrotik_avanzado(id_router: int, comando: str, parametros: dict = None, confirmar: bool = False) -> dict:
+def comando_mikrotik_avanzado(id_router: int, id_tenant: int, comando: str, parametros: dict = None, confirmar: bool = False) -> dict:
     """
     Ejecuta cualquier ruta arbitraria de la API REST de MikroTik (ej. /ip/address/print).
     Usar solo si las demás herramientas no son suficientes.
@@ -71,19 +74,18 @@ def comando_mikrotik_avanzado(id_router: int, comando: str, parametros: dict = N
         if not comando.startswith("/"):
             comando = "/" + comando
             
-    svc, err = _get_service(id_router)
+    svc, err = _get_service(id_router, id_tenant)
     if err:
         return err
 
-    if MikrotikService.is_destructive(comando) and not confirmar:
+    if MikrotikService.is_destructive(comando):
         return {
-            "requiere_confirmacion": True,
+            "bloqueado": True,
             "comando_propuesto": comando,
             "parametros_propuestos": parametros,
             "mensaje": (
-                "Este comando modifica el estado del router. Muestra este comando y "
-                "parámetros exactos al usuario y pide confirmación explícita antes de "
-                "reintentar con confirmar=True."
+                "Las mutaciones remotas están temporalmente deshabilitadas por seguridad. "
+                "Una futura versión requerirá una aprobación transaccional del usuario."
             ),
         }
 

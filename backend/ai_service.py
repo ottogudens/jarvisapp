@@ -7,6 +7,7 @@ from sqlalchemy import func
 from backend.models import Tenant, SystemSettings, AIUsageStats
 from backend.iot_service import IoTService
 from backend.mikrotik_tools import obtener_estado_red_mikrotik, listar_interfaces_mikrotik, ver_clientes_dhcp_mikrotik, comando_mikrotik_avanzado
+from backend.crypto_utils import decrypt_secret
 
 # Configurar herramientas para litellm
 LITELLM_TOOLS = [
@@ -116,13 +117,8 @@ LITELLM_TOOLS = [
             "name": "comando_mikrotik_avanzado",
             "description": (
                 "Ejecuta un comando raw en la API REST del router MikroTik (ej: /ip/address/print). "
-                "Si el comando MODIFICA el router (rutas terminadas en /add, /set, /remove, /enable, "
-                "/disable, /move, o acciones como /reboot, /shutdown, /backup/load, "
-                "/routerboard/upgrade), la primera llamada SIEMPRE devuelve una vista previa "
-                "sin ejecutar nada. Debes mostrar el comando exacto al usuario, esperar su "
-                "confirmación explícita en el chat, y solo entonces volver a llamar esta función "
-                "con confirmar=true para ejecutarlo de verdad. Nunca pases confirmar=true sin que "
-                "el usuario haya aprobado explícitamente el comando en su mensaje anterior."
+                "Las operaciones que mutan la configuración están deshabilitadas temporalmente. "
+                "Solo úsala para diagnóstico de lectura."
             ),
             "parameters": {
                 "type": "object",
@@ -175,7 +171,7 @@ def load_ai_keys(db: Session):
     )).all()
     for k in keys:
         if k.value:
-            os.environ[k.key] = k.value
+            os.environ[k.key] = decrypt_secret(k.value)
 
 def call_llm_with_tools(
     db: Session,
@@ -229,10 +225,16 @@ def call_llm_with_tools(
             asyncio.set_event_loop(loop)
             
         if fn_name == "obtener_estado_dispositivo":
+            if not tenant or not tenant.plan or not tenant.plan.permite_iot:
+                return "Acceso a IoT no habilitado para este tenant."
             return loop.run_until_complete(iot_service.obtener_estado_dispositivo(**args))
         elif fn_name == "activar_dispositivo":
+            if not tenant or not tenant.plan or not tenant.plan.permite_iot:
+                return "Acceso a IoT no habilitado para este tenant."
             return loop.run_until_complete(iot_service.activar_dispositivo(**args))
         elif fn_name == "enviar_mensaje_mqtt":
+            if not tenant or not tenant.plan or not tenant.plan.permite_iot:
+                return "Acceso a IoT no habilitado para este tenant."
             return iot_service.publicar_mensaje_mqtt(**args)
         elif fn_name == "generar_documento":
             import base64
@@ -286,13 +288,21 @@ def call_llm_with_tools(
             except Exception as e:
                 return f"Error al generar documento: {str(e)}"
         elif fn_name == "obtener_estado_red_mikrotik":
-            return obtener_estado_red_mikrotik(**args)
+            if not tenant or not tenant.plan or not tenant.plan.permite_mikrotik:
+                return "Acceso a MikroTik no habilitado para este tenant."
+            return obtener_estado_red_mikrotik(**args, id_tenant=user_db.id_tenant)
         elif fn_name == "listar_interfaces_mikrotik":
-            return listar_interfaces_mikrotik(**args)
+            if not tenant or not tenant.plan or not tenant.plan.permite_mikrotik:
+                return "Acceso a MikroTik no habilitado para este tenant."
+            return listar_interfaces_mikrotik(**args, id_tenant=user_db.id_tenant)
         elif fn_name == "ver_clientes_dhcp_mikrotik":
-            return ver_clientes_dhcp_mikrotik(**args)
+            if not tenant or not tenant.plan or not tenant.plan.permite_mikrotik:
+                return "Acceso a MikroTik no habilitado para este tenant."
+            return ver_clientes_dhcp_mikrotik(**args, id_tenant=user_db.id_tenant)
         elif fn_name == "comando_mikrotik_avanzado":
-            return comando_mikrotik_avanzado(**args)
+            if not tenant or not tenant.plan or not tenant.plan.permite_mikrotik:
+                return "Acceso a MikroTik no habilitado para este tenant."
+            return comando_mikrotik_avanzado(**args, id_tenant=user_db.id_tenant)
         elif fn_name == "almacenar_conocimiento":
             from backend.models import KnowledgeDocument, DocumentChunk, KnowledgeFolder
             nombre_doc = args.get("nombre_documento", "Documento sin título")

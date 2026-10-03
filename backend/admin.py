@@ -9,6 +9,7 @@ import bcrypt
 from backend.database import get_db
 from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
 from backend.auth import obtener_usuario_actual, hash_password, requiere_staff, requiere_superadmin
+from backend.crypto_utils import encrypt_secret
 
 router = APIRouter(prefix="/v1/admin", tags=["Administrador"])
 
@@ -117,11 +118,9 @@ class AIKeysSchema(BaseModel):
 
 @router.get("/ai-keys", response_model=AIKeysSchema)
 def get_ai_keys(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
-    keys = db.query(SystemSettings).filter(SystemSettings.key.in_(["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "GEMINI_API_KEY"])).all()
-    result = {}
-    for k in keys:
-        result[k.key.lower()] = k.value
-    return AIKeysSchema(**result)
+    # Las claves nunca se devuelven después de almacenarse. Una actualización
+    # posterior debe enviar el valor completo de reemplazo.
+    return AIKeysSchema()
 
 @router.post("/ai-keys")
 def save_ai_keys(keys: AIKeysSchema, usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
@@ -129,9 +128,9 @@ def save_ai_keys(keys: AIKeysSchema, usuario: dict = Depends(requiere_staff), db
         if not value: return
         setting = db.query(SystemSettings).filter(SystemSettings.key == key_name).first()
         if setting:
-            setting.value = value
+            setting.value = encrypt_secret(value)
         else:
-            db.add(SystemSettings(key=key_name, value=value))
+            db.add(SystemSettings(key=key_name, value=encrypt_secret(value)))
             
     update_or_create("OPENAI_API_KEY", keys.openai_api_key)
     update_or_create("ANTHROPIC_API_KEY", keys.anthropic_api_key)
@@ -460,12 +459,10 @@ class AIKeyTest(BaseModel):
 
 @router.post("/ai-keys/test")
 def test_ai_key(data: AIKeyTest, usuario: dict = Depends(requiere_superadmin)):
-    import litellm
     from litellm import completion
     import os
     
     provider = data.provider.lower()
-    os.environ[f"{provider.upper()}_API_KEY"] = data.api_key
     
     if provider == "openai":
         model = "openai/gpt-3.5-turbo"
@@ -478,7 +475,13 @@ def test_ai_key(data: AIKeyTest, usuario: dict = Depends(requiere_superadmin)):
     else:
         raise HTTPException(status_code=400, detail="Proveedor desconocido")
 
+    env_key = "ANTHROPIC_API_KEY" if provider in {"anthropic", "claude"} else f"{provider.upper()}_API_KEY"
+    previous_value = os.environ.get(env_key)
+
     try:
+        # LiteLLM obtiene la credencial desde el entorno; se restaura siempre
+        # para no dejar una clave ingresada por HTTP en el proceso global.
+        os.environ[env_key] = data.api_key
         response = completion(
             model=model,
             messages=[{"role": "user", "content": "Hi"}],
@@ -487,6 +490,11 @@ def test_ai_key(data: AIKeyTest, usuario: dict = Depends(requiere_superadmin)):
         return {"status": "ok", "message": "Key is valid"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        if previous_value is None:
+            os.environ.pop(env_key, None)
+        else:
+            os.environ[env_key] = previous_value
 
 # ============================================================
 # Endpoints Usuarios (Clientes por Tenant)

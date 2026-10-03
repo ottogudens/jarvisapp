@@ -12,14 +12,14 @@ NUNCA en el repo ni en .env versionado.
 import os
 from cryptography.fernet import Fernet, InvalidToken
 
-_KEY = os.getenv("MIKROTIK_ENCRYPTION_KEY")
+_KEY = os.getenv("APP_ENCRYPTION_KEY") or os.getenv("MIKROTIK_ENCRYPTION_KEY")
 _fernet = Fernet(_KEY.encode()) if _KEY else None
 
 
 def encrypt_secret(plaintext: str) -> str:
     if not _fernet:
         raise RuntimeError(
-            "MIKROTIK_ENCRYPTION_KEY no está configurada. No se pueden guardar "
+            "APP_ENCRYPTION_KEY no está configurada. No se pueden guardar "
             "credenciales de router sin cifrado."
         )
     return _fernet.encrypt(plaintext.encode()).decode()
@@ -27,7 +27,7 @@ def encrypt_secret(plaintext: str) -> str:
 
 def decrypt_secret(ciphertext: str) -> str:
     if not _fernet:
-        raise RuntimeError("MIKROTIK_ENCRYPTION_KEY no está configurada.")
+        raise RuntimeError("APP_ENCRYPTION_KEY no está configurada.")
     try:
         return _fernet.decrypt(ciphertext.encode()).decode()
     except InvalidToken:
