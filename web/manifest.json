@@ -1,11 +1,11 @@
 {
-    "name": "jarvis_app",
-    "short_name": "jarvis_app",
+    "name": "Bonso | SKALE IA",
+    "short_name": "Bonso",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#061E22",
+    "theme_color": "#061E22",
+    "description": "Asistente virtual inteligente desarrollado por SKALE IA.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
