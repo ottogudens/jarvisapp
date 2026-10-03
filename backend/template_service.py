@@ -52,3 +52,42 @@ def render_template(content: bytes, filename: str, fields: dict) -> tuple[bytes,
         out = io.BytesIO(); writer.write(out)
         return out.getvalue(), "application/pdf", filename
     raise ValueError("Formato de plantilla no soportado.")
+
+
+def convert_pdf_to_fillable(content: bytes, fields: list[dict]) -> tuple[bytes, list[str]]:
+    """Crea un AcroForm sobre un PDF estático sin modificar su contenido base.
+
+    Cada campo requiere name, page, x, y, width y height en puntos PDF (origen
+    abajo-izquierda). La UI será responsable de capturar estas coordenadas.
+    """
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.pdfgen import canvas
+    reader = PdfReader(io.BytesIO(content))
+    if reader.get_fields():
+        raise ValueError("El PDF ya contiene campos rellenables.")
+    writer = PdfWriter()
+    names = []
+    by_page = {}
+    for field in fields:
+        try:
+            name = str(field["name"])
+            page = int(field["page"])
+            x, y = float(field["x"]), float(field["y"])
+            width, height = float(field["width"]), float(field["height"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Cada campo debe incluir name, page, x, y, width y height válidos.") from exc
+        if not FIELD_RE.fullmatch("{{" + name + "}}") or page < 0 or page >= len(reader.pages) or min(width, height) <= 0:
+            raise ValueError("Definición de campo inválida.")
+        by_page.setdefault(page, []).append((name, x, y, width, height)); names.append(name)
+    for number, background in enumerate(reader.pages):
+        size = (float(background.mediabox.width), float(background.mediabox.height))
+        layer = io.BytesIO(); canvas_obj = canvas.Canvas(layer, pagesize=size)
+        for name, x, y, width, height in by_page.get(number, []):
+            canvas_obj.acroform.textfield(name=name, x=x, y=y, width=width, height=height, borderWidth=1, forceBorder=True)
+        canvas_obj.save(); layer.seek(0)
+        form_page = PdfReader(layer).pages[0]
+        form_page.merge_page(background)
+        writer.add_page(form_page)
+    writer.set_need_appearances_writer()
+    out = io.BytesIO(); writer.write(out)
+    return out.getvalue(), names

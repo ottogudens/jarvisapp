@@ -552,6 +552,15 @@ class TemplateFillRequest(BaseModel):
     fields: dict[str, str | int | float | bool] = {}
 
 
+class PdfFieldDefinition(BaseModel):
+    name: str
+    page: int
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 @app.post("/v1/templates/upload")
 async def subir_plantilla(file: UploadFile = File(...), usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
     """Conserva la plantilla original por tenant y detecta marcadores {{campo}}."""
@@ -564,6 +573,32 @@ async def subir_plantilla(file: UploadFile = File(...), usuario: dict = Depends(
     template = DocumentTemplate(id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=Path(file.filename).name, extension=extension, contenido_base64=base64.b64encode(content).decode(), campos=detect_fields(content, extension))
     db.add(template); db.commit(); db.refresh(template)
     return {"id_template": template.id_template, "nombre": template.nombre, "campos": template.campos}
+
+
+@app.post("/v1/templates/convert-pdf")
+async def convertir_pdf_en_plantilla(
+    file: UploadFile = File(...),
+    fields: str = Form(...),
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Convierte un PDF plano en AcroForm; nunca reemplaza el archivo original."""
+    from backend.template_service import convert_pdf_to_fillable
+    try:
+        definitions = [PdfFieldDefinition(**value).model_dump() for value in json.loads(fields)]
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="fields debe ser una lista JSON de definiciones de campos.") from exc
+    content = await file.read()
+    if not (file.filename or "").lower().endswith(".pdf") or not content.startswith(b"%PDF-") or len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="Se requiere un PDF válido de hasta 15 MB.")
+    try:
+        converted, names = convert_pdf_to_fillable(content, definitions)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    name = f"{os.path.splitext(file.filename)[0]}_rellenable.pdf"
+    template = DocumentTemplate(id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=name, extension=".pdf", contenido_base64=base64.b64encode(converted).decode(), campos=names)
+    db.add(template); db.commit(); db.refresh(template)
+    return {"id_template": template.id_template, "nombre": template.nombre, "campos": names}
 
 
 @app.get("/v1/templates")
