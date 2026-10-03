@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -218,19 +219,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                       backgroundColor: BonsoBrand.aqua,
                       foregroundColor: Colors.white,
                     ),
-                    onPressed: () async {
-                      final url = doc['url'];
-                      if (url != null && (url.toString().startsWith('http') || url.toString().startsWith('data:'))) {
-                        final uri = Uri.parse(url);
-                        try {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
-                        } catch (e) {
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir el archivo: $e')));
-                        }
-                      } else {
-                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El archivo original no está disponible')));
-                      }
-                    },
+                    onPressed: () => _abrirOriginal(doc),
                     icon: const Icon(Icons.open_in_browser),
                     label: const Text('Abrir Original'),
                   )
@@ -241,6 +230,32 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         ),
       ),
     );
+  }
+
+  Future<void> _abrirOriginal(Map<String, dynamic> doc) async {
+    final url = doc['url']?.toString();
+    if (url == null || url.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El archivo original no está disponible')));
+      return;
+    }
+    try {
+      if (url.startsWith('data:')) {
+        // Abrir una data URI directamente produce una pestaña vacía en varios
+        // navegadores. Un Blob conserva el binario y su tipo MIME real.
+        final parts = url.split('base64,');
+        if (parts.length != 2) throw const FormatException('Formato de archivo inválido');
+        final mime = parts.first.substring(5).split(';').first;
+        final bytes = base64Decode(parts.last);
+        final blobUrl = html.Url.createObjectUrlFromBlob(html.Blob([bytes], mime));
+        final opened = html.window.open(blobUrl, '_blank');
+        if (opened == null) throw Exception('El navegador bloqueó la ventana emergente');
+        return;
+      }
+      final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      if (!ok) throw Exception('No se pudo abrir la URL');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir el archivo: $e')));
+    }
   }
 
   Widget _buildList(List<Map<String, dynamic>> items) {

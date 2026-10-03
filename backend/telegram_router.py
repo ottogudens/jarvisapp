@@ -53,7 +53,14 @@ async def configurar_telegram_tenant(
 
     token = payload.bot_token.strip()
     
-    base_url = str(request.base_url).rstrip("/")
+    # request.base_url puede contener la URL privada del contenedor cuando la
+    # aplicación está detrás de Railway, Nginx u otro proxy. Telegram necesita
+    # siempre una URL pública alcanzable.
+    base_url = os.getenv("TELEGRAM_WEBHOOK_BASE_URL", "").strip().rstrip("/")
+    if not base_url and os.getenv("RAILWAY_PUBLIC_DOMAIN"):
+        base_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN').strip().rstrip('/')}"
+    if not base_url:
+        base_url = str(request.base_url).rstrip("/")
     if "up.railway.app" in base_url and base_url.startswith("http://"):
         base_url = base_url.replace("http://", "https://")
         
@@ -170,13 +177,23 @@ async def desvincular_cuenta_telegram(
     return {"status": "success", "message": "Cuenta de Telegram desvinculada exitosamente"}
 
 async def send_telegram_message(bot_token: str, chat_id: str, text: str):
-    if not bot_token: return
+    """Envía una respuesta fiable, sin Markdown generado por IA inválido."""
+    if not bot_token:
+        return
     api_url = f"https://api.telegram.org/bot{bot_token}"
     async with httpx.AsyncClient() as client:
-        await client.post(
-            f"{api_url}/sendMessage",
-            json={"chat_id": str(chat_id), "text": text, "parse_mode": "Markdown"}
-        )
+        message = (text or "No pude generar una respuesta. Inténtalo nuevamente.").strip()
+        for index in range(0, len(message), 4096):
+            try:
+                response = await client.post(
+                    f"{api_url}/sendMessage",
+                    json={"chat_id": str(chat_id), "text": message[index:index + 4096]},
+                    timeout=20.0,
+                )
+                if response.status_code >= 400:
+                    logger.error("Telegram rechazó el mensaje (%s): %s", response.status_code, response.text)
+            except httpx.HTTPError as exc:
+                logger.exception("No se pudo enviar la respuesta de Telegram: %s", exc)
 
 async def send_telegram_document(bot_token: str, chat_id: str, filename: str, filebytes: bytes):
     if not bot_token: return
@@ -195,10 +212,8 @@ async def handle_link_code(db: Session, bot_token: str, id_tenant: int, chat_id:
     code = match.group(0)
     link_data = _LINK_TOKENS.pop(code, None)
     if not link_data or link_data[1] < time.monotonic():
-        if len(text.strip()) <= 15:
-            await send_telegram_message(bot_token, chat_id, "❌ Código de vinculación inválido o expirado. Por favor genera uno nuevo en tu panel web.")
-            return True
-        return False 
+        await send_telegram_message(bot_token, chat_id, "❌ Código de vinculación inválido o expirado. Por favor genera uno nuevo en tu panel web.")
+        return True
     id_usuario = link_data[0]
         
     user = db.query(Usuario).filter(Usuario.id_usuario == id_usuario, Usuario.id_tenant == id_tenant).first()
@@ -213,7 +228,7 @@ async def handle_link_code(db: Session, bot_token: str, id_tenant: int, chat_id:
     
     await send_telegram_message(
         bot_token, chat_id, 
-        f"✅ ¡Cuenta vinculada exitosamente con *{user.email}*!\n\nYa puedes enviarme consultas, comandos, fotos o notas de voz."
+        f"✅ ¡Cuenta vinculada exitosamente con {user.email}!\n\nYa puedes enviarme consultas, comandos, fotos o notas de voz."
     )
     return True
 

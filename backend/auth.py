@@ -304,7 +304,6 @@ def update_profile(
     tenant_fields_requested = any(
         value is not None for value in (
             data.nombre_organizacion, data.nombre_contacto, data.telefono,
-            data.active_profile_ids,
         )
     )
     if tenant_fields_requested and not is_staff:
@@ -331,7 +330,9 @@ def update_profile(
     if data.password:
         user.password_hash = bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-    if is_staff and data.active_profile_ids is not None:
+    # El perfil activo es una preferencia individual. Un cliente puede escoger
+    # cualquiera de los perfiles asignados a su organización, pero no otros.
+    if data.active_profile_ids is not None:
         permitted_ids = {
             profile_id for (profile_id,) in db.query(TenantProfile.id_perfil).filter(
                 TenantProfile.id_tenant == user.id_tenant
@@ -340,6 +341,10 @@ def update_profile(
         requested_ids = set(data.active_profile_ids)
         if not requested_ids.issubset(permitted_ids):
             raise HTTPException(status_code=400, detail="Se solicitaron perfiles no asignados al tenant.")
+        # Conservamos la selección múltiple histórica para staff (enrutamiento
+        # automático), mientras que el cliente elige un perfil explícito.
+        if not is_staff and len(requested_ids) > 1:
+            raise HTTPException(status_code=400, detail="Selecciona un único perfil activo para cada conversación.")
         user.active_profile_ids = data.active_profile_ids
 
     db.commit()

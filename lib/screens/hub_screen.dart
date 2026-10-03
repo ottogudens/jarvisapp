@@ -3,6 +3,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'login_screen.dart';
 import 'chat_list_screen.dart';
 import 'chat_screen.dart';
@@ -27,6 +29,11 @@ class _HubScreenState extends State<HubScreen> {
   List<Map<String, dynamic>> _activities = [];
   int _archivosSubidos = 0;
   int _archivosGenerados = 0;
+  int _tokensConsumidos = 0;
+  int _plantillas = 0;
+  List<Map<String, dynamic>> _dailyTokens = [];
+  List<dynamic> _perfilesDisponibles = [];
+  List<int> _activeProfileIds = [];
 
   @override
   void initState() {
@@ -76,6 +83,8 @@ class _HubScreenState extends State<HubScreen> {
               _perfil = newProfile == 'Inspector_DGC' ? 'Inspector' : newProfile;
               _organizacion = newOrg;
               _nombreContacto = newContact;
+              _perfilesDisponibles = perfs;
+              _activeProfileIds = List<int>.from(activeIds);
             });
           }
         }
@@ -85,10 +94,101 @@ class _HubScreenState extends State<HubScreen> {
     await Future.wait([
       _fetchActivities(),
       _fetchFileStats(),
+      _fetchDashboardSummary(),
     ]);
 
     if (mounted) {
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _fetchDashboardSummary() async {
+    if (_token == null) return;
+    try {
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/dashboard/summary'),
+        headers: {'Authorization': 'Bearer $_token'},
+      );
+      if (response.statusCode == 200 && mounted) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _tokensConsumidos = data['tokens_total'] ?? 0;
+          _plantillas = data['templates'] ?? 0;
+          _dailyTokens = List<Map<String, dynamic>>.from(data['daily_tokens'] ?? []);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error al cargar resumen del dashboard: $e');
+    }
+  }
+
+  Future<void> _selectProfile() async {
+    if (_perfilesDisponibles.length < 2 || _token == null) return;
+    int? selected = _activeProfileIds.isEmpty ? null : _activeProfileIds.first;
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: const Text('¿Con qué perfil trabajamos?', style: TextStyle(color: Colors.white)),
+        content: StatefulBuilder(builder: (ctx, setDialogState) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _perfilesDisponibles.map((p) {
+            final id = p['id_perfil'] as int;
+            return RadioListTile<int>(
+              value: id,
+              groupValue: selected,
+              activeColor: BonsoBrand.aqua,
+              title: Text(p['nombre'] ?? 'Perfil', style: const TextStyle(color: Colors.white)),
+              onChanged: (value) => setDialogState(() => selected = value),
+            );
+          }).toList(),
+        )),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
+            onPressed: selected == null ? null : () => Navigator.pop(ctx, selected),
+            child: const Text('Usar este perfil', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+    if (result == null) return;
+    final response = await http.put(
+      Uri.parse('$kApiBaseUrl/v1/auth/profile'),
+      headers: {'Authorization': 'Bearer $_token', 'Content-Type': 'application/json'},
+      body: jsonEncode({'active_profile_ids': [result]}),
+    );
+    if (response.statusCode == 200) {
+      final profile = _perfilesDisponibles.firstWhere((p) => p['id_perfil'] == result);
+      final name = profile['nombre']?.toString() ?? 'Usuario';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('perfil_jarvis', name);
+      if (mounted) {
+        setState(() { _activeProfileIds = [result]; _perfil = name; });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Bonso responderá como $name'), backgroundColor: BonsoBrand.aqua));
+      }
+    }
+  }
+
+  Future<void> _uploadTemplate() async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['docx', 'html', 'htm', 'md', 'txt', 'pdf']);
+    if (result == null || result.files.isEmpty || _token == null) return;
+    final file = result.files.first;
+    try {
+      final request = http.MultipartRequest('POST', Uri.parse('$kApiBaseUrl/v1/templates/upload'));
+      request.headers['Authorization'] = 'Bearer $_token';
+      if (file.bytes != null) {
+        request.files.add(http.MultipartFile.fromBytes('file', file.bytes!, filename: file.name));
+      } else if (file.path != null) {
+        request.files.add(await http.MultipartFile.fromPath('file', file.path!));
+      }
+      final response = await request.send();
+      if (response.statusCode != 200) throw Exception(await response.stream.bytesToString());
+      await _fetchDashboardSummary();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Plantilla disponible para Bonso'), backgroundColor: Colors.green));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo subir la plantilla: $e'), backgroundColor: Colors.redAccent));
     }
   }
 
@@ -357,9 +457,21 @@ class _HubScreenState extends State<HubScreen> {
                                     color: BonsoBrand.aqua.withOpacity(0.8),
                                   ),
                             ),
-                            const SizedBox(height: 32),
+                            const SizedBox(height: 16),
+                            if (_perfilesDisponibles.length > 1)
+                              OutlinedButton.icon(
+                                onPressed: _selectProfile,
+                                icon: const Icon(Icons.person_search, size: 18),
+                                label: Text('Perfil activo: $_perfil · Cambiar'),
+                                style: OutlinedButton.styleFrom(foregroundColor: BonsoBrand.aqua, side: const BorderSide(color: BonsoBrand.aqua)),
+                              ),
+                            const SizedBox(height: 20),
+                            _buildQuickActions(),
+                            const SizedBox(height: 24),
                             _buildMetricCards(),
-                            const SizedBox(height: 40),
+                            const SizedBox(height: 20),
+                            _buildUsageChart(),
+                            const SizedBox(height: 32),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -465,11 +577,80 @@ class _HubScreenState extends State<HubScreen> {
             color: Colors.amberAccent,
             onTap: () => _showFileManagementDialog('Archivos generados por Bonso'),
           );
+      final tokens = _buildGlassCard(
+            title: 'Tokens consumidos',
+            value: _formatTokens(_tokensConsumidos),
+            icon: Icons.data_usage_outlined,
+            color: Colors.deepPurpleAccent,
+          );
+      final templates = _buildGlassCard(
+            title: 'Plantillas',
+            value: '$_plantillas',
+            icon: Icons.description_outlined,
+            color: Colors.orangeAccent,
+            onTap: _uploadTemplate,
+          );
       if (narrow) {
-        return Column(children: [uploaded, const SizedBox(height: 16), generated]);
+        return Column(children: [uploaded, const SizedBox(height: 12), generated, const SizedBox(height: 12), tokens, const SizedBox(height: 12), templates]);
       }
-      return Row(children: [Expanded(child: uploaded), const SizedBox(width: 16), Expanded(child: generated)]);
+      return Column(children: [
+        Row(children: [Expanded(child: uploaded), const SizedBox(width: 16), Expanded(child: generated)]),
+        const SizedBox(height: 16),
+        Row(children: [Expanded(child: tokens), const SizedBox(width: 16), Expanded(child: templates)]),
+      ]);
     });
+  }
+
+  String _formatTokens(int value) => value >= 1000 ? '${(value / 1000).toStringAsFixed(1)}k' : '$value';
+
+  Widget _buildQuickActions() {
+    final List<(IconData, String, VoidCallback)> actions = [
+      (Icons.add_comment_outlined, 'Nueva consulta', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen())).then((_) => _loadProfileAndData())),
+      (Icons.upload_file_outlined, 'Subir plantilla', _uploadTemplate),
+      (Icons.folder_open_outlined, 'Documentos', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DocumentsScreen()))),
+      (Icons.tune_outlined, 'Configuración', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => _loadProfileAndData())),
+    ];
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: actions.map((action) => ActionChip(
+        avatar: Icon(action.$1, size: 18, color: BonsoBrand.aqua),
+        label: Text(action.$2),
+        onPressed: action.$3,
+        backgroundColor: BonsoBrand.surface,
+        side: BorderSide(color: BonsoBrand.aqua.withOpacity(.25)),
+        labelStyle: const TextStyle(color: Colors.white),
+      )).toList(),
+    );
+  }
+
+  Widget _buildUsageChart() {
+    final maxValue = _dailyTokens.fold<double>(1, (max, item) => (item['tokens'] as num? ?? 0).toDouble() > max ? (item['tokens'] as num).toDouble() : max);
+    return Container(
+      height: 210,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      decoration: BoxDecoration(color: BonsoBrand.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withOpacity(.08))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('CONSUMO DE TOKENS · ÚLTIMOS 7 DÍAS', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)),
+        const SizedBox(height: 14),
+        Expanded(child: BarChart(BarChartData(
+          maxY: maxValue * 1.2,
+          gridData: const FlGridData(show: false),
+          borderData: FlBorderData(show: false),
+          titlesData: FlTitlesData(
+            leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 26, getTitlesWidget: (value, meta) {
+              if (value < 0 || value >= _dailyTokens.length) return const SizedBox.shrink();
+              final date = (_dailyTokens[value.toInt()]['date'] ?? '').toString();
+              return Padding(padding: const EdgeInsets.only(top: 6), child: Text(date.length >= 10 ? date.substring(8, 10) : '', style: const TextStyle(color: Colors.white54, fontSize: 10)));
+            })),
+          ),
+          barGroups: List.generate(_dailyTokens.length, (index) => BarChartGroupData(x: index, barRods: [BarChartRodData(toY: (_dailyTokens[index]['tokens'] as num? ?? 0).toDouble(), color: BonsoBrand.aqua, width: 14, borderRadius: BorderRadius.circular(4))])),
+        ))),
+      ]),
+    );
   }
 
   Widget _buildGlassCard({

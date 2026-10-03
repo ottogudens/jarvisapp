@@ -447,7 +447,8 @@ def call_llm_with_tools(
     if total_tokens > 0:
         stat = db.query(AIUsageStats).filter(
             AIUsageStats.id_tenant == user_db.id_tenant,
-            AIUsageStats.proveedor == ai_provider
+            AIUsageStats.proveedor == ai_provider,
+            func.date(AIUsageStats.fecha_registro) == func.current_date(),
         ).first()
         if stat:
             stat.tokens_consumidos += total_tokens

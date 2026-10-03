@@ -22,6 +22,7 @@ import httpx
 import logging
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Type, List, Optional
 from contextlib import asynccontextmanager
 
@@ -506,6 +507,39 @@ async def listar_todos_archivos(
     return {
         "archivos_subidos": archivos_subidos,
         "archivos_generados": archivos_generados
+    }
+
+
+@app.get("/v1/dashboard/summary")
+async def resumen_dashboard(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Resumen compacto y seguro para el inicio del cliente."""
+    from backend.models import AIUsageStats
+
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
+    session_count = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).count()
+    template_count = db.query(DocumentTemplate).filter(DocumentTemplate.id_tenant == usuario["id_tenant"]).count()
+    start_date = (datetime.now(timezone.utc).date() - timedelta(days=6))
+    rows = db.query(
+        func.date(AIUsageStats.fecha_registro).label("day"),
+        func.sum(AIUsageStats.tokens_consumidos).label("tokens"),
+    ).filter(
+        AIUsageStats.id_tenant == usuario["id_tenant"],
+        func.date(AIUsageStats.fecha_registro) >= start_date,
+    ).group_by(func.date(AIUsageStats.fecha_registro)).all()
+    by_day = {str(day): int(tokens or 0) for day, tokens in rows}
+    daily = []
+    for offset in range(7):
+        day = start_date + timedelta(days=offset)
+        daily.append({"date": day.isoformat(), "tokens": by_day.get(day.isoformat(), 0)})
+
+    return {
+        "tokens_total": int(user.tokens_consumidos or 0) if user else 0,
+        "sessions": session_count,
+        "templates": template_count,
+        "daily_tokens": daily,
     }
 
 
@@ -1055,7 +1089,10 @@ async def enviar_mensaje_chat(
         
         file_type = file.content_type or "application/octet-stream"
         b64 = base64.b64encode(file_bytes).decode("utf-8")
-        data_uri = f"data:{file_type};base64,{b64}"
+        # Conservar el nombre dentro de la URI para que la biblioteca y las
+        # descargas puedan presentar un archivo reconocible al cliente.
+        from urllib.parse import quote
+        data_uri = f"data:{file_type};name={quote(safe_filename)};base64,{b64}"
         uploaded_urls.append(data_uri)
 
         if file_type.startswith("image/"):
