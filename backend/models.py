@@ -334,6 +334,20 @@ class DocumentChunk(Base):
 
     document = relationship("KnowledgeDocument", back_populates="chunks")
 
+
+class DocumentTemplate(Base):
+    """Plantillas del tenant. El original se conserva inmutable en base64."""
+    __tablename__ = 'document_templates'
+
+    id_template = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), nullable=True)
+    nombre = Column(String(255), nullable=False)
+    extension = Column(String(12), nullable=False)
+    contenido_base64 = Column(Text, nullable=False)
+    campos = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class MikrotikRouter(Base):
     __tablename__ = 'mikrotik_routers'
 

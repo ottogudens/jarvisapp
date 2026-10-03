@@ -7,6 +7,7 @@ from fastapi import HTTPException
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_UPLOAD_FILES = 5
 ALLOWED_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".png", ".jpg", ".jpeg", ".webp", ".m4a", ".mp3", ".ogg", ".wav", ".webm"}
+TEMPLATE_SUFFIXES = {".docx", ".dotx", ".xlsx", ".xltx", ".pdf", ".csv", ".html", ".txt", ".md"}
 
 
 def validate_upload(filename: str | None, content_type: str | None, content: bytes) -> str:

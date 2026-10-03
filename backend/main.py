@@ -35,14 +35,14 @@ from google.genai import types
 from elevenlabs.client import ElevenLabs as ElevenLabsClient
 from elevenlabs import VoiceSettings
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 
 from backend.database import get_db, inicializar_base_de_datos_remota
 from backend.auth import router as auth_router, obtener_usuario_actual, requiere_feature, requiere_plan
 from backend.mikrotik import router as mikrotik_router
 from backend.admin import router as admin_router
-from backend.models import OrdenTrabajo, ChatSession, ChatMessage, DocumentChunk, Usuario
-from backend.file_security import MAX_UPLOAD_FILES, validate_upload
+from backend.models import OrdenTrabajo, ChatSession, ChatMessage, DocumentChunk, Usuario, DocumentTemplate
+from backend.file_security import MAX_UPLOAD_FILES, MAX_UPLOAD_BYTES, TEMPLATE_SUFFIXES, validate_upload
 from supabase import create_client, Client
 
 
@@ -547,6 +547,41 @@ async def obtener_prompt_agente(
 
 
 # ── Gestión de Memoria y Conocimiento (RAG) ──────────────
+
+class TemplateFillRequest(BaseModel):
+    fields: dict[str, str | int | float | bool] = {}
+
+
+@app.post("/v1/templates/upload")
+async def subir_plantilla(file: UploadFile = File(...), usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Conserva la plantilla original por tenant y detecta marcadores {{campo}}."""
+    from pathlib import Path
+    from backend.template_service import detect_fields
+    content = await file.read()
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in TEMPLATE_SUFFIXES or not content or len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="Plantilla inválida o mayor a 15 MB.")
+    template = DocumentTemplate(id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=Path(file.filename).name, extension=extension, contenido_base64=base64.b64encode(content).decode(), campos=detect_fields(content, extension))
+    db.add(template); db.commit(); db.refresh(template)
+    return {"id_template": template.id_template, "nombre": template.nombre, "campos": template.campos}
+
+
+@app.get("/v1/templates")
+async def listar_plantillas(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    templates = db.query(DocumentTemplate).filter(DocumentTemplate.id_tenant == usuario["id_tenant"]).order_by(DocumentTemplate.created_at.desc()).all()
+    return [{"id_template": t.id_template, "nombre": t.nombre, "extension": t.extension, "campos": t.campos, "created_at": t.created_at.isoformat() if t.created_at else None} for t in templates]
+
+
+@app.post("/v1/templates/{template_id}/fill")
+async def rellenar_plantilla(template_id: str, body: TemplateFillRequest, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.template_service import render_template
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id_template == template_id, DocumentTemplate.id_tenant == usuario["id_tenant"]).first()
+    if not template: raise HTTPException(status_code=404, detail="Plantilla no encontrada")
+    try:
+        rendered, mime, filename = render_template(base64.b64decode(template.contenido_base64), template.nombre, body.fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"filename": filename, "mime_type": mime, "content_base64": base64.b64encode(rendered).decode(), "unfilled_fields": [field for field in template.campos if field not in body.fields]}
 
 @app.post("/v1/knowledge/upload")
 async def subir_conocimiento(
@@ -1104,7 +1139,20 @@ async def enviar_mensaje_chat(
         except Exception as e:
             print(f"Error en RAG retrieval: {e}")
 
+    # Memoria de largo plazo: el historial completo sigue persistido en BD. Para
+    # no enviar todo al modelo, recuperamos mensajes antiguos relevantes del
+    # mismo usuario (incluye conversaciones distintas) mediante palabras clave.
     knowledge_from_history = ""
+    terms = [term for term in (mensaje or transcripcion_audio or "").lower().split() if len(term) >= 4][:8]
+    if terms:
+        own_sessions = db.query(ChatSession.id_session).filter(ChatSession.id_usuario == usuario["id_usuario"])
+        old_messages = db.query(ChatMessage).filter(
+            ChatMessage.id_session.in_(own_sessions),
+            ChatMessage.id_session != session_id,
+            or_(*[ChatMessage.contenido.ilike(f"%{term}%") for term in terms]),
+        ).order_by(ChatMessage.created_at.desc()).limit(6).all()
+        if old_messages:
+            knowledge_from_history = "\n".join(f"{item.rol}: {item.contenido[:800]}" for item in reversed(old_messages))
     contenido_usuario = transcripcion_audio if transcripcion_audio else (mensaje if mensaje else "(Archivo adjunto)")
     msg_user = ChatMessage(id_session=session_id, rol="user", contenido=contenido_usuario, file_urls=uploaded_urls)
     db.add(msg_user)
