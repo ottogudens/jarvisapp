@@ -311,6 +311,7 @@ class _HubScreenState extends State<HubScreen> {
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white54),
             onPressed: _logout,
+            tooltip: 'Cerrar sesión',
           ),
         ],
       ),
@@ -432,10 +433,9 @@ class _HubScreenState extends State<HubScreen> {
   }
 
   Widget _buildMetricCards() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildGlassCard(
+    return LayoutBuilder(builder: (context, constraints) {
+      final narrow = constraints.maxWidth < 520;
+      final uploaded = _buildGlassCard(
             title: 'Archivos Subidos',
             value: '$_archivosSubidos',
             icon: Icons.cloud_upload_outlined,
@@ -444,20 +444,19 @@ class _HubScreenState extends State<HubScreen> {
               context,
               MaterialPageRoute(builder: (_) => const DocumentsScreen()),
             ).then((_) => _fetchFileStats()),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildGlassCard(
+          );
+      final generated = _buildGlassCard(
             title: 'Archivos Generados',
             value: '$_archivosGenerados',
             icon: Icons.auto_awesome,
             color: Colors.amberAccent,
             onTap: () => _showFileManagementDialog('Archivos Generados por J.A.R.V.I.S.'),
-          ),
-        ),
-      ],
-    );
+          );
+      if (narrow) {
+        return Column(children: [uploaded, const SizedBox(height: 16), generated]);
+      }
+      return Row(children: [Expanded(child: uploaded), const SizedBox(width: 16), Expanded(child: generated)]);
+    });
   }
 
   Widget _buildGlassCard({

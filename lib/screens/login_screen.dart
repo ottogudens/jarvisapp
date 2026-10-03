@@ -18,6 +18,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
   @override
   void initState() {
     super.initState();
@@ -38,9 +39,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController(text: '');
   final _passwordController = TextEditingController(text: '');
   bool _isLoading = false;
+  bool _obscurePassword = true;
   String _errorMessage = '';
 
   Future<void> _login() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() {
       _isLoading = true;
       _errorMessage = '';
@@ -95,6 +98,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
@@ -119,9 +129,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(color: Colors.white.withOpacity(0.1)),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                       const Icon(Icons.blur_on, size: 64, color: Colors.cyanAccent),
                       const SizedBox(height: 16),
                       Text(
@@ -145,13 +157,17 @@ class _LoginScreenState extends State<LoginScreen> {
                         controller: _emailController,
                         hint: 'Email',
                         icon: Icons.email_outlined,
+                        keyboardType: TextInputType.emailAddress,
+                        autofillHints: const [AutofillHints.username, AutofillHints.email],
                       ),
                       const SizedBox(height: 16),
                       _buildTextField(
                         controller: _passwordController,
                         hint: 'Contraseña',
                         icon: Icons.lock_outline,
-                        isObscure: true,
+                        isObscure: _obscurePassword,
+                        autofillHints: const [AutofillHints.password],
+                        onTogglePassword: () => setState(() => _obscurePassword = !_obscurePassword),
                       ),
                       const SizedBox(height: 24),
                       if (_errorMessage.isNotEmpty) ...[
@@ -189,7 +205,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                         ),
                       ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -205,15 +222,33 @@ class _LoginScreenState extends State<LoginScreen> {
     required String hint,
     required IconData icon,
     bool isObscure = false,
+    TextInputType? keyboardType,
+    Iterable<String>? autofillHints,
+    VoidCallback? onTogglePassword,
   }) {
-    return TextField(
+    return TextFormField(
       controller: controller,
       obscureText: isObscure,
+      keyboardType: keyboardType,
+      autofillHints: autofillHints,
+      textInputAction: isObscure ? TextInputAction.done : TextInputAction.next,
+      onFieldSubmitted: (_) => isObscure ? _login() : FocusScope.of(context).nextFocus(),
+      validator: (value) {
+        final text = value?.trim() ?? '';
+        if (text.isEmpty) return 'Este campo es obligatorio.';
+        if (keyboardType == TextInputType.emailAddress && !text.contains('@')) return 'Ingresa un email válido.';
+        return null;
+      },
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
         prefixIcon: Icon(icon, color: Colors.cyanAccent.withOpacity(0.7)),
+        suffixIcon: onTogglePassword == null ? null : IconButton(
+          tooltip: isObscure ? 'Mostrar contraseña' : 'Ocultar contraseña',
+          onPressed: onTogglePassword,
+          icon: Icon(isObscure ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: Colors.white70),
+        ),
         filled: true,
         fillColor: Colors.black.withOpacity(0.2),
         border: OutlineInputBorder(

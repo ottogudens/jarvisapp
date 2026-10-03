@@ -930,11 +930,12 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                 const SizedBox(width: 6),
                 Text(file.name, style: const TextStyle(color: Colors.white, fontSize: 12)),
                 const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: () {
-                    setState(() => _selectedFiles.removeAt(index));
-                  },
-                  child: const Icon(Icons.close, size: 16, color: Colors.white54),
+                IconButton(
+                  tooltip: 'Quitar ${file.name}',
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => setState(() => _selectedFiles.removeAt(index)),
+                  icon: const Icon(Icons.close, size: 16, color: Colors.white54),
                 ),
               ],
             ),
@@ -959,6 +960,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             IconButton(
               icon: const Icon(Icons.attach_file, color: Colors.cyanAccent),
               onPressed: _pickFiles,
+              tooltip: 'Adjuntar archivos',
             ),
             Expanded(
               child: TextField(
@@ -985,7 +987,11 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             const SizedBox(width: 8),
             
             // Botón de Micrófono / Auricular (Click 1: Graba, Click 2 o 3s de silencio: Envía)
-            GestureDetector(
+            Semantics(
+              button: true,
+              label: _isRecording ? 'Detener y enviar grabación' : 'Grabar mensaje de voz',
+              child: InkWell(
+              borderRadius: BorderRadius.circular(24),
               onTap: () {
                 if (_isRecording) {
                   _stopRecording();
@@ -1010,6 +1016,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   );
                 },
               ),
+              ),
             ),
             
             const SizedBox(width: 8),
@@ -1019,6 +1026,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
               child: IconButton(
                 icon: const Icon(Icons.send, color: Colors.black, size: 20),
                 onPressed: () => _sendMessage(),
+                tooltip: 'Enviar mensaje',
               ),
             ),
           ],
