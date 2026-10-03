@@ -433,6 +433,82 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _verMemoria(Map<String, dynamic> doc) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? '';
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/content'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode != 200) throw Exception('No se pudo cargar el contenido procesado');
+      final data = jsonDecode(response.body);
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: BonsoBrand.surface,
+          title: Text(data['nombre'] ?? 'Contenido procesado', style: const TextStyle(color: Colors.white)),
+          content: SizedBox(
+            width: 680,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                '${data['content'] ?? ''}${data['truncated'] == true ? '\n\n[Vista previa limitada a 80.000 caracteres]' : ''}',
+                style: const TextStyle(color: Colors.white70, height: 1.45),
+              ),
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar', style: TextStyle(color: BonsoBrand.aqua)))],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir la memoria: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
+  Future<void> _reprocesarDocumento(Map<String, dynamic> doc) async {
+    final observations = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: const Text('Reprocesar con observaciones', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: observations,
+          autofocus: true,
+          maxLines: 5,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Ej.: Prioriza montos, identifica riesgos y usa nombres comerciales actualizados.',
+            hintStyle: TextStyle(color: Colors.white38),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua),
+            onPressed: () => Navigator.pop(ctx, observations.text.trim()),
+            child: const Text('Reprocesar', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+    if (note == null || note.length < 3) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? '';
+      final response = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/reprocess'),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        body: jsonEncode({'observaciones': note}),
+      );
+      if (response.statusCode != 200) throw Exception(response.body);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Documento reprocesado con tus observaciones'), backgroundColor: Colors.green));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo reprocesar: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
   Widget _buildKnowledgeList() {
     final itemsToShow = _currentFolderId == null
         ? _conocimiento.where((d) => d['id_folder'] == null).toList()
@@ -498,6 +574,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(icon: const Icon(Icons.visibility_outlined, color: Colors.white70), tooltip: 'Ver contenido procesado', onPressed: () => _verMemoria(doc)),
+                          IconButton(icon: const Icon(Icons.refresh, color: Colors.amberAccent), tooltip: 'Reprocesar con observaciones', onPressed: () => _reprocesarDocumento(doc)),
                           IconButton(icon: const Icon(Icons.drive_file_move, color: BonsoBrand.aqua), onPressed: () => _moverDocumento(doc['id_document'])),
                           IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => _eliminarConocimiento(doc['id_document'])),
                         ],

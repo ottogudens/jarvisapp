@@ -754,6 +754,7 @@ async def subir_conocimiento(
                 # Crear chunk
                 nuevo_chunk = DocumentChunk(
                     id_document=nuevo_doc.id_document,
+                    chunk_index=i,
                     texto=chunk,
                     embedding=embedding
                 )
@@ -766,9 +767,13 @@ async def subir_conocimiento(
     return {"status": "success", "message": f"Procesados: {', '.join(nombres_procesados)}"}
 
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 class FolderCreate(BaseModel):
     nombre: str
+
+
+class KnowledgeReprocessRequest(BaseModel):
+    observaciones: str = Field(min_length=3, max_length=4000)
 
 
 class DeletePersonalDataRequest(BaseModel):
@@ -930,6 +935,89 @@ async def listar_conocimiento(
             "created_at": d.created_at.isoformat() if d.created_at else None
         } for d in documentos_db]
     }
+
+
+@app.get("/v1/knowledge/{id_document}/content")
+async def ver_contenido_conocimiento(
+    id_document: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Devuelve el texto que Bonso tiene realmente indexado para este archivo."""
+    from backend.models import KnowledgeDocument
+    doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_document == id_document,
+        KnowledgeDocument.id_tenant == usuario["id_tenant"],
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado o sin permisos")
+    chunks = db.query(DocumentChunk).filter(
+        DocumentChunk.id_document == doc.id_document,
+    ).order_by(DocumentChunk.chunk_index.asc(), DocumentChunk.created_at.asc()).all()
+    content = "\n".join(chunk.texto or "" for chunk in chunks)
+    limit = 80000
+    return {
+        "id_document": doc.id_document,
+        "nombre": doc.nombre,
+        "content": content[:limit],
+        "truncated": len(content) > limit,
+        "chunk_count": len(chunks),
+    }
+
+
+@app.post("/v1/knowledge/{id_document}/reprocess")
+async def reprocesar_conocimiento(
+    id_document: str,
+    body: KnowledgeReprocessRequest,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Reindexa el contenido conservando el original y las observaciones del cliente."""
+    from backend.models import KnowledgeDocument, Tenant
+    from backend.ai_service import load_ai_keys
+    from litellm import aembedding
+
+    doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_document == id_document,
+        KnowledgeDocument.id_tenant == usuario["id_tenant"],
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado o sin permisos")
+    old_chunks = db.query(DocumentChunk).filter(
+        DocumentChunk.id_document == doc.id_document,
+    ).order_by(DocumentChunk.chunk_index.asc(), DocumentChunk.created_at.asc()).all()
+    original = "\n".join(chunk.texto or "" for chunk in old_chunks).strip()
+    if not original:
+        raise HTTPException(status_code=422, detail="El documento no contiene texto procesable para reprocesar.")
+
+    content = (
+        f"{original}\n\n[OBSERVACIONES DEL CLIENTE PARA EL REPROCESAMIENTO]\n"
+        f"{body.observaciones.strip()}\n[FIN DE OBSERVACIONES]"
+    )
+    text_chunks = [content[index:index + 1000] for index in range(0, len(content), 1000)]
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    provider = tenant.ai_provider if tenant else "gemini"
+    model = "gemini/text-embedding-004" if provider.lower() == "gemini" else "text-embedding-3-small"
+    kwargs = {} if provider.lower() == "gemini" else {"dimensions": 768}
+    load_ai_keys(db)
+    embeddings = []
+    try:
+        for chunk in text_chunks:
+            result = await aembedding(model=model, input=[chunk], **kwargs)
+            embeddings.append(result.data[0]["embedding"] if isinstance(result.data[0], dict) else result.data[0].embedding)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No fue posible generar la nueva indexación: {exc}") from exc
+
+    try:
+        db.query(DocumentChunk).filter(DocumentChunk.id_document == doc.id_document).delete(synchronize_session=False)
+        for index, (chunk, embedding) in enumerate(zip(text_chunks, embeddings)):
+            db.add(DocumentChunk(id_document=doc.id_document, chunk_index=index, texto=chunk, embedding=embedding))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="No se pudo guardar el reprocesamiento del documento.") from exc
+    return {"message": "Documento reprocesado con las observaciones del cliente.", "chunk_count": len(text_chunks)}
+
 
 @app.delete("/v1/knowledge/{id_document}")
 async def eliminar_conocimiento(
