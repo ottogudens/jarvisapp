@@ -212,6 +212,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     final telefonoCtrl = TextEditingController(text: tenantToEdit?['telefono'] ?? '');
     final emailCtrl = TextEditingController(text: tenantToEdit?['email_admin'] ?? '');
     final passCtrl = TextEditingController();
+    final passConfirmCtrl = TextEditingController();
+    final suspensionReasonCtrl = TextEditingController(text: tenantToEdit?['suspension_reason'] ?? '');
     
     // Convertir perfiles existentes a Set de IDs
     Set<int> selectedProfiles = {};
@@ -220,6 +222,12 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         selectedProfiles.add(p['id_perfil']);
       }
     }
+    int? primaryProfileId;
+    final activeProfileIds = tenantToEdit?['active_profile_ids'];
+    if (activeProfileIds is List && activeProfileIds.isNotEmpty) {
+      primaryProfileId = activeProfileIds.first as int?;
+    }
+    bool isActive = tenantToEdit?['is_active'] ?? true;
     
     int? selectedPlanId = tenantToEdit?['id_plan'] ?? (_plans.isNotEmpty ? _plans[0]['id_plan'] : null);
     String aiProvider = tenantToEdit?['ai_provider'] ?? 'gemini';
@@ -254,7 +262,16 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 const SizedBox(height: 12),
                 _buildTextField(emailCtrl, 'Email del Administrador'),
                 const SizedBox(height: 12),
-                _buildTextField(passCtrl, isNew ? 'Contraseña (Opcional, default: Admin123!)' : 'Nueva Contraseña (Opcional, dejar vacío para no cambiar)', obscure: true),
+                _buildTextField(passCtrl, isNew ? 'Contraseña inicial' : 'Nueva contraseña (opcional)', obscure: true),
+                const SizedBox(height: 12),
+                _buildTextField(passConfirmCtrl, isNew ? 'Confirmar contraseña inicial' : 'Confirmar nueva contraseña', obscure: true),
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Mínimo 10 caracteres, con letras y números.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 // Perfiles multi-select
                 const Align(
@@ -284,6 +301,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                               selectedProfiles.add(pId);
                             } else {
                               selectedProfiles.remove(pId);
+                              if (primaryProfileId == pId) {
+                                primaryProfileId = selectedProfiles.isEmpty ? null : selectedProfiles.first;
+                              }
                             }
                           });
                         },
@@ -291,6 +311,27 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                     },
                   ),
                 ),
+                if (selectedProfiles.isNotEmpty) ...[
+                  DropdownButtonFormField<int>(
+                    value: selectedProfiles.contains(primaryProfileId) ? primaryProfileId : null,
+                    dropdownColor: BonsoBrand.surface,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Perfil inicial del cliente',
+                      labelStyle: TextStyle(color: BonsoBrand.aqua),
+                    ),
+                    hint: const Text('Selecciona un perfil', style: TextStyle(color: Colors.white54)),
+                    items: _profiles
+                        .where((profile) => selectedProfiles.contains(profile['id_perfil']))
+                        .map<DropdownMenuItem<int>>((profile) => DropdownMenuItem<int>(
+                              value: profile['id_perfil'],
+                              child: Text(profile['nombre']),
+                            ))
+                        .toList(),
+                    onChanged: (value) => setDialogState(() => primaryProfileId = value),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 DropdownButtonFormField<int>(
                   value: selectedPlanId,
                   dropdownColor: BonsoBrand.surface,
@@ -326,15 +367,55 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   items: modelsByProvider[aiProvider]?.map((m) => DropdownMenuItem(value: m, child: Text(m))).toList() ?? [],
                   onChanged: (v) => setDialogState(() => aiModel = v ?? aiModel),
                 ),
+                const SizedBox(height: 12),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: isActive,
+                  activeColor: BonsoBrand.lime,
+                  title: const Text('Cuenta del cliente activa', style: TextStyle(color: Colors.white)),
+                  subtitle: Text(
+                    isActive ? 'Puede iniciar sesión y utilizar Bonso.' : 'El acceso está suspendido.',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  onChanged: (value) => setDialogState(() => isActive = value),
+                ),
+                if (!isActive) ...[
+                  const SizedBox(height: 8),
+                  _buildTextField(suspensionReasonCtrl, 'Motivo de suspensión'),
+                ],
               ],
             ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
+            if (!isNew)
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _deleteTenant(tenantToEdit['id_tenant'], tenantToEdit['nombre_organizacion']);
+                },
+                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                label: const Text('Eliminar', style: TextStyle(color: Colors.redAccent)),
+              ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua, foregroundColor: Colors.black),
               onPressed: () async {
                 final token = await _getToken();
+                var saved = false;
+                final password = passCtrl.text.trim();
+                final passwordConfirmation = passConfirmCtrl.text.trim();
+                if (isNew && password.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Define una contraseña inicial para el cliente.')));
+                  return;
+                }
+                if (password.isNotEmpty && password != passwordConfirmation) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Las contraseñas no coinciden.')));
+                  return;
+                }
+                if (password.isNotEmpty && (password.length < 10 || !password.contains(RegExp(r'[A-Za-z]')) || !password.contains(RegExp(r'[0-9]')))) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La contraseña debe tener 10 caracteres e incluir letras y números.')));
+                  return;
+                }
                 if (isNew) {
                   if (orgCtrl.text.isEmpty || emailCtrl.text.isEmpty || selectedPlanId == null) {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nombre org, email y plan son requeridos')));
@@ -348,14 +429,16 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                       'nombre_contacto': contactoCtrl.text.trim(),
                       'telefono': telefonoCtrl.text.trim(),
                       'email': emailCtrl.text.trim(),
-                      'password': passCtrl.text.isNotEmpty ? passCtrl.text : null,
+                      'password': password,
                       'id_plan': selectedPlanId,
                       'ai_provider': aiProvider,
                       'ai_model': aiModel,
                       'perfiles_ids': selectedProfiles.toList(),
+                      'primary_profile_id': primaryProfileId,
                     }),
                   );
                   if (res.statusCode == 200) {
+                    saved = true;
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente creado exitosamente'), backgroundColor: Colors.green));
                   } else {
                     final err = jsonDecode(res.body);
@@ -370,22 +453,28 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                       'nombre_contacto': contactoCtrl.text.trim(),
                       'telefono': telefonoCtrl.text.trim(),
                       'email': emailCtrl.text.trim(),
-                      'password': passCtrl.text.isNotEmpty ? passCtrl.text : null,
+                      'password': password.isNotEmpty ? password : null,
                       'id_plan': selectedPlanId,
                       'ai_provider': aiProvider,
                       'ai_model': aiModel,
                       'perfiles_ids': selectedProfiles.toList(),
+                      'primary_profile_id': primaryProfileId,
+                      'is_active': isActive,
+                      'suspension_reason': isActive ? null : suspensionReasonCtrl.text.trim(),
                     }),
                   );
                   if (res.statusCode == 200) {
+                    saved = true;
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cliente actualizado'), backgroundColor: Colors.green));
                   } else {
                     final err = jsonDecode(res.body);
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${err['detail'] ?? 'Desconocido'}'), backgroundColor: Colors.redAccent));
                   }
                 }
-                if (mounted) Navigator.pop(ctx);
-                _loadAllData();
+                if (saved && mounted) {
+                  Navigator.pop(ctx);
+                  _loadAllData();
+                }
               },
               child: Text(isNew ? 'Crear Cliente' : 'Guardar Cambios'),
             )
@@ -431,6 +520,11 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
       }
     } catch (e) {
       debugPrint("Error deleting tenant: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No fue posible eliminar el cliente. Verifica tus permisos e inténtalo nuevamente.'), backgroundColor: Colors.redAccent),
+        );
+      }
     }
   }
 

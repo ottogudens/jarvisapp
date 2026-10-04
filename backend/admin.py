@@ -54,6 +54,9 @@ class TenantDetailSchema(BaseModel):
     ai_provider: str
     ai_model: str
     email_admin: str
+    active_profile_ids: List[int] = []
+    is_active: bool = True
+    suspension_reason: Optional[str] = None
     tokens_consumidos: int
     perfiles: List[TenantProfileSchema] = []
 
@@ -67,6 +70,7 @@ class TenantCreateSchema(BaseModel):
     ai_provider: str = "gemini"
     ai_model: str = "gemini-1.5-flash"
     perfiles_ids: List[int] = []
+    primary_profile_id: Optional[int] = None
 
 class TenantUpdateSchema(BaseModel):
     nombre_organizacion: Optional[str] = None
@@ -78,6 +82,9 @@ class TenantUpdateSchema(BaseModel):
     ai_provider: Optional[str] = None
     ai_model: Optional[str] = None
     perfiles_ids: Optional[List[int]] = None
+    primary_profile_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    suspension_reason: Optional[str] = None
 
 class UsuarioSchema(BaseModel):
     id_usuario: int
@@ -388,6 +395,54 @@ def update_tenant_profile_instructions(
 
 # --- Endpoints Tenants (CRUD Completo) ---
 
+def _normalizar_email(email: str) -> str:
+    normalized = (email or "").strip().lower()
+    if not normalized or "@" not in normalized:
+        raise HTTPException(status_code=422, detail="Ingresa un correo electrónico válido.")
+    return normalized
+
+
+def _validar_contrasena(password: Optional[str]) -> Optional[str]:
+    """Normaliza una contraseña administrativa opcional y aplica la política de acceso."""
+    if password is None or not password.strip():
+        return None
+    normalized = password.strip()
+    if len(normalized) < 10 or not any(char.isalpha() for char in normalized) or not any(char.isdigit() for char in normalized):
+        raise HTTPException(
+            status_code=422,
+            detail="La contraseña debe tener al menos 10 caracteres, letras y números.",
+        )
+    return normalized
+
+
+def _validar_perfiles(db: Session, profile_ids: List[int]) -> List[int]:
+    """Evita asignaciones huérfanas o duplicadas de perfiles a un cliente."""
+    normalized_ids = list(dict.fromkeys(profile_ids))
+    if not normalized_ids:
+        return []
+    from backend.models import JarvisProfile
+    found_ids = {
+        profile_id for (profile_id,) in db.query(JarvisProfile.id_perfil)
+        .filter(JarvisProfile.id_perfil.in_(normalized_ids))
+        .all()
+    }
+    missing = sorted(set(normalized_ids) - found_ids)
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Perfiles inexistentes: {', '.join(map(str, missing))}.")
+    return normalized_ids
+
+
+def _sincronizar_perfiles_activos(users: List[Usuario], allowed_ids: List[int], primary_profile_id: Optional[int] = None) -> None:
+    """Mantiene las preferencias de cada usuario dentro de los perfiles asignados al tenant."""
+    allowed = set(allowed_ids)
+    for user in users:
+        current = [profile_id for profile_id in (user.active_profile_ids or []) if profile_id in allowed]
+        if primary_profile_id is not None and user.rol == ROL_CLIENTE:
+            current = [primary_profile_id]
+        elif not current and allowed_ids:
+            current = [allowed_ids[0]]
+        user.active_profile_ids = current
+
 @router.get("/tenants", response_model=List[TenantDetailSchema])
 def get_tenants(
     usuario: dict = Depends(requiere_staff),
@@ -420,6 +475,9 @@ def get_tenants(
             ai_provider=t.ai_provider,
             ai_model=t.ai_model,
             email_admin=user.email if user else "Sin usuario",
+            active_profile_ids=user.active_profile_ids if user else [],
+            is_active=t.is_active,
+            suspension_reason=t.suspension_reason,
             tokens_consumidos=total_tokens,
             perfiles=perfiles_data
         ))
@@ -439,8 +497,16 @@ def create_tenant(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
 
+    email = _normalizar_email(data.email)
+    password = _validar_contrasena(data.password)
+    if password is None:
+        raise HTTPException(status_code=422, detail="Define una contraseña inicial segura para el cliente.")
+    profile_ids = _validar_perfiles(db, data.perfiles_ids)
+    if data.primary_profile_id is not None and data.primary_profile_id not in profile_ids:
+        raise HTTPException(status_code=422, detail="El perfil inicial debe estar asignado al cliente.")
+
     # Validar que el email no exista
-    existing = db.query(Usuario).filter(Usuario.email == data.email).first()
+    existing = db.query(Usuario).filter(Usuario.email == email).first()
     if existing:
         raise HTTPException(status_code=400, detail="El email ya está en uso por otro usuario")
 
@@ -457,21 +523,21 @@ def create_tenant(
     db.flush()  # Para obtener el id_tenant
     
     # Asignar perfiles
-    for p_id in data.perfiles_ids:
+    for p_id in profile_ids:
         db.add(TenantProfile(id_tenant=new_tenant.id_tenant, id_perfil=p_id))
 
     # Crear usuario principal del tenant
-    # Usar None-check explícito: string vacío "" también es una contraseña inválida
-    pwd = data.password if (data.password is not None and data.password.strip()) else "Admin123!"
     new_user = Usuario(
         id_tenant=new_tenant.id_tenant,
-        email=data.email,
-        password_hash=hash_password(pwd),
+        email=email,
+        password_hash=hash_password(password),
         rol=ROL_CLIENTE,
         is_superadmin=False
     )
-    if data.perfiles_ids:
-        new_user.active_profile_ids = [data.perfiles_ids[0]]
+    if data.primary_profile_id is not None:
+        new_user.active_profile_ids = [data.primary_profile_id]
+    elif profile_ids:
+        new_user.active_profile_ids = [profile_ids[0]]
     else:
         new_user.active_profile_ids = []
         
@@ -494,6 +560,8 @@ def update_tenant(
     db_tenant = db.query(Tenant).filter(Tenant.id_tenant == id_tenant).first()
     if not db_tenant:
         raise HTTPException(status_code=404, detail="Tenant no encontrado")
+
+    password = _validar_contrasena(update_data.password)
     
     if update_data.nombre_organizacion is not None:
         db_tenant.nombre_organizacion = update_data.nombre_organizacion
@@ -510,23 +578,44 @@ def update_tenant(
         if not plan: raise HTTPException(status_code=404, detail="Plan no encontrado")
         db_tenant.id_plan = update_data.id_plan
         
+    assigned_profile_ids = None
     if update_data.perfiles_ids is not None:
+        assigned_profile_ids = _validar_perfiles(db, update_data.perfiles_ids)
+        if update_data.primary_profile_id is not None and update_data.primary_profile_id not in assigned_profile_ids:
+            raise HTTPException(status_code=422, detail="El perfil inicial debe estar asignado al cliente.")
         # Reemplazar perfiles actuales
         db.query(TenantProfile).filter(TenantProfile.id_tenant == id_tenant).delete()
-        for p_id in update_data.perfiles_ids:
+        for p_id in assigned_profile_ids:
             db.add(TenantProfile(id_tenant=id_tenant, id_perfil=p_id))
 
+    if update_data.is_active is not None:
+        if db_tenant.id_tenant == usuario["id_tenant"] and not update_data.is_active:
+            raise HTTPException(status_code=400, detail="No puedes suspender tu propia organización administrativa.")
+        db_tenant.is_active = update_data.is_active
+        db_tenant.suspended_at = None if update_data.is_active else datetime.now(timezone.utc)
+        db_tenant.suspension_reason = None if update_data.is_active else (update_data.suspension_reason or "Suspendido por administración")[:255]
+
     # Actualizar email y/o contraseña del usuario administrador del tenant
-    if update_data.email is not None or (update_data.password is not None and update_data.password.strip()):
+    if update_data.email is not None or password is not None:
         admin_user = db.query(Usuario).filter(Usuario.id_tenant == id_tenant).first()
         if admin_user:
-            if update_data.email is not None and update_data.email != admin_user.email:
-                existing = db.query(Usuario).filter(Usuario.email == update_data.email).first()
+            if update_data.email is not None:
+                email = _normalizar_email(update_data.email)
+                existing = db.query(Usuario).filter(Usuario.email == email, Usuario.id_usuario != admin_user.id_usuario).first()
                 if existing:
                     raise HTTPException(status_code=400, detail="El email ya está en uso por otro usuario")
-                admin_user.email = update_data.email
-            if update_data.password is not None and update_data.password.strip():
-                admin_user.password_hash = hash_password(update_data.password.strip())
+                admin_user.email = email
+            if password is not None:
+                admin_user.password_hash = hash_password(password)
+
+    users = db.query(Usuario).filter(Usuario.id_tenant == id_tenant).all()
+    if assigned_profile_ids is not None:
+        _sincronizar_perfiles_activos(users, assigned_profile_ids, update_data.primary_profile_id)
+    elif update_data.primary_profile_id is not None:
+        current_profile_ids = [profile.id_perfil for profile in db.query(TenantProfile).filter(TenantProfile.id_tenant == id_tenant).all()]
+        if update_data.primary_profile_id not in current_profile_ids:
+            raise HTTPException(status_code=422, detail="El perfil inicial debe estar asignado al cliente.")
+        _sincronizar_perfiles_activos(users, current_profile_ids, update_data.primary_profile_id)
     
     db.commit()
     
