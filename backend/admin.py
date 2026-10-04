@@ -152,12 +152,16 @@ def operations_overview(usuario: dict = Depends(requiere_staff), db: Session = D
     }
     customer_rows = []
     for tenant in tenants:
+        primary_user = db.query(Usuario).filter(Usuario.id_tenant == tenant.id_tenant).order_by(Usuario.id_usuario).first()
         usage = db.query(func.coalesce(func.sum(Usuario.tokens_consumidos), 0)).filter(Usuario.id_tenant == tenant.id_tenant).scalar() or 0
         last_usage = db.query(func.max(AIUsageStats.fecha_registro)).filter(AIUsageStats.id_tenant == tenant.id_tenant).scalar()
         subscription = latest_by_tenant.get(tenant.id_tenant)
         customer_rows.append({
             "id_tenant": tenant.id_tenant, "organization": tenant.nombre_organizacion,
-            "contact": tenant.nombre_contacto, "plan": tenant.plan.nombre_plan if tenant.plan else "Sin plan",
+            "contact": tenant.nombre_contacto, "phone": tenant.telefono,
+            "email": primary_user.email if primary_user else None,
+            "ai_provider": tenant.ai_provider, "ai_model": tenant.ai_model,
+            "plan": tenant.plan.nombre_plan if tenant.plan else "Sin plan",
             "active": tenant.is_active, "trial": tenant.is_trial,
             "trial_ends_at": tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None,
             "tokens": int(usage), "last_activity": last_usage.isoformat() if last_usage else None,

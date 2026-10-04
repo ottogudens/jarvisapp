@@ -72,6 +72,56 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
     else { _message('No se pudo actualizar el cliente.', error: true); }
   }
 
+  Future<void> _editCustomer(Map<String, dynamic> customer) async {
+    final organization = TextEditingController(text: '${customer['organization'] ?? ''}');
+    final contact = TextEditingController(text: '${customer['contact'] ?? ''}');
+    final phone = TextEditingController(text: '${customer['phone'] ?? ''}');
+    final email = TextEditingController(text: '${customer['email'] ?? ''}');
+    String provider = '${customer['ai_provider'] ?? 'gemini'}';
+    String model = '${customer['ai_model'] ?? 'gemini-1.5-flash'}';
+    const models = {
+      'gemini': ['gemini-1.5-flash', 'gemini-1.5-pro'],
+      'openai': ['gpt-4o-mini', 'gpt-4o'],
+      'anthropic': ['claude-3-haiku-20240307', 'claude-3-5-sonnet-20240620'],
+      'deepseek': ['deepseek-chat', 'deepseek-coder'],
+    };
+    if (!(models[provider] ?? []).contains(model)) model = models[provider]!.first;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: Text('Editar ${customer['organization']}', style: const TextStyle(color: Colors.white)),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _editorField(organization, 'Organización', Icons.business),
+            _editorField(contact, 'Contacto', Icons.person),
+            _editorField(phone, 'Teléfono', Icons.phone, keyboardType: TextInputType.phone),
+            _editorField(email, 'Correo del administrador', Icons.email_outlined, keyboardType: TextInputType.emailAddress),
+            DropdownButtonFormField<String>(value: provider, dropdownColor: BonsoBrand.surface, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Proveedor de IA'), items: models.keys.map((item) => DropdownMenuItem(value: item, child: Text(item.toUpperCase()))).toList(), onChanged: (value) => setDialogState(() { provider = value ?? provider; model = models[provider]!.first; })),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(value: model, dropdownColor: BonsoBrand.surface, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Modelo'), items: models[provider]!.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(), onChanged: (value) => setDialogState(() => model = value ?? model)),
+          ])),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')), ElevatedButton(onPressed: () => Navigator.pop(context, true), style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua), child: const Text('Guardar cambios', style: TextStyle(color: Colors.black)))],
+      )),
+    );
+    if (saved != true) return;
+    final response = await http.put(
+      Uri.parse('$kApiBaseUrl/v1/admin/tenants/${customer['id_tenant']}'),
+      headers: {'Authorization': 'Bearer ${await _token()}', 'Content-Type': 'application/json'},
+      body: jsonEncode({'nombre_organizacion': organization.text.trim(), 'nombre_contacto': contact.text.trim(), 'telefono': phone.text.trim(), 'email': email.text.trim(), 'ai_provider': provider, 'ai_model': model}),
+    );
+    for (final controller in [organization, contact, phone, email]) { controller.dispose(); }
+    if (response.statusCode == 200) { _message('Cliente actualizado.'); _load(); }
+    else { _message('No se pudo editar el cliente.', error: true); }
+  }
+
+  Widget _editorField(TextEditingController controller, String label, IconData icon, {TextInputType? keyboardType}) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: TextField(controller: controller, keyboardType: keyboardType, style: const TextStyle(color: Colors.white), decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon, color: BonsoBrand.aqua))),
+  );
+
   Future<void> _editInvoiceAutomation() async {
     final automation = (_data?['invoice_automation'] as Map?) ?? {};
     bool enabled = automation['enabled'] == true;
@@ -154,7 +204,15 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
         title: Text('${customer['organization']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
         subtitle: Text('${customer['plan']} · ${customer['tokens']} tokens\n${customer['trial'] == true ? 'Prueba gratuita' : 'Suscripción'} · ${customer['subscription_status']}', style: const TextStyle(color: Colors.white70)),
         isThreeLine: true,
-        trailing: TextButton.icon(onPressed: () => _changeCustomerStatus(Map<String, dynamic>.from(customer)), icon: Icon(customer['active'] == true ? Icons.pause_circle_outline : Icons.play_circle_outline), label: Text(customer['active'] == true ? 'Suspender' : 'Activar'), style: TextButton.styleFrom(foregroundColor: customer['active'] == true ? Colors.orangeAccent : BonsoBrand.lime)),
+        trailing: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, color: Colors.white70),
+          color: BonsoBrand.surfaceRaised,
+          onSelected: (action) { final data = Map<String, dynamic>.from(customer); if (action == 'edit') _editCustomer(data); else _changeCustomerStatus(data); },
+          itemBuilder: (context) => [
+            const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit, color: BonsoBrand.aqua), title: Text('Editar cliente', style: TextStyle(color: Colors.white)))),
+            PopupMenuItem(value: 'status', child: ListTile(leading: Icon(customer['active'] == true ? Icons.pause_circle_outline : Icons.play_circle_outline, color: customer['active'] == true ? Colors.orangeAccent : BonsoBrand.lime), title: Text(customer['active'] == true ? 'Suspender cliente' : 'Activar cliente', style: const TextStyle(color: Colors.white)))),
+          ],
+        ),
       )))),
       if (customers.isEmpty) const _Empty('No hay clientes registrados.'),
     ]));
