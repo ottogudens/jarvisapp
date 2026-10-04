@@ -446,6 +446,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: BonsoBrand.aqua,
+          isScrollable: true,
           tabs: const [
             Tab(icon: Icon(Icons.dashboard), text: "Dashboard"),
             Tab(icon: Icon(Icons.business), text: "Clientes"),
@@ -473,27 +474,28 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   Widget _buildDashboardTab() {
     if (_dashboardData == null) return const Center(child: Text("Error cargando dashboard", style: TextStyle(color: Colors.white)));
     
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 520;
+        final clients = _buildMetricCard("Clientes", _dashboardData!['total_clientes'].toString(), Icons.business);
+        final agents = _buildMetricCard("Agentes", _dashboardData!['total_agentes'].toString(), Icons.person);
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
             children: [
-              Expanded(child: _buildMetricCard("Clientes", _dashboardData!['total_clientes'].toString(), Icons.business)),
-              const SizedBox(width: 16),
-              Expanded(child: _buildMetricCard("Agentes", _dashboardData!['total_agentes'].toString(), Icons.person)),
+              if (compact) ...[
+                clients,
+                const SizedBox(height: 12),
+                agents,
+              ] else Row(children: [Expanded(child: clients), const SizedBox(width: 16), Expanded(child: agents)]),
+              const SizedBox(height: 16),
+              _buildMetricCard("Tokens Consumidos", _dashboardData!['tokens_consumidos'].toString(), Icons.token, color: Colors.orange),
+              const SizedBox(height: 16),
+              _buildAiChart(),
             ],
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(child: _buildMetricCard("Tokens Consumidos", _dashboardData!['tokens_consumidos'].toString(), Icons.token, color: Colors.orange)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _buildAiChart(),
-        ],
-      ),
+        );
+      },
     );
   }
 

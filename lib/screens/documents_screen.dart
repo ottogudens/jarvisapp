@@ -453,8 +453,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         builder: (ctx) => AlertDialog(
           backgroundColor: BonsoBrand.surface,
           title: Text(data['nombre'] ?? 'Contenido procesado', style: const TextStyle(color: Colors.white)),
-          content: SizedBox(
-            width: 680,
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
             child: SingleChildScrollView(
               child: SelectableText(
                 '${data['content'] ?? ''}${data['truncated'] == true ? '\n\n[Vista previa limitada a 80.000 caracteres]' : ''}',
@@ -654,6 +654,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: BonsoBrand.aqua,
+          isScrollable: true,
           labelColor: BonsoBrand.aqua,
           unselectedLabelColor: Colors.white54,
           tabs: const [

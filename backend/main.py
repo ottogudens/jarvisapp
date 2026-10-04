@@ -137,6 +137,7 @@ async def readiness(db: Session = Depends(get_db)):
 
 from backend.telegram_router import router as telegram_router
 from backend.billing import router as billing_router
+from backend.marketing import router as marketing_router
 
 # Fix #7: incluir router de autenticación
 app.include_router(auth_router)
@@ -144,6 +145,7 @@ app.include_router(mikrotik_router)
 app.include_router(admin_router)
 app.include_router(telegram_router)
 app.include_router(billing_router)
+app.include_router(marketing_router)
 
 
 # Inicialización lazy: se crean al primer uso para evitar errores si

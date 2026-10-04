@@ -952,12 +952,15 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
   Widget _buildInputBar() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       color: BonsoBrand.surface,
       child: SafeArea(
-        child: Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 400;
+            return Row(
           children: [
-            IconButton(
+            if (!compact) IconButton(
               icon: const Icon(Icons.center_focus_strong, color: Colors.orangeAccent),
               onPressed: _showFocusBottomSheet,
               tooltip: 'Enfocar documentos',
@@ -979,7 +982,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   ),
                   filled: true,
                   fillColor: BonsoBrand.ink,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  contentPadding: EdgeInsets.symmetric(horizontal: compact ? 12 : 16, vertical: 12),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,
@@ -1011,7 +1014,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                     scale: _isRecording ? _pulseAnimation.value : 1.0,
                     child: CircleAvatar(
                       backgroundColor: _isRecording ? Colors.redAccent : BonsoBrand.surfaceRaised,
-                      radius: 22,
+                      radius: compact ? 20 : 22,
                       child: Icon(
                         _isRecording ? Icons.mic : Icons.mic_none,
                         color: Colors.white,
@@ -1027,7 +1030,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
             const SizedBox(width: 8),
             CircleAvatar(
               backgroundColor: BonsoBrand.aqua,
-              radius: 22,
+              radius: compact ? 20 : 22,
               child: IconButton(
                 icon: const Icon(Icons.send, color: Colors.black, size: 20),
                 onPressed: () => _sendMessage(),
@@ -1035,6 +1038,8 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
               ),
             ),
           ],
+            );
+          },
         ),
       ),
     );

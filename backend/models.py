@@ -156,6 +156,61 @@ class BillingSubscription(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+
+class ChannelConnection(Base):
+    __tablename__ = 'channel_connections'
+    id_connection = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    provider = Column(String(30), nullable=False)  # whatsapp, instagram, messenger, facebook_ads
+    account_name = Column(String(255), nullable=False)
+    external_account_id = Column(String(255), nullable=True)
+    phone_number_id = Column(String(255), nullable=True)
+    credential_encrypted = Column(Text, nullable=True)
+    scopes = Column(JSON, nullable=False, default=list)
+    status = Column(String(30), nullable=False, default='draft')
+    metadata_json = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class OmniConversation(Base):
+    __tablename__ = 'omni_conversations'
+    id_conversation = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    id_connection = Column(String(36), ForeignKey('channel_connections.id_connection', ondelete='CASCADE'), nullable=False)
+    external_conversation_id = Column(String(255), nullable=True)
+    customer_name = Column(String(255), nullable=True)
+    customer_external_id = Column(String(255), nullable=True)
+    status = Column(String(30), nullable=False, default='open')
+    assigned_to = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), nullable=True)
+    last_message_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class OmniMessage(Base):
+    __tablename__ = 'omni_messages'
+    id_message = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_conversation = Column(String(36), ForeignKey('omni_conversations.id_conversation', ondelete='CASCADE'), index=True, nullable=False)
+    direction = Column(String(12), nullable=False)  # inbound/outbound
+    content = Column(Text, nullable=False)
+    external_message_id = Column(String(255), nullable=True)
+    ai_generated = Column(Boolean, default=False, nullable=False)
+    status = Column(String(30), default='received', nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class MarketingContent(Base):
+    __tablename__ = 'marketing_content'
+    id_content = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    id_connection = Column(String(36), ForeignKey('channel_connections.id_connection', ondelete='SET NULL'), nullable=True)
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    status = Column(String(30), nullable=False, default='draft')
+    scheduled_at = Column(DateTime(timezone=True), nullable=True)
+    approved_by = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 # ============================================================
 # Usuarios
 # ============================================================

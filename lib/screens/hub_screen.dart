@@ -12,6 +12,7 @@ import 'settings_screen.dart';
 import 'documents_screen.dart';
 import 'custom_profile_screen.dart';
 import 'billing_screen.dart';
+import 'marketing_screen.dart';
 import '../brand.dart';
 
 class HubScreen extends StatefulWidget {
@@ -622,6 +623,7 @@ class _HubScreenState extends State<HubScreen> {
       (Icons.tune_outlined, 'Configuración', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => _loadProfileAndData())),
       (Icons.person_add_alt_1_outlined, 'Crear asistente', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomProfileScreen())).then((_) => _loadProfileAndData())),
       (Icons.receipt_long_outlined, 'Plan y facturación', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BillingScreen()))),
+      (Icons.campaign_outlined, 'Marketing Hub', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketingScreen()))),
     ];
     return Wrap(
       spacing: 10,

@@ -151,6 +151,8 @@ def inicializar_base_de_datos_remota():
         except Exception:
             pass
 
+    # Las tablas omnicanal y de marketing se crean mediante metadata.create_all.
+
     try:
         with engine.connect() as conn:
             conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN telegram_webhook_secret VARCHAR(128)'))

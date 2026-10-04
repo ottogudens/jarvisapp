@@ -29,6 +29,19 @@ void main() {
         ),
         scaffoldBackgroundColor: BonsoBrand.ink,
       ),
+      builder: (context, child) {
+        // Evita que el autoescalado del navegador móvil deforme el layout tras
+        // volver a la app. El rango conserva la accesibilidad del texto.
+        final media = MediaQuery.of(context);
+        return MediaQuery(
+          data: media.copyWith(
+            // Mantiene compatibilidad con las versiones de Flutter usadas por
+            // los clientes ya instalados; la API moderna se migra al actualizar.
+            textScaleFactor: media.textScaleFactor.clamp(0.9, 1.25).toDouble(),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const LoginScreen(),
       debugShowCheckedModeBanner: false,
     ),
