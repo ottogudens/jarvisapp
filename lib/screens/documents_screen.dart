@@ -9,7 +9,9 @@ import '../brand.dart';
 import 'login_screen.dart'; // Contiene kApiBaseUrl
 
 class DocumentsScreen extends StatefulWidget {
-  const DocumentsScreen({super.key});
+  final int initialTab;
+
+  const DocumentsScreen({super.key, this.initialTab = 0});
 
   @override
   State<DocumentsScreen> createState() => _DocumentsScreenState();
@@ -27,7 +29,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialTab.clamp(0, 2) as int);
     _cargarDocumentos();
     _cargarConocimiento();
   }
@@ -234,25 +236,27 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
 
   Future<void> _abrirOriginal(Map<String, dynamic> doc) async {
     final url = doc['url']?.toString();
-    if (url == null || url.isEmpty) {
+    if ((url == null || url.isEmpty) && (doc['id_mensaje'] == null || doc['file_index'] == null)) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El archivo original no está disponible')));
       return;
     }
     try {
-      if (url.startsWith('data:')) {
-        // Abrir una data URI directamente produce una pestaña vacía en varios
-        // navegadores. Un Blob conserva el binario y su tipo MIME real.
-        final parts = url.split('base64,');
-        if (parts.length != 2) throw const FormatException('Formato de archivo inválido');
-        final mime = parts.first.substring(5).split(';').first;
-        final bytes = base64Decode(parts.last);
-        final blobUrl = html.Url.createObjectUrlFromBlob(html.Blob([bytes], mime));
-        final opened = html.window.open(blobUrl, '_blank');
-        if (opened == null) throw Exception('El navegador bloqueó la ventana emergente');
+      if (url != null && url.startsWith('http')) {
+        final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        if (!ok) throw Exception('No se pudo abrir la URL');
         return;
       }
-      final ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      if (!ok) throw Exception('No se pudo abrir la URL');
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? '';
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/chat/messages/${doc['id_mensaje']}/files/${doc['file_index']}'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode != 200) throw Exception('No se pudo descargar el archivo');
+      final mime = response.headers['content-type']?.split(';').first ?? 'application/octet-stream';
+      final blobUrl = html.Url.createObjectUrlFromBlob(html.Blob([response.bodyBytes], mime));
+      final opened = html.window.open(blobUrl, '_blank');
+      if (opened == null) throw Exception('El navegador bloqueó la ventana emergente');
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir el archivo: $e')));
     }

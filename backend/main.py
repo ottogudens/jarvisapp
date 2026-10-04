@@ -491,18 +491,20 @@ async def listar_todos_archivos(
     sesiones = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).all()
     session_ids = [s.id_session for s in sesiones]
     
-    mensajes = db.query(ChatMessage).filter(
-        ChatMessage.id_session.in_(session_ids)
-    ).all()
+    # Cuenta los elementos JSON en PostgreSQL sin llevar los Base64 de cada
+    # archivo hasta Python; en cuentas con historial grande esto era costoso.
+    mensajes = db.query(
+        ChatMessage.rol,
+        func.coalesce(func.json_array_length(ChatMessage.file_urls), 0).label("file_count"),
+    ).filter(ChatMessage.id_session.in_(session_ids)).all()
     
     archivos_subidos = 0
     archivos_generados = 0
-    for m in mensajes:
-        if m.file_urls:
-            if m.rol == 'user':
-                archivos_subidos += len(m.file_urls)
-            elif m.rol == 'jarvis':
-                archivos_generados += len(m.file_urls)
+    for role, file_count in mensajes:
+        if role == 'user':
+            archivos_subidos += int(file_count or 0)
+        elif role == 'jarvis':
+            archivos_generados += int(file_count or 0)
                 
     return {
         "archivos_subidos": archivos_subidos,
@@ -1060,7 +1062,7 @@ async def listar_documentos(
         urls = m.file_urls or []
         if not urls:
             continue
-        for url in urls:
+        for file_index, url in enumerate(urls):
             tipo = "desconocido"
             nombre_archivo = None
             if url.startswith("data:"):
@@ -1075,16 +1077,60 @@ async def listar_documentos(
             
             resultado.append({
                 "id_mensaje": m.id_mensaje,
+                "file_index": file_index,
                 "id_session": m.id_session,
                 "nombre_archivo": nombre_archivo,
                 "titulo_sesion": session_map.get(m.id_session, "Conversación"),
-                "contenido": m.contenido,
+                # La biblioteca solo necesita una vista previa. Devolver el
+                # mensaje completo (o el Base64 del archivo) hacía lenta la
+                # carga de esta pantalla con historiales grandes.
+                "contenido": (m.contenido or "")[:1000],
                 "tipo": tipo,
                 "rol": m.rol,
-                "url": url,
+                "url": url if url.startswith("http") else None,
                 "created_at": m.created_at.isoformat(),
             })
     return resultado
+
+
+@app.get("/v1/chat/messages/{mensaje_id}/files/{file_index}")
+async def descargar_archivo_mensaje(
+    mensaje_id: str,
+    file_index: int,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Entrega un binario únicamente cuando el usuario decide abrirlo."""
+    session_ids = [row[0] for row in db.query(ChatSession.id_session).filter(
+        ChatSession.id_usuario == usuario["id_usuario"]
+    ).all()]
+    message = db.query(ChatMessage).filter(
+        ChatMessage.id_mensaje == mensaje_id,
+        ChatMessage.id_session.in_(session_ids),
+    ).first()
+    urls = message.file_urls if message else None
+    if not urls or file_index < 0 or file_index >= len(urls):
+        raise HTTPException(status_code=404, detail="Archivo no encontrado o sin permisos")
+    file_url = urls[file_index]
+    if not file_url.startswith("data:"):
+        return {"url": file_url}
+    try:
+        header, encoded = file_url.split("base64,", 1)
+        mime_type = header[5:].split(";", 1)[0] or "application/octet-stream"
+        filename = "archivo"
+        for value in header.split(";"):
+            if value.startswith("name="):
+                from urllib.parse import unquote
+                filename = unquote(value.split("=", 1)[1])
+                break
+        safe_filename = filename.replace('"', '').replace('\r', '').replace('\n', '')
+        return Response(
+            content=base64.b64decode(encoded),
+            media_type=mime_type,
+            headers={"Content-Disposition": f'inline; filename="{safe_filename}"'},
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="El archivo almacenado no es válido") from exc
 
 
 @app.delete("/v1/chat/messages/{mensaje_id}")

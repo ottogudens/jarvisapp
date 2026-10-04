@@ -54,6 +54,19 @@ class _HubScreenState extends State<HubScreen> {
       }
     });
 
+    await Future.wait([
+      _refreshProfile(prefs),
+      _fetchActivities(),
+      _fetchFileStats(),
+      _fetchDashboardSummary(),
+    ]);
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _refreshProfile(SharedPreferences prefs) async {
     if (_token != null) {
       try {
         final resp = await http.get(
@@ -89,16 +102,6 @@ class _HubScreenState extends State<HubScreen> {
           }
         }
       } catch (e) {}
-    }
-
-    await Future.wait([
-      _fetchActivities(),
-      _fetchFileStats(),
-      _fetchDashboardSummary(),
-    ]);
-
-    if (mounted) {
-      setState(() => _isLoading = false);
     }
   }
 
@@ -575,7 +578,10 @@ class _HubScreenState extends State<HubScreen> {
             value: '$_archivosGenerados',
             icon: Icons.auto_awesome,
             color: Colors.amberAccent,
-            onTap: () => _showFileManagementDialog('Archivos generados por Bonso'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DocumentsScreen(initialTab: 1)),
+            ).then((_) => _fetchFileStats()),
           );
       final tokens = _buildGlassCard(
             title: 'Tokens consumidos',
