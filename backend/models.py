@@ -62,6 +62,12 @@ class Tenant(Base):
     ai_model = Column(String(50), default="gemini-1.5-flash", nullable=False)
     telegram_bot_token = Column(String(200), unique=True, nullable=True)
     telegram_webhook_secret = Column(String(128), nullable=True)
+    is_trial = Column(Boolean, default=False, nullable=False)
+    trial_ends_at = Column(DateTime(timezone=True), nullable=True)
+    trial_daily_token_limit = Column(Integer, default=0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    suspended_at = Column(DateTime(timezone=True), nullable=True)
+    suspension_reason = Column(String(255), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

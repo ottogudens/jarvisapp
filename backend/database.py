@@ -151,6 +151,17 @@ def inicializar_base_de_datos_remota():
         except Exception:
             pass
 
+    for statement in (
+        'ALTER TABLE saas_tenants ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE',
+        'ALTER TABLE saas_tenants ADD COLUMN suspended_at TIMESTAMPTZ',
+        'ALTER TABLE saas_tenants ADD COLUMN suspension_reason VARCHAR(255)',
+    ):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(statement)); conn.commit()
+        except Exception:
+            pass
+
     # Las tablas omnicanal y de marketing se crean mediante metadata.create_all.
 
     try:
@@ -159,6 +170,17 @@ def inicializar_base_de_datos_remota():
             conn.commit()
     except Exception:
         pass
+
+    for statement in (
+        'ALTER TABLE saas_tenants ADD COLUMN is_trial BOOLEAN NOT NULL DEFAULT FALSE',
+        'ALTER TABLE saas_tenants ADD COLUMN trial_ends_at TIMESTAMPTZ',
+        'ALTER TABLE saas_tenants ADD COLUMN trial_daily_token_limit INTEGER NOT NULL DEFAULT 0',
+    ):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(statement)); conn.commit()
+        except Exception:
+            pass
 
     try:
         with engine.connect() as conn:

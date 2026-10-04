@@ -187,6 +187,9 @@ def call_llm_with_tools(
 
     # Determinar proveedor y modelo
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user_db.id_tenant).first()
+    if tenant:
+        from backend.trial_policy import ensure_ai_usage_allowed
+        ensure_ai_usage_allowed(db, tenant)
     ai_provider = tenant.ai_provider if tenant else "gemini"
     ai_model = tenant.ai_model if tenant else "gemini-1.5-flash"
     

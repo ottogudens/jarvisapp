@@ -15,11 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import bcrypt
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import (
-    Usuario, Tenant, TenantProfile, JarvisProfile, ROL_SUPERADMIN, ROL_ADMIN,
+    Usuario, Tenant, TenantProfile, JarvisProfile, SaaSPlan, ROL_SUPERADMIN, ROL_ADMIN,
     ROL_CLIENTE, ROLS_STAFF,
 )
 
@@ -88,12 +89,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    nombre_organizacion: str
+    nombre_contacto: str
+    email: str
+    password: str
+    telefono: Optional[str] = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     perfil_jarvis: str
     nombre_organizacion: str
     rol: str
+    trial_ends_at: Optional[str] = None
+    trial_daily_token_limit: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +112,89 @@ class TokenResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 router = APIRouter(prefix="/v1/auth", tags=["Autenticacion"])
+
+
+def _trial_plan(db: Session) -> SaaSPlan:
+    """Obtiene el plan interno usado solo durante el período de prueba."""
+    plan = db.query(SaaSPlan).filter(SaaSPlan.nombre_plan == "Prueba gratuita").first()
+    if plan:
+        return plan
+    plan = SaaSPlan(
+        nombre_plan="Prueba gratuita", tokens_mensuales=35_000,
+        precio_mensual=0, moneda="CLP",
+    )
+    db.add(plan)
+    db.flush()
+    return plan
+
+
+def _token_response(usuario: Usuario, db: Session) -> TokenResponse:
+    claims = _claims_usuario(usuario, db)
+    tenant = usuario.tenant
+    return TokenResponse(
+        access_token=crear_token_jwt(claims),
+        perfil_jarvis=claims["perfil_jarvis"],
+        nombre_organizacion=tenant.nombre_organizacion if tenant else "N/A",
+        rol=claims["rol"],
+        trial_ends_at=tenant.trial_ends_at.isoformat() if tenant and tenant.trial_ends_at else None,
+        trial_daily_token_limit=tenant.trial_daily_token_limit if tenant and tenant.is_trial else None,
+    )
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    """Crea una organización aislada y su primer usuario con 7 días de prueba."""
+    email = body.email.strip().lower()
+    organization = body.nombre_organizacion.strip()
+    contact = body.nombre_contacto.strip()
+    password = body.password
+    if len(organization) < 2 or len(contact) < 2:
+        raise HTTPException(status_code=422, detail="Indica el nombre de tu organización y de contacto.")
+    if "@" not in email or len(email) > 100:
+        raise HTTPException(status_code=422, detail="Ingresa un correo electrónico válido.")
+    if len(password) < 10 or not any(char.isalpha() for char in password) or not any(char.isdigit() for char in password):
+        raise HTTPException(status_code=422, detail="La contraseña debe tener al menos 10 caracteres, letras y números.")
+    if db.query(Usuario.id_usuario).filter(Usuario.email == email).first():
+        raise HTTPException(status_code=409, detail="Ya existe una cuenta con este correo. Inicia sesión.")
+
+    from backend.trial_policy import TRIAL_DAILY_TOKEN_LIMIT, TRIAL_DAYS
+    from datetime import timedelta, timezone
+    now = datetime.datetime.now(timezone.utc)
+    try:
+        plan = _trial_plan(db)
+        tenant = Tenant(
+            nombre_organizacion=organization,
+            nombre_contacto=contact,
+            telefono=body.telefono.strip() if body.telefono else None,
+            id_plan=plan.id_plan,
+            is_trial=True,
+            trial_ends_at=now + timedelta(days=TRIAL_DAYS),
+            trial_daily_token_limit=TRIAL_DAILY_TOKEN_LIMIT,
+        )
+        db.add(tenant)
+        db.flush()
+        profile = db.query(JarvisProfile).filter(
+            JarvisProfile.nombre == "Asistente Personal para Profesionales"
+        ).first()
+        if profile:
+            db.add(TenantProfile(id_tenant=tenant.id_tenant, id_perfil=profile.id_perfil))
+            active_profile_ids = [profile.id_perfil]
+        else:
+            active_profile_ids = []
+        usuario = Usuario(
+            id_tenant=tenant.id_tenant,
+            email=email,
+            password_hash=hash_password(password),
+            rol=ROL_CLIENTE,
+            active_profile_ids=active_profile_ids,
+        )
+        db.add(usuario)
+        db.commit()
+        db.refresh(usuario)
+        return _token_response(usuario, db)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="No fue posible crear la cuenta. Verifica el correo e inténtalo nuevamente.")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -115,18 +209,7 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Credenciales inválidas.")
 
     # Sincronizar is_superadmin con el campo rol (compatibilidad)
-    rol_usuario = usuario.rol or (ROL_SUPERADMIN if usuario.is_superadmin else ROL_CLIENTE)
-
-    claims = _claims_usuario(usuario, db)
-    token = crear_token_jwt(claims)
-
-    tenant = usuario.tenant
-    return TokenResponse(
-        access_token=token,
-        perfil_jarvis=claims["perfil_jarvis"],
-        nombre_organizacion=tenant.nombre_organizacion if tenant else "N/A",
-        rol=rol_usuario,
-    )
+    return _token_response(usuario, db)
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +275,10 @@ async def obtener_usuario_actual(
     ).first()
     if not usuario:
         raise HTTPException(status_code=401, detail="La sesión ya no es válida.")
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario.id_tenant).first()
+    rol = usuario.rol or (ROL_SUPERADMIN if usuario.is_superadmin else ROL_CLIENTE)
+    if tenant and not tenant.is_active and rol not in ROLS_STAFF:
+        raise HTTPException(status_code=403, detail="La cuenta de esta organización está suspendida. Contacta al administrador de Bonso.")
     return _claims_usuario(usuario, db)
 
 

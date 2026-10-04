@@ -7,11 +7,13 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth import obtener_usuario_actual
 from backend.database import get_db
-from backend.models import BillingSubscription, SaaSPlan, Tenant, Usuario
+from backend.models import AIUsageStats, BillingSubscription, SaaSPlan, Tenant, Usuario
+from backend.trial_policy import trial_snapshot
 
 router = APIRouter(prefix="/v1/billing", tags=["Facturación"])
 MP_API = "https://api.mercadopago.com"
@@ -32,11 +34,17 @@ async def billing_status(usuario: dict = Depends(obtener_usuario_actual), db: Se
         BillingSubscription.id_tenant == usuario["id_tenant"]
     ).order_by(BillingSubscription.updated_at.desc()).first()
     usage = sum((item.tokens_consumidos or 0) for item in db.query(Usuario).filter(Usuario.id_tenant == usuario["id_tenant"]).all())
+    daily_usage = db.query(func.coalesce(func.sum(AIUsageStats.tokens_consumidos), 0)).filter(
+        AIUsageStats.id_tenant == usuario["id_tenant"],
+        func.date(AIUsageStats.fecha_registro) == func.current_date(),
+    ).scalar() or 0
+    trial = trial_snapshot(tenant, daily_usage) if tenant else {}
     return {
         "plan": plan.nombre_plan if plan else "Sin plan", "tokens_mensuales": plan.tokens_mensuales if plan else 0,
         "tokens_consumidos": usage, "precio_mensual": plan.precio_mensual if plan else 0,
         "moneda": plan.moneda if plan else "CLP", "subscription_status": subscription.status if subscription else "none",
         "checkout_url": subscription.checkout_url if subscription and subscription.status in {"pending", "paused"} else None,
+        "trial": trial,
     }
 
 

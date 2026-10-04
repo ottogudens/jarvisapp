@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'screens/login_screen.dart';
+import 'screens/landing_screen.dart';
 import 'brand.dart';
 
 void main() {
@@ -42,7 +42,7 @@ void main() {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: const LoginScreen(),
+      home: const LandingScreen(),
       debugShowCheckedModeBanner: false,
     ),
   );

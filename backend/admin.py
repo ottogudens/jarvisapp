@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
+import os
 import bcrypt
 
 from backend.database import get_db
@@ -96,6 +97,18 @@ class UsuarioUpdateSchema(BaseModel):
     rol: Optional[str] = None
     active_profile_ids: list[int] = []
 
+
+class TenantStatusSchema(BaseModel):
+    is_active: bool
+    reason: Optional[str] = None
+
+
+class OperationsConfigSchema(BaseModel):
+    invoice_automation_enabled: bool = False
+    invoice_day: int = 1
+    invoice_sender_name: str = "Bonso"
+    invoice_reply_to: Optional[str] = None
+
 # --- Endpoints Dashboard ---
 @router.get("/dashboard", response_model=DashboardStats)
 def get_dashboard(
@@ -116,12 +129,107 @@ def get_dashboard(
 @router.get("/operations/overview")
 def operations_overview(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
     subscriptions = db.query(BillingSubscription).order_by(BillingSubscription.updated_at.desc()).all()
-    active = sum(1 for sub in subscriptions if sub.status in {"authorized", "active"})
     tenants = db.query(Tenant).all()
-    return {
-        "kpis": {"clientes": len(tenants), "suscripciones_activas": active, "cobros_pendientes": sum(1 for sub in subscriptions if sub.status == "pending"), "tokens": db.query(func.sum(Usuario.tokens_consumidos)).scalar() or 0},
-        "subscriptions": [{"organizacion": next((tenant.nombre_organizacion for tenant in tenants if tenant.id_tenant == sub.id_tenant), "Organización"), "plan_id": sub.id_plan, "status": sub.status, "amount": sub.amount, "currency": sub.currency, "updated_at": sub.updated_at.isoformat() if sub.updated_at else None} for sub in subscriptions[:100]],
+    tenant_by_id = {tenant.id_tenant: tenant for tenant in tenants}
+    latest_by_tenant = {}
+    for subscription in subscriptions:
+        latest_by_tenant.setdefault(subscription.id_tenant, subscription)
+    current_subscriptions = list(latest_by_tenant.values())
+    active_subscriptions = [sub for sub in current_subscriptions if sub.status in {"authorized", "active"}]
+    providers = {}
+    for stat in db.query(AIUsageStats).all():
+        item = providers.setdefault(stat.proveedor, {"provider": stat.proveedor, "tokens": 0, "requests": 0})
+        item["tokens"] += stat.tokens_consumidos or 0
+        item["requests"] += stat.solicitudes_realizadas or 0
+    def setting_value(key: str, default: str = "") -> str:
+        value = db.query(SystemSettings).filter(SystemSettings.key == key).first()
+        return value.value if value else default
+    invoice_config = {
+        "enabled": setting_value("INVOICE_AUTOMATION_ENABLED", "false").lower() == "true",
+        "day": int(setting_value("INVOICE_AUTOMATION_DAY", "1") or 1),
+        "sender_name": setting_value("INVOICE_SENDER_NAME", "Bonso"),
+        "reply_to": setting_value("INVOICE_REPLY_TO", "") or None,
     }
+    customer_rows = []
+    for tenant in tenants:
+        usage = db.query(func.coalesce(func.sum(Usuario.tokens_consumidos), 0)).filter(Usuario.id_tenant == tenant.id_tenant).scalar() or 0
+        last_usage = db.query(func.max(AIUsageStats.fecha_registro)).filter(AIUsageStats.id_tenant == tenant.id_tenant).scalar()
+        subscription = latest_by_tenant.get(tenant.id_tenant)
+        customer_rows.append({
+            "id_tenant": tenant.id_tenant, "organization": tenant.nombre_organizacion,
+            "contact": tenant.nombre_contacto, "plan": tenant.plan.nombre_plan if tenant.plan else "Sin plan",
+            "active": tenant.is_active, "trial": tenant.is_trial,
+            "trial_ends_at": tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None,
+            "tokens": int(usage), "last_activity": last_usage.isoformat() if last_usage else None,
+            "subscription_status": subscription.status if subscription else "none",
+        })
+    customer_rows.sort(key=lambda row: (not row["active"], row["organization"].lower()))
+    return {
+        "kpis": {
+            "clientes": len(tenants), "clientes_activos": sum(1 for tenant in tenants if tenant.is_active),
+            "clientes_suspendidos": sum(1 for tenant in tenants if not tenant.is_active),
+            "pruebas_activas": sum(1 for tenant in tenants if tenant.is_trial and tenant.trial_ends_at and tenant.trial_ends_at > datetime.now(timezone.utc)),
+            "suscripciones_activas": len(active_subscriptions), "cobros_pendientes": sum(1 for sub in current_subscriptions if sub.status == "pending"),
+            "mrr": sum(sub.amount or 0 for sub in active_subscriptions), "tokens": db.query(func.sum(Usuario.tokens_consumidos)).scalar() or 0,
+        },
+        "subscriptions": [{"id_tenant": sub.id_tenant, "organizacion": tenant_by_id.get(sub.id_tenant).nombre_organizacion if tenant_by_id.get(sub.id_tenant) else "Organización", "plan_id": sub.id_plan, "status": sub.status, "amount": sub.amount, "currency": sub.currency, "updated_at": sub.updated_at.isoformat() if sub.updated_at else None} for sub in subscriptions[:100]],
+        "customers": customer_rows,
+        "ai_providers": sorted(providers.values(), key=lambda item: item["tokens"], reverse=True),
+        "integration_status": {
+            "mercado_pago_access_token": bool(os.getenv("MP_ACCESS_TOKEN")),
+            "mercado_pago_webhook": bool(os.getenv("MP_WEBHOOK_SECRET")),
+            "openai": bool(setting_value("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")),
+            "anthropic": bool(setting_value("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")),
+            "deepseek": bool(setting_value("DEEPSEEK_API_KEY") or os.getenv("DEEPSEEK_API_KEY")),
+            "gemini": bool(setting_value("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")),
+        },
+        "invoice_automation": invoice_config,
+    }
+
+
+@router.post("/operations/tenants/{id_tenant}/status")
+def set_tenant_status(id_tenant: int, data: TenantStatusSchema, usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == id_tenant).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado.")
+    if tenant.id_tenant == usuario["id_tenant"] and not data.is_active:
+        raise HTTPException(status_code=400, detail="No puedes suspender tu propia organización administrativa.")
+    tenant.is_active = data.is_active
+    tenant.suspended_at = None if data.is_active else datetime.now(timezone.utc)
+    tenant.suspension_reason = None if data.is_active else (data.reason or "Suspendido por administración")[:255]
+    db.commit()
+    return {"id_tenant": tenant.id_tenant, "is_active": tenant.is_active, "reason": tenant.suspension_reason}
+
+
+@router.get("/operations/config", response_model=OperationsConfigSchema)
+def get_operations_config(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
+    def value(key: str, default: str) -> str:
+        setting = db.query(SystemSettings).filter(SystemSettings.key == key).first()
+        return setting.value if setting else default
+    return OperationsConfigSchema(
+        invoice_automation_enabled=value("INVOICE_AUTOMATION_ENABLED", "false").lower() == "true",
+        invoice_day=max(1, min(28, int(value("INVOICE_AUTOMATION_DAY", "1") or 1))),
+        invoice_sender_name=value("INVOICE_SENDER_NAME", "Bonso"),
+        invoice_reply_to=value("INVOICE_REPLY_TO", "") or None,
+    )
+
+
+@router.put("/operations/config", response_model=OperationsConfigSchema)
+def save_operations_config(data: OperationsConfigSchema, usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
+    if not 1 <= data.invoice_day <= 28:
+        raise HTTPException(status_code=422, detail="El día de facturación debe estar entre 1 y 28.")
+    values = {
+        "INVOICE_AUTOMATION_ENABLED": str(data.invoice_automation_enabled).lower(),
+        "INVOICE_AUTOMATION_DAY": str(data.invoice_day),
+        "INVOICE_SENDER_NAME": data.invoice_sender_name.strip() or "Bonso",
+        "INVOICE_REPLY_TO": (data.invoice_reply_to or "").strip(),
+    }
+    for key, value in values.items():
+        setting = db.query(SystemSettings).filter(SystemSettings.key == key).first()
+        if setting: setting.value = value
+        else: db.add(SystemSettings(key=key, value=value))
+    db.commit()
+    return get_operations_config(usuario, db)
 
 # --- Endpoints Configuraciones IA ---
 class AIKeysSchema(BaseModel):

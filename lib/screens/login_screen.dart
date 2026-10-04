@@ -13,7 +13,8 @@ const String kApiBaseUrl = String.fromEnvironment(
 );
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  final bool openRegistration;
+  const LoginScreen({Key? key, this.openRegistration = false}) : super(key: key);
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -25,6 +26,9 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _checkAutoLogin();
+    if (widget.openRegistration) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showRegistration());
+    }
   }
 
   Future<void> _checkAutoLogin() async {
@@ -67,28 +71,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final token = data['access_token'];
-        final perfil = data['perfil_jarvis'] ?? '';
-        final organizacion = data['nombre_organizacion'] ?? '';
-
-        // Guardar token y datos de perfil (limpiar caché previo)
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
-
-        await prefs.setString('jwt_token', token);
-        await prefs.setString('perfil_jarvis', perfil);
-        await prefs.setString('nombre_organizacion', organizacion);
-
-        if (!mounted) return;
-
-        // Ruteo unificado
-        final role = data['rol']?.toString();
-        Widget destino = ['admin', 'superadmin'].contains(role) ? const AdminConsoleScreen() : const HubScreen();
-
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => destino),
-        );
+        await _startSession(jsonDecode(response.body));
       } else {
         setState(() {
           _errorMessage = 'Credenciales incorrectas.';
@@ -104,6 +87,97 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     }
   }
+
+  Future<void> _startSession(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    await prefs.setString('jwt_token', data['access_token']);
+    await prefs.setString('perfil_jarvis', data['perfil_jarvis'] ?? '');
+    await prefs.setString('nombre_organizacion', data['nombre_organizacion'] ?? '');
+    if (!mounted) return;
+    final role = data['rol']?.toString();
+    final destination = ['admin', 'superadmin'].contains(role) ? const AdminConsoleScreen() : const HubScreen();
+    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => destination));
+  }
+
+  Future<void> _showRegistration() async {
+    final organization = TextEditingController();
+    final contact = TextEditingController();
+    final phone = TextEditingController();
+    final email = TextEditingController();
+    final password = TextEditingController();
+    final confirmation = TextEditingController();
+    String? error;
+    bool saving = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: BonsoBrand.surface,
+          title: const Text('Crea tu cuenta', style: TextStyle(color: Colors.white)),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 500),
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Text('Prueba Bonso gratis por 7 días. Incluye hasta 5.000 tokens por día.', style: TextStyle(color: Colors.white70)),
+                const SizedBox(height: 16),
+                _registrationField(organization, 'Organización o negocio', Icons.business),
+                const SizedBox(height: 10),
+                _registrationField(contact, 'Nombre de contacto', Icons.person),
+                const SizedBox(height: 10),
+                _registrationField(phone, 'Teléfono (opcional)', Icons.phone, keyboardType: TextInputType.phone),
+                const SizedBox(height: 10),
+                _registrationField(email, 'Correo electrónico', Icons.email_outlined, keyboardType: TextInputType.emailAddress),
+                const SizedBox(height: 10),
+                _registrationField(password, 'Contraseña (10+ caracteres)', Icons.lock_outline, obscure: true),
+                const SizedBox(height: 10),
+                _registrationField(confirmation, 'Repite la contraseña', Icons.lock_outline, obscure: true),
+                if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: Colors.redAccent))),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: saving ? null : () => Navigator.pop(context), child: const Text('Cancelar')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.lime, foregroundColor: BonsoBrand.ink),
+              onPressed: saving ? null : () async {
+                if (password.text != confirmation.text) { setDialogState(() => error = 'Las contraseñas no coinciden.'); return; }
+                setDialogState(() { saving = true; error = null; });
+                try {
+                  final response = await http.post(
+                    Uri.parse('$kApiBaseUrl/v1/auth/register'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({'nombre_organizacion': organization.text.trim(), 'nombre_contacto': contact.text.trim(), 'telefono': phone.text.trim(), 'email': email.text.trim(), 'password': password.text}),
+                  );
+                  if (response.statusCode != 201) {
+                    final data = jsonDecode(response.body);
+                    setDialogState(() => error = data['detail']?.toString() ?? 'No se pudo crear la cuenta.');
+                    return;
+                  }
+                  if (context.mounted) Navigator.pop(context);
+                  await _startSession(jsonDecode(response.body));
+                } catch (_) {
+                  setDialogState(() => error = 'No fue posible conectar con el servidor.');
+                } finally {
+                  if (context.mounted) setDialogState(() => saving = false);
+                }
+              },
+              child: saving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: BonsoBrand.ink)) : const Text('Crear cuenta'),
+            ),
+          ],
+        ),
+      ),
+    );
+    for (final controller in [organization, contact, phone, email, password, confirmation]) { controller.dispose(); }
+  }
+
+  Widget _registrationField(TextEditingController controller, String label, IconData icon, {bool obscure = false, TextInputType? keyboardType}) => TextField(
+    controller: controller,
+    obscureText: obscure,
+    keyboardType: keyboardType,
+    style: const TextStyle(color: Colors.white),
+    decoration: InputDecoration(labelText: label, labelStyle: const TextStyle(color: Colors.white70), prefixIcon: Icon(icon, color: BonsoBrand.aqua)),
+  );
 
   @override
   void dispose() {
@@ -213,6 +287,11 @@ class _LoginScreenState extends State<LoginScreen> {
                                   style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1),
                                 ),
                         ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: _isLoading ? null : _showRegistration,
+                        child: const Text('Crear cuenta gratis · 7 días', style: TextStyle(color: BonsoBrand.aqua)),
                       ),
                       ],
                     ),

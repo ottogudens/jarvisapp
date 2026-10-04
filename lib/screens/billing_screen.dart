@@ -82,6 +82,7 @@ class _BillingScreenState extends State<BillingScreen> {
     final data = _data;
     final used = (data?['tokens_consumidos'] ?? 0) as int;
     final limit = (data?['tokens_mensuales'] ?? 0) as int;
+    final trial = data?['trial'] as Map?;
     return Scaffold(
       backgroundColor: BonsoBrand.ink,
       appBar: AppBar(title: const Text('Plan y facturación')),
@@ -100,6 +101,15 @@ class _BillingScreenState extends State<BillingScreen> {
                         Text('${data?['plan'] ?? 'Sin plan'}', style: const TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
                         Text('Estado: ${data?['subscription_status'] ?? 'none'}', style: const TextStyle(color: BonsoBrand.aqua)),
+                        if (trial?['is_trial'] == true) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            trial?['trial_active'] == true
+                                ? 'Prueba activa · ${trial?['daily_tokens_remaining']} tokens disponibles hoy'
+                                : 'Tu prueba gratuita finalizó. Elige un plan para continuar.',
+                            style: TextStyle(color: trial?['trial_active'] == true ? BonsoBrand.lime : Colors.orangeAccent),
+                          ),
+                        ],
                         const SizedBox(height: 28),
                         Text('Uso mensual: $used / $limit tokens', style: const TextStyle(color: Colors.white70)),
                         const SizedBox(height: 10),
