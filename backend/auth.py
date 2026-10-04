@@ -161,6 +161,7 @@ def _claims_usuario(usuario: Usuario, db: Session) -> dict:
         "email": usuario.email,
         "perfil_jarvis": perfil,
         "active_profile_ids": active_ids,
+        "active_custom_profile_id": usuario.active_custom_profile_id,
         "rol": rol,
         "is_superadmin": rol == ROL_SUPERADMIN,
     }
@@ -356,7 +357,7 @@ def get_profile(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import Tenant, TenantProfile
+    from backend.models import Tenant, TenantProfile, CustomAssistantProfile
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
         raise HTTPException(status_code=404, detail='Usuario no encontrado')
@@ -367,6 +368,13 @@ def get_profile(
 
     tp_list = db.query(TenantProfile).filter(TenantProfile.id_tenant == user.id_tenant).all()
     perfiles = [{"id_perfil": tp.perfil.id_perfil, "nombre": tp.perfil.nombre, "instrucciones_extra": tp.instrucciones_extra} for tp in tp_list]
+    custom_profile = None
+    if user.active_custom_profile_id:
+        custom_profile = db.query(CustomAssistantProfile).filter(
+            CustomAssistantProfile.id_profile == user.active_custom_profile_id,
+            CustomAssistantProfile.id_tenant == user.id_tenant,
+            CustomAssistantProfile.estado == "active",
+        ).first()
 
     return {
         'email': user.email,
@@ -376,6 +384,7 @@ def get_profile(
         'rol': user.rol or (ROL_SUPERADMIN if user.is_superadmin else ROL_CLIENTE),
         'is_superadmin': (user.rol == ROL_SUPERADMIN) if user.rol else user.is_superadmin,
         'active_profile_ids': user.active_profile_ids,
+        'active_custom_profile': {"id_profile": custom_profile.id_profile, "nombre": custom_profile.nombre} if custom_profile else None,
         'perfiles': perfiles,
         'plan_features': {
             'telegram': plan.permite_telegram if plan else False,

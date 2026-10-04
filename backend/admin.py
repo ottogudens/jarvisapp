@@ -7,7 +7,7 @@ from datetime import datetime
 import bcrypt
 
 from backend.database import get_db
-from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
+from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, BillingSubscription, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
 from backend.auth import obtener_usuario_actual, hash_password, requiere_staff, requiere_superadmin
 from backend.crypto_utils import encrypt_secret
 
@@ -28,6 +28,9 @@ class SaaSPlanSchema(BaseModel):
     permite_mikrotik: bool
     permite_telegram: bool = False
     permite_whatsapp: bool = False
+    tokens_mensuales: int = 100000
+    precio_mensual: int = 0
+    moneda: str = "CLP"
 
 class JarvisProfileSchema(BaseModel):
     id_perfil: Optional[int] = None
@@ -109,6 +112,17 @@ def get_dashboard(
         tokens_consumidos=tokens
     )
 
+
+@router.get("/operations/overview")
+def operations_overview(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
+    subscriptions = db.query(BillingSubscription).order_by(BillingSubscription.updated_at.desc()).all()
+    active = sum(1 for sub in subscriptions if sub.status in {"authorized", "active"})
+    tenants = db.query(Tenant).all()
+    return {
+        "kpis": {"clientes": len(tenants), "suscripciones_activas": active, "cobros_pendientes": sum(1 for sub in subscriptions if sub.status == "pending"), "tokens": db.query(func.sum(Usuario.tokens_consumidos)).scalar() or 0},
+        "subscriptions": [{"organizacion": next((tenant.nombre_organizacion for tenant in tenants if tenant.id_tenant == sub.id_tenant), "Organización"), "plan_id": sub.id_plan, "status": sub.status, "amount": sub.amount, "currency": sub.currency, "updated_at": sub.updated_at.isoformat() if sub.updated_at else None} for sub in subscriptions[:100]],
+    }
+
 # --- Endpoints Configuraciones IA ---
 class AIKeysSchema(BaseModel):
     openai_api_key: Optional[str] = None
@@ -159,7 +173,8 @@ def create_plan(
         permite_iot=plan.permite_iot,
         permite_mikrotik=plan.permite_mikrotik,
         permite_telegram=plan.permite_telegram,
-        permite_whatsapp=plan.permite_whatsapp
+        permite_whatsapp=plan.permite_whatsapp, tokens_mensuales=plan.tokens_mensuales,
+        precio_mensual=plan.precio_mensual, moneda=plan.moneda,
     )
     db.add(db_plan)
     db.commit()
@@ -182,6 +197,9 @@ def update_plan(
     db_plan.permite_mikrotik = plan.permite_mikrotik
     db_plan.permite_telegram = plan.permite_telegram
     db_plan.permite_whatsapp = plan.permite_whatsapp
+    db_plan.tokens_mensuales = plan.tokens_mensuales
+    db_plan.precio_mensual = plan.precio_mensual
+    db_plan.moneda = plan.moneda
     
     db.commit()
     db.refresh(db_plan)

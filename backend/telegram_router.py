@@ -435,8 +435,18 @@ async def telegram_webhook(
 
     perfil = "Mecanico"
     sys_prompt = SYSTEM_PROMPTS.get("Mecanico", "")
-    
-    if user.active_profile_ids and len(user.active_profile_ids) > 0:
+    from backend.models import CustomAssistantProfile
+    custom_profile = None
+    if user.active_custom_profile_id:
+        custom_profile = db.query(CustomAssistantProfile).filter(
+            CustomAssistantProfile.id_profile == user.active_custom_profile_id,
+            CustomAssistantProfile.id_tenant == user.id_tenant,
+            CustomAssistantProfile.estado == "active",
+        ).first()
+    if custom_profile:
+        perfil = custom_profile.nombre
+        sys_prompt = custom_profile.master_prompt
+    elif user.active_profile_ids and len(user.active_profile_ids) > 0:
         from backend.models import JarvisProfile, TenantProfile
         first_profile = db.query(JarvisProfile).filter(JarvisProfile.id_perfil == user.active_profile_ids[0]).first()
         if first_profile:

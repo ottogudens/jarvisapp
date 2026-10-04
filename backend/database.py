@@ -135,6 +135,24 @@ def inicializar_base_de_datos_remota():
 
     try:
         with engine.connect() as conn:
+            conn.execute(text('ALTER TABLE usuarios ADD COLUMN active_custom_profile_id VARCHAR(36)'))
+            conn.commit()
+    except Exception:
+        pass
+
+    for statement in (
+        'ALTER TABLE saas_planes ADD COLUMN tokens_mensuales INTEGER NOT NULL DEFAULT 100000',
+        'ALTER TABLE saas_planes ADD COLUMN precio_mensual INTEGER NOT NULL DEFAULT 0',
+        "ALTER TABLE saas_planes ADD COLUMN moneda VARCHAR(3) NOT NULL DEFAULT 'CLP'",
+    ):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(statement)); conn.commit()
+        except Exception:
+            pass
+
+    try:
+        with engine.connect() as conn:
             conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN telegram_webhook_secret VARCHAR(128)'))
             conn.commit()
     except Exception:

@@ -10,6 +10,8 @@ import 'chat_list_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
 import 'documents_screen.dart';
+import 'custom_profile_screen.dart';
+import 'billing_screen.dart';
 import '../brand.dart';
 
 class HubScreen extends StatefulWidget {
@@ -78,9 +80,12 @@ class _HubScreenState extends State<HubScreen> {
           final newOrg = data['nombre_organizacion'] ?? _organizacion;
           final newContact = data['nombre_contacto'] ?? '';
           String newProfile = _perfil;
+          final customProfile = data['active_custom_profile'] as Map?;
           final activeIds = data['active_profile_ids'] as List? ?? [];
           final perfs = data['perfiles'] as List? ?? [];
-          if (activeIds.isNotEmpty) {
+          if (customProfile != null) {
+            newProfile = customProfile['nombre']?.toString() ?? newProfile;
+          } else if (activeIds.isNotEmpty) {
             for (var p in perfs) {
               if (p['id_perfil'] == activeIds[0]) {
                 newProfile = p['nombre'];
@@ -615,6 +620,8 @@ class _HubScreenState extends State<HubScreen> {
       (Icons.upload_file_outlined, 'Subir plantilla', _uploadTemplate),
       (Icons.folder_open_outlined, 'Documentos', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DocumentsScreen()))),
       (Icons.tune_outlined, 'Configuración', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => _loadProfileAndData())),
+      (Icons.person_add_alt_1_outlined, 'Crear asistente', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomProfileScreen())).then((_) => _loadProfileAndData())),
+      (Icons.receipt_long_outlined, 'Plan y facturación', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BillingScreen()))),
     ];
     return Wrap(
       spacing: 10,

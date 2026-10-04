@@ -30,7 +30,7 @@ from fastapi import (
     FastAPI, UploadFile, File, Form, Depends, HTTPException, Request, Response, Header,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 from elevenlabs.client import ElevenLabs as ElevenLabsClient
@@ -136,12 +136,14 @@ async def readiness(db: Session = Depends(get_db)):
     return {"status": "ready"}
 
 from backend.telegram_router import router as telegram_router
+from backend.billing import router as billing_router
 
 # Fix #7: incluir router de autenticación
 app.include_router(auth_router)
 app.include_router(mikrotik_router)
 app.include_router(admin_router)
 app.include_router(telegram_router)
+app.include_router(billing_router)
 
 
 # Inicialización lazy: se crean al primer uso para evitar errores si
@@ -588,6 +590,181 @@ class TemplateFillRequest(BaseModel):
     fields: dict[str, str | int | float | bool] = {}
 
 
+class CustomProfileDraftRequest(BaseModel):
+    nombre: str = Field(min_length=2, max_length=100)
+    personalidad: str = Field(min_length=3, max_length=255)
+    objetivo: str = Field(min_length=10, max_length=4000)
+    audiencia: str = Field(default="Clientes y equipo interno", max_length=1000)
+    funciones: list[str] = []
+    limites: str = Field(default="", max_length=4000)
+    idioma: str = Field(default="Español", max_length=80)
+
+
+class MasterPromptUpdate(BaseModel):
+    master_prompt: str = Field(min_length=50, max_length=20000)
+
+
+class WebKnowledgeSource(BaseModel):
+    url: str = Field(min_length=10, max_length=2000)
+
+
+def _build_master_prompt(profile: dict) -> str:
+    functions = "\n".join(f"- {item}" for item in profile.get("funciones", []) if item) or "- Resolver consultas relacionadas con el objetivo definido."
+    return f"""Eres {profile['nombre']}, un asistente para {profile.get('audiencia', 'el cliente')}.
+
+PERSONALIDAD Y TONO
+{profile['personalidad']}
+
+OBJETIVO
+{profile['objetivo']}
+
+FUNCIONES AUTORIZADAS
+{functions}
+
+LÍMITES Y SEGURIDAD
+{profile.get('limites') or 'No inventes información. Declara incertidumbre y solicita contexto cuando sea necesario. No reveles información privada ni ejecutes acciones irreversibles sin confirmación explícita.'}
+
+IDIOMA
+Responde principalmente en {profile.get('idioma', 'Español')}. Usa los documentos de conocimiento asociados como fuente prioritaria; si no contienen la respuesta, dilo claramente."""
+
+
+@app.get("/v1/custom-profiles")
+async def listar_perfiles_personalizados(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import CustomAssistantProfile
+    profiles = db.query(CustomAssistantProfile).filter(
+        CustomAssistantProfile.id_tenant == usuario["id_tenant"]
+    ).order_by(CustomAssistantProfile.updated_at.desc()).all()
+    return [{
+        "id_profile": item.id_profile, "nombre": item.nombre, "personalidad": item.personalidad,
+        "estado": item.estado, "version": item.version, "master_prompt": item.master_prompt,
+        "knowledge_document_ids": item.knowledge_document_ids or [], "source_urls": item.source_urls or [],
+    } for item in profiles]
+
+
+@app.post("/v1/custom-profiles/draft")
+async def crear_borrador_personalizado(body: CustomProfileDraftRequest, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import CustomAssistantProfile
+    requirements = body.model_dump(exclude={"nombre", "personalidad"})
+    profile = CustomAssistantProfile(
+        id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=body.nombre.strip(),
+        personalidad=body.personalidad.strip(), requisitos=requirements,
+    )
+    profile.master_prompt = _build_master_prompt({"nombre": profile.nombre, "personalidad": profile.personalidad, **requirements})
+    db.add(profile); db.commit(); db.refresh(profile)
+    return {"id_profile": profile.id_profile, "master_prompt": profile.master_prompt, "estado": profile.estado}
+
+
+@app.post("/v1/custom-profiles/{profile_id}/generate")
+async def generar_prompt_personalizado(profile_id: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Genera el prompt maestro con IA y conserva una alternativa segura si el proveedor falla."""
+    from backend.models import CustomAssistantProfile, Tenant
+    profile = db.query(CustomAssistantProfile).filter(CustomAssistantProfile.id_profile == profile_id, CustomAssistantProfile.id_tenant == usuario["id_tenant"]).first()
+    if not profile: raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    source_note = f"Fuentes asociadas: {len(profile.knowledge_document_ids or [])} archivo(s) y {len(profile.source_urls or [])} página(s)."
+    data = {"nombre": profile.nombre, "personalidad": profile.personalidad, **(profile.requisitos or {})}
+    fallback = _build_master_prompt(data) + f"\n\nCONOCIMIENTO\n{source_note}"
+    try:
+        from backend.ai_service import load_ai_keys
+        from litellm import acompletion
+        tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+        load_ai_keys(db)
+        model = (tenant.ai_model if tenant else "gemini-1.5-flash")
+        if tenant and tenant.ai_provider.lower() == "gemini" and not model.startswith("gemini/"):
+            model = f"gemini/{model}"
+        response = await acompletion(model=model, messages=[
+            {"role": "system", "content": "Eres un diseñador de prompts empresariales. Devuelve solo un prompt maestro completo, seguro, accionable y en español."},
+            {"role": "user", "content": f"Crea el prompt maestro con esta información:\n{json.dumps(data, ensure_ascii=False)}\n{source_note}"},
+        ])
+        prompt = (response.choices[0].message.content or fallback).strip()
+    except Exception as exc:
+        logger.warning("No se pudo usar IA para generar perfil %s: %s", profile_id, exc)
+        prompt = fallback
+    profile.master_prompt = prompt; profile.version += 1; db.commit()
+    return {"master_prompt": prompt, "version": profile.version}
+
+
+@app.post("/v1/custom-profiles/{profile_id}/web-source")
+async def agregar_fuente_web(profile_id: str, body: WebKnowledgeSource, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Descarga e indexa una página web pública como fuente del perfil."""
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+    from backend.models import CustomAssistantProfile, KnowledgeDocument, DocumentChunk, Tenant
+    from backend.ai_service import load_ai_keys
+    from litellm import aembedding
+    parsed = urlparse(body.url)
+    if parsed.scheme not in {"https", "http"} or not parsed.netloc:
+        raise HTTPException(status_code=422, detail="Ingresa una URL pública válida (https://...).")
+    try:
+        resolved = {ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(parsed.hostname, None)}
+        if any(address.is_private or address.is_loopback or address.is_link_local or address.is_reserved for address in resolved):
+            raise HTTPException(status_code=422, detail="Solo se permiten páginas web públicas.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="No se pudo resolver la URL indicada.") from exc
+    profile = db.query(CustomAssistantProfile).filter(CustomAssistantProfile.id_profile == profile_id, CustomAssistantProfile.id_tenant == usuario["id_tenant"]).first()
+    if not profile: raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            response = await client.get(body.url, headers={"User-Agent": "BonsoKnowledgeBot/1.0"})
+            response.raise_for_status()
+        if len(response.content) > 2 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="La página es demasiado grande para procesar.")
+        content_type = response.headers.get("content-type", "")
+        if "html" not in content_type and "text" not in content_type:
+            raise HTTPException(status_code=422, detail="La URL no contiene una página de texto procesable.")
+        text_content = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", response.text)).strip()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer la página: {exc}") from exc
+    if len(text_content) < 40:
+        raise HTTPException(status_code=422, detail="La página no contiene suficiente texto visible.")
+    text_content = text_content[:120000]
+    chunks = [text_content[i:i + 1000] for i in range(0, len(text_content), 1000)]
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    provider = tenant.ai_provider if tenant else "gemini"; model = "gemini/text-embedding-004" if provider.lower() == "gemini" else "text-embedding-3-small"
+    kwargs = {} if provider.lower() == "gemini" else {"dimensions": 768}; load_ai_keys(db)
+    try:
+        embeddings = []
+        for chunk in chunks:
+            result = await aembedding(model=model, input=[chunk], **kwargs)
+            embeddings.append(result.data[0]["embedding"] if isinstance(result.data[0], dict) else result.data[0].embedding)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No se pudo indexar la página: {exc}") from exc
+    doc = KnowledgeDocument(id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=f"Web: {parsed.netloc}")
+    db.add(doc); db.flush()
+    for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        db.add(DocumentChunk(id_document=doc.id_document, chunk_index=index, texto=chunk, embedding=embedding))
+    profile.knowledge_document_ids = list(dict.fromkeys((profile.knowledge_document_ids or []) + [doc.id_document]))
+    profile.source_urls = list(dict.fromkeys((profile.source_urls or []) + [body.url]))
+    db.commit()
+    return {"message": "Página agregada a la base de conocimiento.", "document_id": doc.id_document}
+
+
+@app.put("/v1/custom-profiles/{profile_id}/prompt")
+async def editar_prompt_personalizado(profile_id: str, body: MasterPromptUpdate, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import CustomAssistantProfile
+    profile = db.query(CustomAssistantProfile).filter(CustomAssistantProfile.id_profile == profile_id, CustomAssistantProfile.id_tenant == usuario["id_tenant"]).first()
+    if not profile: raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    profile.master_prompt = body.master_prompt.strip(); profile.version += 1; db.commit()
+    return {"message": "Prompt maestro actualizado", "version": profile.version}
+
+
+@app.post("/v1/custom-profiles/{profile_id}/activate")
+async def activar_perfil_personalizado(profile_id: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import CustomAssistantProfile
+    profile = db.query(CustomAssistantProfile).filter(CustomAssistantProfile.id_profile == profile_id, CustomAssistantProfile.id_tenant == usuario["id_tenant"]).first()
+    if not profile: raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    db.query(CustomAssistantProfile).filter(CustomAssistantProfile.id_tenant == usuario["id_tenant"]).update({"estado": "draft"})
+    profile.estado = "active"
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
+    user.active_custom_profile_id = profile.id_profile
+    db.commit()
+    return {"message": f"{profile.nombre} está activo", "active_custom_profile_id": profile.id_profile}
+
+
 class PdfFieldDefinition(BaseModel):
     name: str
     page: int
@@ -657,6 +834,7 @@ async def rellenar_plantilla(template_id: str, body: TemplateFillRequest, usuari
 @app.post("/v1/knowledge/upload")
 async def subir_conocimiento(
     files: List[UploadFile] = File(...),
+    profile_id: Optional[str] = Form(None),
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
@@ -676,6 +854,16 @@ async def subir_conocimiento(
     load_ai_keys(db)
     
     nombres_procesados = []
+    document_ids = []
+    custom_profile = None
+    if profile_id:
+        from backend.models import CustomAssistantProfile
+        custom_profile = db.query(CustomAssistantProfile).filter(
+            CustomAssistantProfile.id_profile == profile_id,
+            CustomAssistantProfile.id_tenant == usuario["id_tenant"],
+        ).first()
+        if not custom_profile:
+            raise HTTPException(status_code=404, detail="Perfil personalizado no encontrado.")
 
     for file in files:
         if not file.filename: continue
@@ -752,6 +940,7 @@ async def subir_conocimiento(
                     db.commit()
                     db.refresh(nuevo_doc)
                     nombres_procesados.append(safe_filename)
+                    document_ids.append(nuevo_doc.id_document)
                 
                 # Crear chunk
                 nuevo_chunk = DocumentChunk(
@@ -766,7 +955,10 @@ async def subir_conocimiento(
                 db.rollback()
                 raise HTTPException(status_code=500, detail=f"Error al generar embeddings: {str(e)}")
                 
-    return {"status": "success", "message": f"Procesados: {', '.join(nombres_procesados)}"}
+    if custom_profile and document_ids:
+        custom_profile.knowledge_document_ids = list(dict.fromkeys((custom_profile.knowledge_document_ids or []) + document_ids))
+        db.commit()
+    return {"status": "success", "message": f"Procesados: {', '.join(nombres_procesados)}", "document_ids": document_ids}
 
 
 from pydantic import BaseModel, Field
@@ -1408,8 +1600,18 @@ async def enviar_mensaje_chat(
     if is_superadmin:
         sys_prompt = "Eres un administrador global nivel Dios. Tienes acceso total a todas las herramientas, bases de datos y configuraciones. Puedes gestionar cualquier módulo del ERP, inspecciones, IoT y MikroTik."
     else:
+        from backend.models import CustomAssistantProfile
+        custom_profile = None
+        if usuario.get("active_custom_profile_id"):
+            custom_profile = db.query(CustomAssistantProfile).filter(
+                CustomAssistantProfile.id_profile == usuario["active_custom_profile_id"],
+                CustomAssistantProfile.id_tenant == usuario["id_tenant"],
+                CustomAssistantProfile.estado == "active",
+            ).first()
         active_ids = usuario.get("active_profile_ids", [])
-        if active_ids:
+        if custom_profile:
+            sys_prompt = custom_profile.master_prompt
+        elif active_ids:
             from backend.models import JarvisProfile, TenantProfile
             from backend.profile_router import select_profiles
             candidate_profiles = []

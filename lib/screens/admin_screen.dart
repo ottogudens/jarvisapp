@@ -141,6 +141,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   void _showPlanEditor({Map<String, dynamic>? planToEdit}) {
     final isNew = planToEdit == null;
     final nameCtrl = TextEditingController(text: planToEdit?['nombre_plan'] ?? '');
+    final priceCtrl = TextEditingController(text: '${planToEdit?['precio_mensual'] ?? 0}');
+    final tokensCtrl = TextEditingController(text: '${planToEdit?['tokens_mensuales'] ?? 100000}');
     bool pIot = planToEdit?['permite_iot'] ?? false;
     bool pMk = planToEdit?['permite_mikrotik'] ?? false;
     bool pTele = planToEdit?['permite_telegram'] ?? false;
@@ -160,6 +162,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(labelText: 'Nombre del Plan', labelStyle: TextStyle(color: BonsoBrand.aqua)),
                 ),
+                TextField(controller: priceCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Precio mensual (CLP)', labelStyle: TextStyle(color: BonsoBrand.aqua))),
+                TextField(controller: tokensCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Tokens mensuales incluidos', labelStyle: TextStyle(color: BonsoBrand.aqua))),
                 SwitchListTile(title: const Text('IoT', style: TextStyle(color: Colors.white)), value: pIot, onChanged: (val) => setDialogState(() => pIot = val)),
                 SwitchListTile(title: const Text('MikroTik', style: TextStyle(color: Colors.white)), value: pMk, onChanged: (val) => setDialogState(() => pMk = val)),
                 SwitchListTile(title: const Text('Telegram', style: TextStyle(color: Colors.white)), value: pTele, onChanged: (val) => setDialogState(() => pTele = val)),
@@ -178,6 +182,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   'permite_mikrotik': pMk,
                   'permite_telegram': pTele,
                   'permite_whatsapp': pWts,
+                  'precio_mensual': int.tryParse(priceCtrl.text) ?? 0,
+                  'tokens_mensuales': int.tryParse(tokensCtrl.text) ?? 100000,
+                  'moneda': 'CLP',
                 });
                 
                 if (isNew) {

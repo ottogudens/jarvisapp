@@ -37,6 +37,9 @@ class SaaSPlan(Base):
     permite_mikrotik = Column(Boolean, default=False)
     permite_telegram = Column(Boolean, default=False)
     permite_whatsapp = Column(Boolean, default=False)
+    tokens_mensuales = Column(Integer, default=100000, nullable=False)
+    precio_mensual = Column(Integer, default=0, nullable=False)  # moneda menor, p. ej. CLP
+    moneda = Column(String(3), default="CLP", nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -118,6 +121,41 @@ class TenantProfile(Base):
     tenant = relationship("Tenant", back_populates="perfiles_asignados")
     perfil = relationship("JarvisProfile")
 
+
+class CustomAssistantProfile(Base):
+    """Perfil creado por un cliente y aislado de los perfiles globales."""
+    __tablename__ = 'custom_assistant_profiles'
+
+    id_profile = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), nullable=True)
+    nombre = Column(String(100), nullable=False)
+    personalidad = Column(String(255), nullable=False, default='Profesional, cercano y claro')
+    requisitos = Column(JSON, nullable=False, default=dict)
+    master_prompt = Column(Text, nullable=False, default='')
+    knowledge_document_ids = Column(JSON, nullable=False, default=list)
+    source_urls = Column(JSON, nullable=False, default=list)
+    estado = Column(String(20), nullable=False, default='draft')
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class BillingSubscription(Base):
+    __tablename__ = 'billing_subscriptions'
+    id_subscription = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    id_plan = Column(Integer, ForeignKey('saas_planes.id_plan'), nullable=False)
+    provider = Column(String(30), nullable=False, default='mercadopago')
+    provider_subscription_id = Column(String(120), unique=True, nullable=True)
+    status = Column(String(30), nullable=False, default='pending')
+    amount = Column(Integer, nullable=False, default=0)
+    currency = Column(String(3), nullable=False, default='CLP')
+    checkout_url = Column(Text, nullable=True)
+    raw_status = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 # ============================================================
 # Usuarios
 # ============================================================
@@ -131,6 +169,7 @@ class Usuario(Base):
     password_hash = Column(String(255), nullable=False)
     perfil_jarvis = Column(String(50), nullable=True)  # Deprecado
     active_profile_ids = Column(JSON, default=list)
+    active_custom_profile_id = Column(String(36), ForeignKey('custom_assistant_profiles.id_profile', ondelete='SET NULL'), nullable=True)
     rol = Column(String(20), nullable=False, default=ROL_CLIENTE)  # 'superadmin', 'admin', 'cliente'
     is_superadmin = Column(Boolean, default=False, nullable=False)  # Alias de compatibilidad: rol == 'superadmin'
     tokens_consumidos = Column(Integer, default=0, nullable=False)

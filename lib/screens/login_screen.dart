@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'hub_screen.dart';
+import 'admin_console_screen.dart';
 import '../brand.dart';
 
 const String kApiBaseUrl = String.fromEnvironment(
@@ -31,8 +32,13 @@ class _LoginScreenState extends State<LoginScreen> {
     final token = prefs.getString('jwt_token');
     if (token != null && token.isNotEmpty) {
       if (!mounted) return;
+      Widget destination = const HubScreen();
+      try {
+        final payload = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(token.split('.')[1]))));
+        if (['admin', 'superadmin'].contains(payload['rol'])) destination = const AdminConsoleScreen();
+      } catch (_) {}
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HubScreen()),
+        MaterialPageRoute(builder: (_) => destination),
       );
     }
   }
@@ -77,7 +83,8 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
 
         // Ruteo unificado
-        Widget destino = const HubScreen();
+        final role = data['rol']?.toString();
+        Widget destino = ['admin', 'superadmin'].contains(role) ? const AdminConsoleScreen() : const HubScreen();
 
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => destino),
