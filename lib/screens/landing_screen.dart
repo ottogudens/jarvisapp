@@ -87,7 +87,7 @@ class _LandingScreenState extends State<LandingScreen> {
           const SizedBox(height: 22),
           Text('Tu asistente,\nlisto para\nescalar.', style: TextStyle(fontSize: desktop ? 68 : 48, height: .97, letterSpacing: -2.4, color: BonsoBrand.text, fontWeight: FontWeight.w800)),
           const SizedBox(height: 24),
-          const ConstrainedBox(constraints: BoxConstraints(maxWidth: 570), child: Text('Bonso reúne tus conocimientos, canales y procesos en un asistente de IA personalizado para atender, crear y avanzar todos los días.', style: TextStyle(color: Colors.white70, fontSize: 18, height: 1.5))),
+          ConstrainedBox(constraints: const BoxConstraints(maxWidth: 570), child: const Text('Bonso reúne tus conocimientos, canales y procesos en un asistente de IA personalizado para atender, crear y avanzar todos los días.', style: TextStyle(color: Colors.white70, fontSize: 18, height: 1.5))),
           const SizedBox(height: 30),
           Wrap(spacing: 12, runSpacing: 12, children: [
             ElevatedButton.icon(onPressed: () => _access(register: true), icon: const Icon(Icons.arrow_forward), label: const Text('Crear cuenta gratis'), style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.lime, foregroundColor: BonsoBrand.ink, minimumSize: const Size(0, 52), padding: const EdgeInsets.symmetric(horizontal: 20))),
