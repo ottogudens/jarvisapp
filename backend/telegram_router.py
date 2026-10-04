@@ -15,8 +15,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.auth import obtener_usuario_actual, requiere_staff, requiere_plan
-from backend.models import Usuario, ChatSession, ChatMessage, Tenant
+from backend.auth import obtener_usuario_actual, requiere_plan
+from backend.models import Usuario, ChatSession, ChatMessage, Tenant, ROLS_STAFF
 from backend.prompts import SYSTEM_PROMPTS
 from backend.crypto_utils import encrypt_secret, decrypt_secret
 
@@ -37,25 +37,33 @@ class LinkTokenResponse(BaseModel):
 class TelegramConfigPayload(BaseModel):
     bot_token: str
 
-@router.post("/config", summary="Configurar el bot de Telegram del Tenant")
-async def configurar_telegram_tenant(
-    payload: TelegramConfigPayload,
-    request: Request,
-    usuario: dict = Depends(requiere_staff),
-    db: Session = Depends(get_db)
-):
-    """Guarda el token de Telegram y registra automáticamente el Webhook dinámico."""
+
+async def requiere_gestor_telegram(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Autoriza al administrador principal del tenant, no a usuarios de otros tenants."""
     tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Organización no encontrada")
     if not tenant.plan or not tenant.plan.permite_telegram:
         raise HTTPException(status_code=403, detail="Telegram no está habilitado para este tenant.")
 
-    token = payload.bot_token.strip()
-    
-    # request.base_url puede contener la URL privada del contenedor cuando la
-    # aplicación está detrás de Railway, Nginx u otro proxy. Telegram necesita
-    # siempre una URL pública alcanzable.
+    principal = (
+        db.query(Usuario)
+        .filter(Usuario.id_tenant == tenant.id_tenant)
+        .order_by(Usuario.id_usuario.asc())
+        .first()
+    )
+    if usuario.get("rol") not in ROLS_STAFF and (not principal or principal.id_usuario != usuario["id_usuario"]):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el administrador principal de la organización puede configurar el bot de Telegram.",
+        )
+    return usuario
+
+
+def _webhook_base_url(request: Request) -> str:
     base_url = os.getenv("TELEGRAM_WEBHOOK_BASE_URL", "").strip().rstrip("/")
     if not base_url and os.getenv("RAILWAY_PUBLIC_DOMAIN"):
         base_url = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN').strip().rstrip('/')}"
@@ -63,41 +71,56 @@ async def configurar_telegram_tenant(
         base_url = str(request.base_url).rstrip("/")
     if "up.railway.app" in base_url and base_url.startswith("http://"):
         base_url = base_url.replace("http://", "https://")
-        
-    webhook_url = f"{base_url}/v1/telegram/webhook/{tenant.id_tenant}"
+    return base_url
+
+
+async def _registrar_webhook(tenant: Tenant, token: str, request: Request) -> str:
+    webhook_url = f"{_webhook_base_url(request)}/v1/telegram/webhook/{tenant.id_tenant}"
     webhook_secret = secrets.token_urlsafe(32)
-    
-    api_url = f"https://api.telegram.org/bot{token}"
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            f"{api_url}/setWebhook",
+            f"https://api.telegram.org/bot{token}/setWebhook",
             json={
                 "url": webhook_url,
                 "secret_token": webhook_secret,
                 "allowed_updates": ["message"],
             },
         )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="El token es inválido o Telegram rechazó el Webhook.")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=400, detail="El token es inválido o Telegram rechazó el Webhook.")
+    tenant.telegram_webhook_secret = hashlib.sha256(webhook_secret.encode()).hexdigest()
+    return webhook_url
+
+@router.post("/config", summary="Configurar el bot de Telegram del Tenant")
+async def configurar_telegram_tenant(
+    payload: TelegramConfigPayload,
+    request: Request,
+    usuario: dict = Depends(requiere_gestor_telegram),
+    db: Session = Depends(get_db)
+):
+    """Guarda el token de Telegram y registra automáticamente el Webhook dinámico."""
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Organización no encontrada")
+    token = payload.bot_token.strip()
+    if not token:
+        raise HTTPException(status_code=422, detail="Ingresa el token del bot de Telegram.")
+    webhook_url = await _registrar_webhook(tenant, token, request)
             
     tenant.telegram_bot_token = encrypt_secret(token)
-    tenant.telegram_webhook_secret = hashlib.sha256(webhook_secret.encode()).hexdigest()
     db.commit()
     
     return {"status": "success", "message": "Bot de Telegram configurado exitosamente", "webhook_url": webhook_url}
 
 @router.delete("/config", summary="Desconectar el bot de Telegram del Tenant")
 async def desconectar_telegram_tenant(
-    usuario: dict = Depends(requiere_staff),
+    usuario: dict = Depends(requiere_gestor_telegram),
     db: Session = Depends(get_db)
 ):
     """Elimina el webhook en Telegram y borra el token del Tenant."""
     tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Organización no encontrada")
-    if not tenant.plan or not tenant.plan.permite_telegram:
-        raise HTTPException(status_code=403, detail="Telegram no está habilitado para este tenant.")
-
     if tenant.telegram_bot_token:
         # Intentar eliminar el webhook, ignorar si falla
         api_url = f"https://api.telegram.org/bot{decrypt_secret(tenant.telegram_bot_token)}"
@@ -111,6 +134,25 @@ async def desconectar_telegram_tenant(
     tenant.telegram_webhook_secret = None
     db.commit()
     return {"status": "success", "message": "Bot de Telegram desconectado"}
+
+
+@router.post("/config/refresh", summary="Regenerar el webhook del bot de Telegram")
+async def regenerar_webhook_telegram_tenant(
+    request: Request,
+    usuario: dict = Depends(requiere_gestor_telegram),
+    db: Session = Depends(get_db),
+):
+    """Actualiza bots existentes a la URL actual sin exponer ni volver a pedir su token."""
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
+    if not tenant or not tenant.telegram_bot_token:
+        raise HTTPException(status_code=404, detail="No hay un bot configurado para esta organización.")
+    webhook_url = await _registrar_webhook(tenant, decrypt_secret(tenant.telegram_bot_token), request)
+    db.commit()
+    return {
+        "status": "success",
+        "message": "Webhook de Telegram actualizado correctamente.",
+        "webhook_url": webhook_url,
+    }
 
 @router.get("/debug")
 async def debug_telegram_webhook(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
@@ -128,7 +170,7 @@ async def debug_telegram_webhook(usuario: dict = Depends(obtener_usuario_actual)
 
 @router.post("/link-code", response_model=LinkTokenResponse)
 async def generar_codigo_vinculacion(
-    usuario: dict = Depends(obtener_usuario_actual),
+    usuario: dict = Depends(requiere_plan("telegram")),
 ):
     """
     Genera un código aleatorio temporal para vincular la cuenta web con Telegram.
@@ -163,7 +205,7 @@ async def consultar_estado_telegram(
 
 @router.post("/unlink")
 async def desvincular_cuenta_telegram(
-    usuario: dict = Depends(obtener_usuario_actual),
+    usuario: dict = Depends(requiere_plan("telegram")),
     db: Session = Depends(get_db),
 ):
     """Desvincula la cuenta de Telegram del usuario actual."""

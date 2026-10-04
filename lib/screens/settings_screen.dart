@@ -291,6 +291,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _refreshTelegramWebhook() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    setState(() => _isConfiguringBot = true);
+    try {
+      final res = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/telegram/config/refresh'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Webhook de Telegram actualizado correctamente.'), backgroundColor: Colors.green),
+        );
+      } else {
+        final body = jsonDecode(res.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(body['detail'] ?? 'No fue posible actualizar el webhook.'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error actualizando webhook de Telegram: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error de conexión al actualizar el webhook.'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isConfiguringBot = false);
+    }
+  }
+
   Future<void> _generateTelegramLinkCode() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -903,6 +936,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: const Row(children: [Icon(Icons.check_circle, color: BonsoBrand.aqua, size: 20), SizedBox(width: 8), Expanded(child: Text('El Bot Inteligente de tu organización está desplegado.', style: TextStyle(color: Colors.white, fontSize: 13)))]),
                         ),
                         const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _isConfiguringBot ? null : _refreshTelegramWebhook,
+                          icon: _isConfiguringBot
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: BonsoBrand.aqua))
+                              : const Icon(Icons.sync, color: BonsoBrand.aqua, size: 18),
+                          label: const Text('Actualizar webhook', style: TextStyle(color: BonsoBrand.aqua)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: BonsoBrand.aqua),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            minimumSize: const Size(0, 36),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         OutlinedButton.icon(
                           onPressed: _isConfiguringBot ? null : _disconnectBotTelegram,
                           icon: _isConfiguringBot 
