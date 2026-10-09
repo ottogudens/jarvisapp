@@ -10,7 +10,7 @@ Correcciones aplicadas respecto al blueprint original:
 
 import uuid
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, ForeignKey, DateTime, Text, Boolean, func, JSON
+    Column, Integer, BigInteger, String, ForeignKey, DateTime, Text, Boolean, func, JSON, UniqueConstraint
 )
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import declarative_base, relationship
@@ -38,6 +38,9 @@ class SaaSPlan(Base):
     permite_telegram = Column(Boolean, default=False)
     permite_whatsapp = Column(Boolean, default=False)
     tokens_mensuales = Column(Integer, default=100000, nullable=False)
+    max_documentos = Column(Integer, default=100, nullable=False)
+    almacenamiento_bytes = Column(BigInteger, default=1073741824, nullable=False)
+    max_upload_bytes = Column(BigInteger, default=15728640, nullable=False)
     precio_mensual = Column(Integer, default=0, nullable=False)  # moneda menor, p. ej. CLP
     moneda = Column(String(3), default="CLP", nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
@@ -228,6 +231,9 @@ class Usuario(Base):
     id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), nullable=False)
     email = Column(String(100), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
+    # Aumenta al cerrar sesión, cambiar contraseña o alterar privilegios. Los
+    # JWT previos quedan invalidados sin necesitar una lista de bloqueados.
+    session_version = Column(Integer, nullable=False, default=0)
     perfil_jarvis = Column(String(50), nullable=True)  # Deprecado
     active_profile_ids = Column(JSON, default=list)
     active_custom_profile_id = Column(String(36), ForeignKey('custom_assistant_profiles.id_profile', ondelete='SET NULL'), nullable=True)
@@ -414,6 +420,19 @@ class KnowledgeDocument(Base):
     id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), nullable=True)
     id_folder = Column(String(36), ForeignKey('knowledge_folders.id_folder', ondelete='SET NULL'), nullable=True)
     nombre = Column(String(255), nullable=False)
+    # El binario vive en Storage privado; aquí queda la identidad, procedencia
+    # y estado que comparten todos los canales (web, Telegram, etc.).
+    storage_path = Column(Text, nullable=True)
+    mime_type = Column(String(120), nullable=True)
+    byte_size = Column(BigInteger, nullable=False, default=0)
+    content_sha256 = Column(String(64), nullable=True, index=True)
+    source_channel = Column(String(30), nullable=False, default="web")
+    version = Column(Integer, nullable=False, default=1)
+    replaces_document_id = Column(String(36), ForeignKey('knowledge_documents.id_document', ondelete='SET NULL'), nullable=True)
+    status = Column(String(20), nullable=False, default="processing")
+    error_message = Column(Text, nullable=True)
+    chunk_count = Column(Integer, nullable=False, default=0)
+    indexed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant")
@@ -430,9 +449,55 @@ class DocumentChunk(Base):
     chunk_index = Column(Integer)
     texto = Column(Text)
     embedding = Column(Vector(768))
+    metadata_json = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     document = relationship("KnowledgeDocument", back_populates="chunks")
+
+
+class KnowledgeIngestionJob(Base):
+    """Trabajo durable para extraer e indexar documentos fuera de la petición HTTP."""
+    __tablename__ = 'knowledge_ingestion_jobs'
+
+    id_job = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_document = Column(String(36), ForeignKey('knowledge_documents.id_document', ondelete='CASCADE'), unique=True, nullable=False)
+    status = Column(String(20), nullable=False, default='queued', index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    document = relationship("KnowledgeDocument")
+
+
+class KnowledgeRetrievalAudit(Base):
+    """Auditoría minimizada de recuperación RAG, sin almacenar el texto de la consulta."""
+    __tablename__ = 'knowledge_retrieval_audit'
+
+    id_audit = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), nullable=True)
+    channel = Column(String(30), nullable=False, default='web')
+    query_sha256 = Column(String(64), nullable=False)
+    result_document_ids = Column(JSON, nullable=False, default=list)
+    result_chunk_ids = Column(JSON, nullable=False, default=list)
+    result_scores = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class TelegramWebhookEvent(Base):
+    """Registro idempotente de entregas de Telegram por organización."""
+    __tablename__ = 'telegram_webhook_events'
+    __table_args__ = (UniqueConstraint('id_tenant', 'update_id', name='uq_telegram_event_tenant_update'),)
+
+    id_event = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    update_id = Column(BigInteger, nullable=False)
+    status = Column(String(20), nullable=False, default='processing', index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    processed_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class DocumentTemplate(Base):

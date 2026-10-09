@@ -40,7 +40,19 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
   void _message(String text, {bool error = false}) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), backgroundColor: error ? Colors.redAccent : Colors.green));
 
   Future<void> _logout() async {
-    await (await SharedPreferences.getInstance()).clear();
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token != null && token.isNotEmpty) {
+      try {
+        await http.post(
+          Uri.parse('$kApiBaseUrl/v1/auth/logout'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+      } catch (_) {
+        // El cierre local debe funcionar incluso si la red no está disponible.
+      }
+    }
+    await prefs.clear();
     if (mounted) Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
   }
 
@@ -170,6 +182,12 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
   Widget _overview() {
     final kpis = (_data?['kpis'] as Map?) ?? {};
     final providers = (_data?['ai_providers'] as List?) ?? [];
+    final knowledge = (_data?['knowledge'] as Map?) ?? {};
+    final knowledgeTotals = (knowledge['totals'] as Map?) ?? {};
+    final knowledgeWorkers = (knowledge['workers'] as Map?) ?? {};
+    final knowledgeAlerts = (knowledge['alerts'] as List?) ?? [];
+    final knowledgeTenants = (knowledge['tenants'] as List?) ?? [];
+    final security = (_data?['security'] as Map?) ?? {};
     return RefreshIndicator(onRefresh: _load, child: ListView(padding: const EdgeInsets.all(16), children: [
       const Text('Visión general', style: TextStyle(fontSize: 26, color: Colors.white, fontWeight: FontWeight.bold)),
       const SizedBox(height: 6),
@@ -187,6 +205,34 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
       const Text('Consumo por proveedor de IA', style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
       const SizedBox(height: 10),
       if (providers.isEmpty) const _Empty('Aún no hay consumo registrado.') else ...providers.map((provider) => Card(color: BonsoBrand.surface, child: ListTile(leading: const Icon(Icons.auto_awesome, color: BonsoBrand.aqua), title: Text('${provider['provider']}', style: const TextStyle(color: Colors.white)), subtitle: Text('${provider['requests']} solicitudes · ${provider['tokens']} tokens', style: const TextStyle(color: Colors.white70))))),
+      const SizedBox(height: 28),
+      const Text('Biblioteca documental', style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 10),
+      Wrap(spacing: 12, runSpacing: 12, children: [
+        _kpi('Documentos listos', '${knowledgeTotals['ready'] ?? 0}', Icons.library_books_outlined, Colors.greenAccent),
+        _kpi('En cola', '${knowledgeWorkers['queued_jobs'] ?? 0}', Icons.pending_actions_outlined, Colors.amberAccent),
+        _kpi('Fallidos', '${knowledgeWorkers['failed_jobs'] ?? 0}', Icons.error_outline, Colors.redAccent),
+        _kpi('Consultas RAG', '${knowledgeTotals['retrievals'] ?? 0}', Icons.manage_search, BonsoBrand.aqua),
+        _kpi('Worker', knowledgeWorkers['healthy'] == true ? 'Activo' : 'Sin señal', Icons.memory, knowledgeWorkers['healthy'] == true ? Colors.greenAccent : Colors.redAccent),
+      ]),
+      const SizedBox(height: 12),
+      if (knowledgeAlerts.isEmpty) const Card(color: BonsoBrand.surface, child: ListTile(leading: Icon(Icons.check_circle, color: Colors.greenAccent), title: Text('Biblioteca documental operativa', style: TextStyle(color: Colors.white)), subtitle: Text('No hay trabajos atascados ni alertas activas.', style: TextStyle(color: Colors.white70)))) else ...knowledgeAlerts.map((alert) => Card(color: BonsoBrand.surface, child: ListTile(leading: Icon(alert['severity'] == 'critical' ? Icons.warning_amber_rounded : Icons.info_outline, color: alert['severity'] == 'critical' ? Colors.redAccent : Colors.amberAccent), title: Text('${alert['message']}', style: const TextStyle(color: Colors.white))))),
+      if (knowledgeTenants.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        const Text('Uso documental por cliente', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        ...knowledgeTenants.take(10).map((tenant) => Card(color: BonsoBrand.surface, child: ListTile(leading: const Icon(Icons.business, color: BonsoBrand.aqua), title: Text('${tenant['organization']}', style: const TextStyle(color: Colors.white)), subtitle: Text('${tenant['documents']} documentos · ${tenant['ready']} listos · ${tenant['queued']} en cola · ${tenant['failed']} fallidos', style: const TextStyle(color: Colors.white70))))),
+      ],
+      const SizedBox(height: 28),
+      const Text('Seguridad y retención', style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 10),
+      Wrap(spacing: 12, runSpacing: 12, children: [
+        _kpi('Actualizaciones Telegram', '${security['telegram_updates_24h'] ?? 0}', Icons.telegram, Colors.lightBlueAccent),
+        _kpi('Procesando', '${security['telegram_processing_24h'] ?? 0}', Icons.shield_outlined, Colors.amberAccent),
+        _kpi('Sesiones revocables', security['revocation_enabled'] == true ? 'Activo' : 'Pendiente', Icons.lock_outline, security['revocation_enabled'] == true ? Colors.greenAccent : Colors.redAccent),
+      ]),
+      const SizedBox(height: 8),
+      Text('Auditorías RAG: ${security['rag_audit_retention_days'] ?? 90} días · Eventos Telegram: ${security['telegram_event_retention_days'] ?? 30} días', style: const TextStyle(color: Colors.white54)),
       const SizedBox(height: 14),
       ElevatedButton.icon(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen())), icon: const Icon(Icons.admin_panel_settings), label: const Text('Administración avanzada de planes, perfiles y claves'), style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.aqua, foregroundColor: Colors.black, minimumSize: const Size(0, 48))),
     ]));

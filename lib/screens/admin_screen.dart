@@ -143,6 +143,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     final nameCtrl = TextEditingController(text: planToEdit?['nombre_plan'] ?? '');
     final priceCtrl = TextEditingController(text: '${planToEdit?['precio_mensual'] ?? 0}');
     final tokensCtrl = TextEditingController(text: '${planToEdit?['tokens_mensuales'] ?? 100000}');
+    final documentsCtrl = TextEditingController(text: '${planToEdit?['max_documentos'] ?? 100}');
+    final storageMbCtrl = TextEditingController(text: '${((planToEdit?['almacenamiento_bytes'] as num? ?? 1073741824) / 1048576).round()}');
+    final uploadMbCtrl = TextEditingController(text: '${((planToEdit?['max_upload_bytes'] as num? ?? 15728640) / 1048576).round()}');
     bool pIot = planToEdit?['permite_iot'] ?? false;
     bool pMk = planToEdit?['permite_mikrotik'] ?? false;
     bool pTele = planToEdit?['permite_telegram'] ?? false;
@@ -164,6 +167,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 ),
                 TextField(controller: priceCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Precio mensual (CLP)', labelStyle: TextStyle(color: BonsoBrand.aqua))),
                 TextField(controller: tokensCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Tokens mensuales incluidos', labelStyle: TextStyle(color: BonsoBrand.aqua))),
+                TextField(controller: documentsCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Documentos activos incluidos', labelStyle: TextStyle(color: BonsoBrand.aqua))),
+                TextField(controller: storageMbCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Almacenamiento incluido (MB)', labelStyle: TextStyle(color: BonsoBrand.aqua))),
+                TextField(controller: uploadMbCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Tamaño máximo por archivo (MB)', labelStyle: TextStyle(color: BonsoBrand.aqua))),
                 SwitchListTile(title: const Text('IoT', style: TextStyle(color: Colors.white)), value: pIot, onChanged: (val) => setDialogState(() => pIot = val)),
                 SwitchListTile(title: const Text('MikroTik', style: TextStyle(color: Colors.white)), value: pMk, onChanged: (val) => setDialogState(() => pMk = val)),
                 SwitchListTile(title: const Text('Telegram', style: TextStyle(color: Colors.white)), value: pTele, onChanged: (val) => setDialogState(() => pTele = val)),
@@ -184,6 +190,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   'permite_whatsapp': pWts,
                   'precio_mensual': int.tryParse(priceCtrl.text) ?? 0,
                   'tokens_mensuales': int.tryParse(tokensCtrl.text) ?? 100000,
+                  'max_documentos': int.tryParse(documentsCtrl.text) ?? 100,
+                  'almacenamiento_bytes': (int.tryParse(storageMbCtrl.text) ?? 1024) * 1048576,
+                  'max_upload_bytes': (int.tryParse(uploadMbCtrl.text) ?? 15) * 1048576,
                   'moneda': 'CLP',
                 });
                 

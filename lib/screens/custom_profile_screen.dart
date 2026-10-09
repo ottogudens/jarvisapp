@@ -62,7 +62,7 @@ class _CustomProfileScreenState extends State<CustomProfileScreen> {
 
   Future<void> _uploadSources() async {
     if (_profileId == null) { _message('Primero crea el borrador.', error: true); return; }
-    final selection = await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.custom, allowedExtensions: ['pdf', 'txt', 'csv', 'md', 'png', 'jpg', 'jpeg', 'webp']);
+    final selection = await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.custom, allowedExtensions: ['pdf', 'docx', 'xlsx', 'txt', 'csv', 'md', 'png', 'jpg', 'jpeg', 'webp']);
     if (selection == null || selection.files.isEmpty) return;
     setState(() => _busy = true);
     try {

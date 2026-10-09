@@ -241,6 +241,7 @@ def _claims_usuario(usuario: Usuario, db: Session) -> dict:
     return {
         "id_usuario": usuario.id_usuario,
         "id_tenant": usuario.id_tenant,
+        "session_version": usuario.session_version or 0,
         "email": usuario.email,
         "perfil_jarvis": perfil,
         "active_profile_ids": active_ids,
@@ -275,11 +276,18 @@ async def obtener_usuario_actual(
     ).first()
     if not usuario:
         raise HTTPException(status_code=401, detail="La sesión ya no es válida.")
+    if payload.get("session_version") != (usuario.session_version or 0):
+        raise HTTPException(status_code=401, detail="La sesión fue revocada. Inicie sesión nuevamente.")
     tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario.id_tenant).first()
     rol = usuario.rol or (ROL_SUPERADMIN if usuario.is_superadmin else ROL_CLIENTE)
     if tenant and not tenant.is_active and rol not in ROLS_STAFF:
         raise HTTPException(status_code=403, detail="La cuenta de esta organización está suspendida. Contacta al administrador de Bonso.")
     return _claims_usuario(usuario, db)
+
+
+def invalidar_sesiones(usuario: Usuario) -> None:
+    """Invalida todos los JWT ya emitidos para un usuario."""
+    usuario.session_version = (usuario.session_version or 0) + 1
 
 
 async def requiere_staff(
@@ -417,6 +425,7 @@ def update_profile(
 
     if data.password:
         user.password_hash = bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        invalidar_sesiones(user)
 
     # El perfil activo es una preferencia individual. Un cliente puede escoger
     # cualquiera de los perfiles asignados a su organización, pero no otros.
@@ -437,6 +446,19 @@ def update_profile(
 
     db.commit()
     return {'message': 'Perfil actualizado correctamente'}
+
+
+@router.post('/logout')
+def logout(
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Revoca los JWT activos del usuario antes de limpiar el dispositivo local."""
+    user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
+    if user:
+        invalidar_sesiones(user)
+        db.commit()
+    return {'message': 'Sesión cerrada correctamente'}
 
 
 @router.get('/profile')

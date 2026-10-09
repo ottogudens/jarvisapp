@@ -543,6 +543,38 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     _speakTextWeb(msg['contenido'] ?? '');
   }
 
+  Future<void> _openKnowledgeSource(Map citation) async {
+    final documentId = citation['document_id']?.toString();
+    if (documentId == null || documentId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/$documentId/content'),
+        headers: {'Authorization': 'Bearer ${prefs.getString('jwt_token') ?? ''}'},
+      );
+      if (response.statusCode != 200) throw Exception('Fuente no disponible');
+      final source = Map<String, dynamic>.from(jsonDecode(response.body));
+      if (!mounted) return;
+      final location = citation['page'] != null ? 'Página ${citation['page']}' : citation['sheet'] != null ? 'Hoja ${citation['sheet']}' : 'Contenido indexado';
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: BonsoBrand.surface,
+          title: Text(source['nombre'] ?? 'Fuente', style: const TextStyle(color: Colors.white)),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680, maxHeight: 460),
+            child: SingleChildScrollView(
+              child: SelectableText('$location\n\n${(source['content'] ?? '').toString()}', style: const TextStyle(color: Colors.white70, height: 1.45)),
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar', style: TextStyle(color: BonsoBrand.aqua)))],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir la fuente: $e')));
+    }
+  }
+
   void _speakTextWeb(String text) {
     if (kIsWeb) {
       try {
@@ -735,6 +767,9 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
   Widget _buildMessageBubble(Map<String, dynamic> msg, bool isUser) {
     final fileUrls = (msg['file_urls'] as List?)?.cast<String>() ?? [];
+    final citations = (msg['knowledge_citations'] as List? ?? const [])
+        .whereType<Map>()
+        .cast<Map>();
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -793,6 +828,31 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   color: isUser ? BonsoBrand.ink : BonsoBrand.text,
                   fontSize: 14,
                   height: 1.4,
+                ),
+              ),
+            if (!isUser && citations.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: citations.map((citation) {
+                    final document = citation['document']?.toString() ?? 'Documento';
+                    final location = citation['page'] != null
+                        ? 'pág. ${citation['page']}'
+                        : citation['sheet'] != null
+                            ? 'hoja ${citation['sheet']}'
+                            : null;
+                    return ActionChip(
+                      avatar: const Icon(Icons.menu_book_outlined, size: 15, color: BonsoBrand.aqua),
+                      label: Text(location == null ? document : '$document · $location', overflow: TextOverflow.ellipsis),
+                      labelStyle: const TextStyle(fontSize: 11, color: Colors.white70),
+                      backgroundColor: BonsoBrand.ink,
+                      side: const BorderSide(color: BonsoBrand.surfaceRaised),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _openKnowledgeSource(citation),
+                    );
+                  }).toList(),
                 ),
               ),
             if (fileUrls.isNotEmpty)

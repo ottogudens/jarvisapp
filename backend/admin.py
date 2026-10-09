@@ -1,15 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import os
 import bcrypt
 
 from backend.database import get_db
-from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, BillingSubscription, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
-from backend.auth import obtener_usuario_actual, hash_password, requiere_staff, requiere_superadmin
+from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, BillingSubscription, KnowledgeDocument, KnowledgeIngestionJob, KnowledgeRetrievalAudit, TelegramWebhookEvent, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
+from backend.auth import obtener_usuario_actual, hash_password, invalidar_sesiones, requiere_staff, requiere_superadmin
 from backend.crypto_utils import encrypt_secret
 
 router = APIRouter(prefix="/v1/admin", tags=["Administrador"])
@@ -30,6 +30,9 @@ class SaaSPlanSchema(BaseModel):
     permite_telegram: bool = False
     permite_whatsapp: bool = False
     tokens_mensuales: int = 100000
+    max_documentos: int = Field(default=100, ge=1, le=1_000_000)
+    almacenamiento_bytes: int = Field(default=1073741824, ge=1_048_576)
+    max_upload_bytes: int = Field(default=15728640, ge=1_024, le=15_728_640)
     precio_mensual: int = 0
     moneda: str = "CLP"
 
@@ -116,6 +119,76 @@ class OperationsConfigSchema(BaseModel):
     invoice_sender_name: str = "Bonso"
     invoice_reply_to: Optional[str] = None
 
+
+def _knowledge_overview(db: Session) -> dict:
+    """Métricas sin contenido de documentos, aptas para operación SaaS."""
+    now = datetime.now(timezone.utc)
+    stale_before = now - timedelta(minutes=15)
+    documents = db.query(KnowledgeDocument).all()
+    jobs = db.query(KnowledgeIngestionJob).all()
+    tenants = {tenant.id_tenant: tenant.nombre_organizacion for tenant in db.query(Tenant).all()}
+    status_counts = {status: 0 for status in ("queued", "processing", "ready", "failed", "superseded")}
+    per_tenant = {}
+    for document in documents:
+        status_counts[document.status] = status_counts.get(document.status, 0) + 1
+        row = per_tenant.setdefault(document.id_tenant, {"documents": 0, "ready": 0, "failed": 0, "queued": 0, "bytes": 0})
+        row["documents"] += 1
+        row["bytes"] += document.byte_size or 0
+        if document.status in row:
+            row[document.status] += 1
+    stale_jobs = [job for job in jobs if job.status == "processing" and job.started_at and job.started_at < stale_before]
+    failed_jobs = [job for job in jobs if job.status == "failed"]
+    heartbeat_setting = db.query(SystemSettings).filter(SystemSettings.key == "KNOWLEDGE_WORKER_HEARTBEAT").first()
+    heartbeat_at = None
+    try:
+        heartbeat_at = datetime.fromisoformat(heartbeat_setting.value) if heartbeat_setting else None
+        if heartbeat_at and heartbeat_at.tzinfo is None:
+            heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        heartbeat_at = None
+    worker_healthy = bool(heartbeat_at and now - heartbeat_at < timedelta(minutes=5))
+    alerts = []
+    if stale_jobs:
+        alerts.append({"severity": "critical", "type": "stalled_jobs", "message": f"{len(stale_jobs)} trabajo(s) lleva(n) más de 15 minutos procesando."})
+    if failed_jobs:
+        alerts.append({"severity": "warning", "type": "failed_jobs", "message": f"{len(failed_jobs)} documento(s) requieren revisión o reintento."})
+    if status_counts.get("queued", 0) >= 20:
+        alerts.append({"severity": "warning", "type": "queue_backlog", "message": f"La cola documental acumula {status_counts['queued']} trabajo(s)."})
+    if not worker_healthy:
+        alerts.append({"severity": "critical", "type": "worker_offline", "message": "No se ha recibido heartbeat del worker documental en los últimos 5 minutos."})
+    tenant_rows = [
+        {"id_tenant": tenant_id, "organization": tenants.get(tenant_id, "Organización"), **values}
+        for tenant_id, values in per_tenant.items()
+    ]
+    tenant_rows.sort(key=lambda item: (item["failed"] == 0, -item["queued"], -item["bytes"]))
+    return {
+        "totals": {**status_counts, "documents": len(documents), "storage_bytes": sum(doc.byte_size or 0 for doc in documents), "retrievals": db.query(KnowledgeRetrievalAudit).count()},
+        "workers": {"queued_jobs": sum(job.status == "queued" for job in jobs), "processing_jobs": sum(job.status == "processing" for job in jobs), "failed_jobs": len(failed_jobs), "stalled_jobs": len(stale_jobs), "healthy": worker_healthy, "heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None},
+        "alerts": alerts,
+        "tenants": tenant_rows[:100],
+        "recent_failures": [{"document_id": job.id_document, "error_message": job.error_message, "attempts": job.attempts, "finished_at": job.finished_at.isoformat() if job.finished_at else None} for job in sorted(failed_jobs, key=lambda job: job.finished_at or now, reverse=True)[:20]],
+    }
+
+
+def _security_overview(db: Session) -> dict:
+    """Indicadores agregados, sin exponer chats, tokens ni datos de usuarios."""
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=24)
+    events = db.query(TelegramWebhookEvent).filter(TelegramWebhookEvent.created_at >= since).all()
+    def retention_days(name: str, default: int) -> int:
+        try:
+            return max(1, int(os.getenv(name, str(default))))
+        except ValueError:
+            return default
+    return {
+        "telegram_updates_24h": len(events),
+        "telegram_completed_24h": sum(event.status == "completed" for event in events),
+        "telegram_processing_24h": sum(event.status == "processing" for event in events),
+        "revocation_enabled": True,
+        "rag_audit_retention_days": retention_days("RAG_AUDIT_RETENTION_DAYS", 90),
+        "telegram_event_retention_days": retention_days("TELEGRAM_WEBHOOK_RETENTION_DAYS", 30),
+    }
+
 # --- Endpoints Dashboard ---
 @router.get("/dashboard", response_model=DashboardStats)
 def get_dashboard(
@@ -195,7 +268,14 @@ def operations_overview(usuario: dict = Depends(requiere_staff), db: Session = D
             "gemini": bool(setting_value("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")),
         },
         "invoice_automation": invoice_config,
+        "knowledge": _knowledge_overview(db),
+        "security": _security_overview(db),
     }
+
+
+@router.get("/knowledge/overview")
+def knowledge_overview(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
+    return _knowledge_overview(db)
 
 
 @router.post("/operations/tenants/{id_tenant}/status")
@@ -293,6 +373,7 @@ def create_plan(
         permite_mikrotik=plan.permite_mikrotik,
         permite_telegram=plan.permite_telegram,
         permite_whatsapp=plan.permite_whatsapp, tokens_mensuales=plan.tokens_mensuales,
+        max_documentos=plan.max_documentos, almacenamiento_bytes=plan.almacenamiento_bytes, max_upload_bytes=plan.max_upload_bytes,
         precio_mensual=plan.precio_mensual, moneda=plan.moneda,
     )
     db.add(db_plan)
@@ -317,6 +398,9 @@ def update_plan(
     db_plan.permite_telegram = plan.permite_telegram
     db_plan.permite_whatsapp = plan.permite_whatsapp
     db_plan.tokens_mensuales = plan.tokens_mensuales
+    db_plan.max_documentos = plan.max_documentos
+    db_plan.almacenamiento_bytes = plan.almacenamiento_bytes
+    db_plan.max_upload_bytes = plan.max_upload_bytes
     db_plan.precio_mensual = plan.precio_mensual
     db_plan.moneda = plan.moneda
     
@@ -607,6 +691,7 @@ def update_tenant(
                 admin_user.email = email
             if password is not None:
                 admin_user.password_hash = hash_password(password)
+                invalidar_sesiones(admin_user)
 
     users = db.query(Usuario).filter(Usuario.id_tenant == id_tenant).all()
     if assigned_profile_ids is not None:
@@ -803,12 +888,14 @@ def update_tenant_user(
 
     if data.password:
         target_user.password_hash = hash_password(data.password)
+        invalidar_sesiones(target_user)
 
     if data.rol:
         if data.rol == ROL_SUPERADMIN and usuario.get("rol") != ROL_SUPERADMIN:
             raise HTTPException(status_code=403, detail="Solo un superadmin puede asignar el rol de superadmin")
         target_user.rol = data.rol
         target_user.is_superadmin = (data.rol == ROL_SUPERADMIN)
+        invalidar_sesiones(target_user)
 
     if data.active_profile_ids is not None:
         target_user.active_profile_ids = data.active_profile_ids

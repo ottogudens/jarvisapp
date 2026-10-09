@@ -1,12 +1,14 @@
 """Validación centralizada de adjuntos no confiables."""
 
 from pathlib import Path
+import io
+import zipfile
 
 from fastapi import HTTPException
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 MAX_UPLOAD_FILES = 5
-ALLOWED_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".png", ".jpg", ".jpeg", ".webp", ".m4a", ".mp3", ".ogg", ".wav", ".webm"}
+ALLOWED_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx", ".png", ".jpg", ".jpeg", ".webp", ".m4a", ".mp3", ".ogg", ".wav", ".webm"}
 TEMPLATE_SUFFIXES = {".docx", ".dotx", ".xlsx", ".xltx", ".pdf", ".csv", ".html", ".txt", ".md"}
 
 
@@ -33,4 +35,18 @@ def validate_upload(filename: str | None, content_type: str | None, content: byt
         raise HTTPException(status_code=400, detail="El archivo no contiene un JPEG válido.")
     if suffix == ".webp" and content[:4] != b"RIFF":
         raise HTTPException(status_code=400, detail="El archivo no contiene un WebP válido.")
+    # Office Open XML es un ZIP. Esta comprobación básica evita aceptar bytes
+    # arbitrarios disfrazados de Word o Excel; los parsers validan lo restante.
+    if suffix in {".docx", ".xlsx"} and not content.startswith(b"PK\x03\x04"):
+        raise HTTPException(status_code=400, detail="El archivo Office no contiene una estructura válida.")
+    if suffix in {".docx", ".xlsx"}:
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as archive:
+                entries = archive.infolist()
+                expanded_size = sum(entry.file_size for entry in entries)
+                expected = "word/document.xml" if suffix == ".docx" else "xl/workbook.xml"
+                if expected not in archive.namelist() or len(entries) > 10_000 or expanded_size > 60 * 1024 * 1024:
+                    raise HTTPException(status_code=400, detail="El archivo Office no cumple los límites de seguridad.")
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(status_code=400, detail="El archivo Office está dañado.") from exc
     return safe_name

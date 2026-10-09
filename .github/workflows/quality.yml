@@ -11,15 +11,22 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/jarvis_test
+      JWT_SECRET_KEY: ci-only-not-a-production-secret
+      APP_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - run: python -m pip install --upgrade pip
-      - run: pip install -r backend/requirements.txt
+      - run: pip install -r backend/requirements.txt pytest
       - run: python -m compileall -q backend
-      - run: python -m unittest discover -s backend/tests
+      - run: python -m pytest backend/tests test -q
+      - name: Verify a single Alembic migration head
+        working-directory: backend
+        run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; s=ScriptDirectory.from_config(Config('alembic.ini')); h=s.get_heads(); print('Migration heads:', h); assert len(h) == 1, 'Multiple Alembic heads detected'"
       - run: pip install pip-audit
       - run: pip-audit -r backend/requirements.txt
 
@@ -29,8 +36,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.47.5'
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
+      - run: flutter build web --release --dart-define=API_BASE_URL=https://api.example.invalid

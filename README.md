@@ -86,11 +86,14 @@ curl -X POST http://localhost:8000/v1/jarvis/mecanico/procesar-completo \
 ## 🛠️ Despliegue en Producción
 
 1. **Base de Datos**: Crear proyecto en [Supabase](https://supabase.com), copiar URI Pooler → `DATABASE_URL`
-2. **Servidor**: Crear proyecto en [Railway](https://railway.app) apuntando al repo, agregar variables de entorno
-3. **App Móvil**: Actualizar `kApiBaseUrl` en `main_screen.dart` y compilar:
-   ```bash
-   flutter build apk --release
-   ```
+2. **Biblioteca documental**: crear un bucket privado `knowledge-originals` en Supabase Storage y configurar `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_KNOWLEDGE_BUCKET`.
+3. **Servidor**: Crear dos servicios desde la misma imagen en [Railway](https://railway.app):
+   - API: comando por defecto (`backend/scripts/start_api.sh`).
+   - Worker documental: `python -m backend.scripts.run_knowledge_worker`.
+   El worker extrae e indexa archivos sin bloquear el chat ni los webhooks.
+   También aplica diariamente la retención de auditorías RAG y entregas de
+   Telegram configurada en las variables de entorno; no elimina documentos ni conversaciones.
+4. **App Móvil/Web**: Actualizar `API_BASE_URL` en el build de Flutter y desplegar la carpeta `build/web` en Vercel.
 
 ## 📊 Pipeline de IA
 

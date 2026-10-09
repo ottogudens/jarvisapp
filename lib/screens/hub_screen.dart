@@ -384,6 +384,18 @@ class _HubScreenState extends State<HubScreen> {
 
   void _logout() async {
     final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token != null && token.isNotEmpty) {
+      try {
+        await http.post(
+          Uri.parse('$kApiBaseUrl/v1/auth/logout'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+      } catch (_) {
+        // Limpiamos igualmente el dispositivo; el token expira de forma normal
+        // si no hubo conectividad para notificar al servidor.
+      }
+    }
     await prefs.remove('jwt_token');
     await prefs.remove('perfil_jarvis');
     await prefs.remove('nombre_organizacion');

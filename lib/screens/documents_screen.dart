@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -22,9 +23,17 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
   List<Map<String, dynamic>> _documentos = [];
   List<Map<String, dynamic>> _conocimiento = [];
   List<Map<String, dynamic>> _carpetas = [];
+  Map<String, dynamic> _quota = {};
   String? _currentFolderId;
   String _searchQuery = '';
   late TabController _tabController;
+  Timer? _knowledgeStatusPoll;
+
+  String _formatBytes(dynamic value) {
+    final bytes = (value as num?)?.toInt() ?? 0;
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
 
   @override
   void initState() {
@@ -36,6 +45,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
   
   @override
   void dispose() {
+    _knowledgeStatusPoll?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -78,7 +88,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
           setState(() {
             _carpetas = List<Map<String, dynamic>>.from(data['carpetas'] ?? []);
             _conocimiento = List<Map<String, dynamic>>.from(data['documentos'] ?? []);
+            _quota = Map<String, dynamic>.from(data['quota'] ?? {});
           });
+          _syncKnowledgeStatusPolling();
         }
       }
     } catch (e) {
@@ -232,6 +244,16 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         ),
       ),
     );
+  }
+
+  void _syncKnowledgeStatusPolling() {
+    final hasPending = _conocimiento.any((doc) => doc['status'] == 'queued' || doc['status'] == 'processing');
+    if (hasPending && _knowledgeStatusPoll == null) {
+      _knowledgeStatusPoll = Timer.periodic(const Duration(seconds: 4), (_) => _cargarConocimiento());
+    } else if (!hasPending) {
+      _knowledgeStatusPoll?.cancel();
+      _knowledgeStatusPoll = null;
+    }
   }
 
   Future<void> _abrirOriginal(Map<String, dynamic> doc) async {
@@ -513,6 +535,102 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     }
   }
 
+  Color _statusColor(String? status) {
+    switch (status) {
+      case 'ready': return Colors.greenAccent;
+      case 'failed': return Colors.redAccent;
+      case 'superseded': return Colors.white38;
+      case 'processing': return Colors.amberAccent;
+      default: return BonsoBrand.aqua;
+    }
+  }
+
+  String _statusLabel(String? status) {
+    switch (status) {
+      case 'ready': return 'Listo para consultas';
+      case 'failed': return 'Falló la indexación';
+      case 'processing': return 'Procesando';
+      case 'queued': return 'En cola';
+      case 'superseded': return 'Versión anterior';
+      default: return 'Pendiente';
+    }
+  }
+
+  Future<String> _token() async => (await SharedPreferences.getInstance()).getString('jwt_token') ?? '';
+
+  Future<void> _descargarOriginalConocimiento(Map<String, dynamic> doc) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/download'),
+        headers: {'Authorization': 'Bearer ${await _token()}'},
+      );
+      if (response.statusCode != 200) throw Exception('El original no está disponible');
+      final url = jsonDecode(response.body)['url']?.toString();
+      if (url == null || !await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)) {
+        throw Exception('No se pudo abrir la descarga');
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo descargar: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
+  Future<void> _reintentarConocimiento(Map<String, dynamic> doc) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/retry'),
+        headers: {'Authorization': 'Bearer ${await _token()}'},
+      );
+      if (response.statusCode != 200) throw Exception(response.body);
+      await _cargarConocimiento();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Documento enviado nuevamente a indexación'), backgroundColor: Colors.green));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo reintentar: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
+  Future<void> _reemplazarConocimiento(Map<String, dynamic> doc) async {
+    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf', 'docx', 'xlsx', 'txt', 'csv', 'md']);
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.single;
+    try {
+      final request = http.MultipartRequest('POST', Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/replace'));
+      request.headers['Authorization'] = 'Bearer ${await _token()}';
+      if (file.bytes != null) {
+        request.files.add(http.MultipartFile.fromBytes('file', file.bytes!, filename: file.name));
+      } else if (file.path != null) {
+        request.files.add(await http.MultipartFile.fromPath('file', file.path!));
+      } else {
+        throw Exception('No fue posible leer el archivo seleccionado');
+      }
+      final response = await http.Response.fromStream(await request.send());
+      if (response.statusCode != 200) throw Exception(response.body);
+      await _cargarConocimiento();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nueva versión creada e incorporada a la cola'), backgroundColor: Colors.green));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo reemplazar: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
+  Future<void> _verDetalleConocimiento(Map<String, dynamic> doc) async {
+    try {
+      final response = await http.get(Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/details'), headers: {'Authorization': 'Bearer ${await _token()}'});
+      if (response.statusCode != 200) throw Exception('No se pudo obtener el detalle');
+      final detail = Map<String, dynamic>.from(jsonDecode(response.body));
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (_) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: Text(detail['nombre'] ?? 'Documento', style: const TextStyle(color: Colors.white)),
+        content: SelectableText(
+          'Estado: ${_statusLabel(detail['status'])}\nVersión: ${detail['version']}\nOrigen: ${detail['source_channel']}\nFragmentos: ${detail['chunk_count']}\n${detail['error_message'] != null ? '\nError: ${detail['error_message']}' : ''}',
+          style: const TextStyle(color: Colors.white70, height: 1.5),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar', style: TextStyle(color: BonsoBrand.aqua)))],
+      ));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo ver el detalle: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
   Widget _buildKnowledgeList() {
     final itemsToShow = _currentFolderId == null
         ? _conocimiento.where((d) => d['id_folder'] == null).toList()
@@ -535,6 +653,11 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                   : _carpetas.firstWhere((c) => c['id_folder'] == _currentFolderId, orElse: () => {'nombre': 'Carpeta'})['nombre'],
                 style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
               ),
+              if (_currentFolderId == null && _quota.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 10),
+                  child: Text('${_quota['documents_used'] ?? 0}/${_quota['documents_limit'] ?? '—'} documentos', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                ),
               const Spacer(),
               if (_currentFolderId == null)
                 TextButton.icon(
@@ -545,6 +668,17 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
             ],
           ),
         ),
+        if (_currentFolderId == null && _quota.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 16, right: 16, bottom: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${_formatBytes(_quota['storage_used_bytes'])} de ${_formatBytes(_quota['storage_limit_bytes'])} usados · máximo ${_formatBytes(_quota['max_upload_bytes'])} por archivo',
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ),
+          ),
         Expanded(
           child: _carpetas.isEmpty && _conocimiento.isEmpty
             ? const Center(child: Text('La memoria de Bonso está vacía', style: TextStyle(color: Colors.white54)))
@@ -568,20 +702,37 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                       ),
                     )),
                   ...itemsToShow.map((doc) => Card(
-                    color: BonsoBrand.surface,
+                    color: doc['status'] == 'superseded' ? BonsoBrand.surface.withOpacity(0.55) : BonsoBrand.surface,
                     margin: const EdgeInsets.only(bottom: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withOpacity(0.05))),
                     child: ListTile(
-                      leading: CircleAvatar(backgroundColor: Colors.purple.withOpacity(0.2), child: const Icon(Icons.memory, color: Colors.purpleAccent)),
+                      leading: CircleAvatar(backgroundColor: _statusColor(doc['status']).withOpacity(0.16), child: Icon(Icons.memory, color: _statusColor(doc['status'])),
                       title: Text(doc['nombre'] ?? 'Documento RAG', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text('Fecha: ${doc['created_at']?.split('T')[0] ?? ''}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(icon: const Icon(Icons.visibility_outlined, color: Colors.white70), tooltip: 'Ver contenido procesado', onPressed: () => _verMemoria(doc)),
-                          IconButton(icon: const Icon(Icons.refresh, color: Colors.amberAccent), tooltip: 'Reprocesar con observaciones', onPressed: () => _reprocesarDocumento(doc)),
-                          IconButton(icon: const Icon(Icons.drive_file_move, color: BonsoBrand.aqua), onPressed: () => _moverDocumento(doc['id_document'])),
-                          IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => _eliminarConocimiento(doc['id_document'])),
+                      subtitle: Text('${_statusLabel(doc['status'])} · v${doc['version'] ?? 1} · ${doc['chunk_count'] ?? 0} fragmentos\n${doc['error_message'] ?? 'Origen: ${doc['source_channel'] ?? 'web'}'}', style: TextStyle(color: doc['status'] == 'failed' ? Colors.redAccent : Colors.white54, fontSize: 12)),
+                      isThreeLine: true,
+                      onTap: () => _verDetalleConocimiento(doc),
+                      trailing: PopupMenuButton<String>(
+                        color: BonsoBrand.surfaceRaised,
+                        icon: const Icon(Icons.more_vert, color: Colors.white70),
+                        onSelected: (value) {
+                          if (value == 'detail') _verDetalleConocimiento(doc);
+                          if (value == 'view') _verMemoria(doc);
+                          if (value == 'download') _descargarOriginalConocimiento(doc);
+                          if (value == 'retry') _reintentarConocimiento(doc);
+                          if (value == 'replace') _reemplazarConocimiento(doc);
+                          if (value == 'reprocess') _reprocesarDocumento(doc);
+                          if (value == 'move') _moverDocumento(doc['id_document']);
+                          if (value == 'delete') _eliminarConocimiento(doc['id_document']);
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(value: 'detail', child: Text('Ver detalle', style: TextStyle(color: Colors.white))),
+                          if (doc['status'] == 'ready') const PopupMenuItem(value: 'view', child: Text('Ver contenido procesado', style: TextStyle(color: Colors.white))),
+                          if (doc['original_available'] == true) const PopupMenuItem(value: 'download', child: Text('Descargar original', style: TextStyle(color: Colors.white))),
+                          if (doc['status'] == 'failed') const PopupMenuItem(value: 'retry', child: Text('Reintentar indexación', style: TextStyle(color: Colors.white))),
+                          const PopupMenuItem(value: 'replace', child: Text('Reemplazar por nueva versión', style: TextStyle(color: Colors.white))),
+                          if (doc['status'] == 'ready') const PopupMenuItem(value: 'reprocess', child: Text('Reprocesar con observaciones', style: TextStyle(color: Colors.white))),
+                          const PopupMenuItem(value: 'move', child: Text('Mover', style: TextStyle(color: Colors.white))),
+                          const PopupMenuItem(value: 'delete', child: Text('Eliminar', style: TextStyle(color: Colors.redAccent))),
                         ],
                       ),
                     ),
@@ -597,7 +748,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'csv', 'md', 'png', 'jpg', 'jpeg', 'webp'],
+      allowedExtensions: ['pdf', 'docx', 'xlsx', 'txt', 'csv', 'md', 'png', 'jpg', 'jpeg', 'webp'],
       );
 
       if (result != null && result.files.isNotEmpty) {
