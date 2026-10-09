@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -18,10 +19,25 @@ from backend.models import DocumentChunk, KnowledgeDocument, KnowledgeFolder, Kn
 
 CHUNK_SIZE = 1000
 KNOWLEDGE_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx"}
+KNOWLEDGE_MIME_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+logger = logging.getLogger(__name__)
 
 
 def storage_is_configured() -> bool:
     return bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+
+
+def knowledge_mime_type(filename: str, supplied_mime_type: str | None) -> str:
+    """Usa el MIME canónico de formatos ya validados, no el declarado por el cliente."""
+    return KNOWLEDGE_MIME_TYPES.get(Path(filename).suffix.lower(), supplied_mime_type or "application/octet-stream")
 
 
 def document_quota_snapshot(db: Session, tenant_id: int) -> dict[str, int]:
@@ -69,11 +85,17 @@ def _upload_original(*, tenant_id: int, document_id: str, filename: str, content
     from supabase import create_client
     path = f"tenant/{tenant_id}/knowledge/{document_id}/{filename}"
     bucket = os.getenv("SUPABASE_KNOWLEDGE_BUCKET", "knowledge-originals")
+    content_type = knowledge_mime_type(filename, mime_type)
     try:
         create_client(url, key).storage.from_(bucket).upload(
-            path, content, {"content-type": mime_type or "application/octet-stream", "upsert": "false"},
+            path, content, {"content-type": content_type, "upsert": "false"},
         )
     except Exception as exc:
+        # Nunca registrar el path, nombre, bytes ni credenciales: pueden contener datos del cliente.
+        logger.warning(
+            "Fallo al guardar original de conocimiento en Storage (bucket=%s, tipo=%s, error=%s)",
+            bucket, content_type, type(exc).__name__,
+        )
         raise HTTPException(status_code=502, detail="No fue posible conservar el archivo original de forma segura.") from exc
     return path
 

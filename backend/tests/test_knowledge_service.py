@@ -2,7 +2,22 @@ import io
 
 import pytest
 
-from backend.knowledge_service import chunk_text, chunks_with_provenance, extract_text
+from backend.knowledge_service import chunk_text, chunks_with_provenance, extract_text, knowledge_mime_type
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    [
+        ("manual.pdf", "application/pdf"),
+        ("manual.txt", "text/plain"),
+        ("manual.md", "text/markdown"),
+        ("stock.csv", "text/csv"),
+        ("manual.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        ("stock.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ],
+)
+def test_knowledge_mime_type_uses_canonical_type_for_supported_extensions(filename, expected):
+    assert knowledge_mime_type(filename, "application/octet-stream") == expected
 
 
 def test_extracts_docx_text_and_table():
