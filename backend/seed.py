@@ -23,18 +23,6 @@ def seed_db():
     db: Session = next(get_db())
     
     try:
-        # HACK: Migración manual temporal para agregar la columna faltante
-        from sqlalchemy import text
-        try:
-            db.execute(text("ALTER TABLE saas_planes ADD COLUMN IF NOT EXISTS permite_inspeccion BOOLEAN DEFAULT FALSE;"))
-            db.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS rol VARCHAR(20) DEFAULT 'cliente';"))
-            db.execute(text("UPDATE usuarios SET rol = 'superadmin' WHERE is_superadmin = TRUE;"))
-            db.commit()
-            print("Migración: Estructura de BD validada (permite_inspeccion, rol).")
-        except Exception as e:
-            db.rollback()
-            print(f"Nota de migración: {e}")
-
         # 1. Crear SaaS Plan Base
         plan = db.query(SaaSPlan).filter_by(nombre_plan="Plan Starter").first()
         if not plan:
@@ -88,6 +76,7 @@ def seed_db():
     except Exception as e:
         db.rollback()
         print(f"Error durante el seed: {e}")
+        raise
     finally:
         db.close()
 
