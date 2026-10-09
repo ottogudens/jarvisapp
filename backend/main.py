@@ -1262,7 +1262,7 @@ async def listar_documentos(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    """Lista todos los mensajes con archivos adjuntos del usuario."""
+    """Lista adjuntos de chat y originales de la biblioteca documental del usuario."""
     sesiones = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).all()
     session_map = {s.id_session: s.titulo for s in sesiones}
     session_ids = list(session_map.keys())
@@ -1290,6 +1290,7 @@ async def listar_documentos(
                 tipo = "archivo_generado"
             
             resultado.append({
+                "record_type": "chat_attachment",
                 "id_mensaje": m.id_mensaje,
                 "file_index": file_index,
                 "id_session": m.id_session,
@@ -1304,7 +1305,28 @@ async def listar_documentos(
                 "url": url if url.startswith("http") else None,
                 "created_at": m.created_at.isoformat(),
             })
-    return resultado
+
+    # La carga directa a Memoria y los adjuntos de Telegram se persisten como
+    # KnowledgeDocument, no como ChatMessage. Incluirlos evita que la pestaña
+    # "Subidos" parezca vacía aunque el original esté almacenado correctamente.
+    from backend.models import KnowledgeDocument
+    knowledge_documents = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_tenant == usuario["id_tenant"],
+    ).order_by(KnowledgeDocument.created_at.desc()).all()
+    for document in knowledge_documents:
+        resultado.append({
+            "record_type": "knowledge_document",
+            "id_document": document.id_document,
+            "nombre_archivo": document.nombre,
+            "tipo": document.mime_type or "application/octet-stream",
+            "rol": "user",
+            "titulo_sesion": "Biblioteca de Bonso",
+            "source_channel": document.source_channel,
+            "status": document.status,
+            "original_available": bool(document.storage_path),
+            "created_at": document.created_at.isoformat() if document.created_at else None,
+        })
+    return sorted(resultado, key=lambda item: item.get("created_at") or "", reverse=True)
 
 
 @app.get("/v1/chat/messages/{mensaje_id}/files/{file_index}")

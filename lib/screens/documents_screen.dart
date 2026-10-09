@@ -295,10 +295,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         final doc = items[i];
         final tipo = doc['tipo'] ?? 'desconocido';
         final esGenerado = doc['rol'] == 'jarvis';
+        final esDocumentoBiblioteca = doc['record_type'] == 'knowledge_document';
         IconData icono = Icons.insert_drive_file;
         if (tipo.contains('pdf')) icono = Icons.picture_as_pdf;
         if (tipo.contains('image')) icono = Icons.image;
         if (esGenerado) icono = Icons.auto_awesome;
+        if (esDocumentoBiblioteca) icono = Icons.memory;
+        final detalle = esDocumentoBiblioteca
+            ? 'Origen: ${doc['source_channel'] ?? 'web'} · ${_statusLabel(doc['status'])}\nTipo: $tipo\n${doc['created_at']?.split('T')[0] ?? ''}'
+            : 'Sesión: ${doc['titulo_sesion']}\nTipo: $tipo\n${doc['created_at']?.split('T')[0] ?? ''}';
 
         return Card(
           color: BonsoBrand.surface,
@@ -319,7 +324,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              'Sesión: ${doc['titulo_sesion']}\nTipo: $tipo\n${doc['created_at']?.split('T')[0] ?? ''}',
+              detalle,
               style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
             isThreeLine: true,
@@ -328,12 +333,20 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               children: [
                 IconButton(
                   icon: const Icon(Icons.visibility, color: BonsoBrand.aqua),
-                  onPressed: () => _verContenido(doc),
-                  tooltip: 'Ver contenido',
+                  onPressed: () => esDocumentoBiblioteca ? _verDetalleConocimiento(doc) : _verContenido(doc),
+                  tooltip: esDocumentoBiblioteca ? 'Ver detalle de indexación' : 'Ver contenido',
                 ),
+                if (esDocumentoBiblioteca && doc['original_available'] == true)
+                  IconButton(
+                    icon: const Icon(Icons.download_outlined, color: BonsoBrand.aqua),
+                    onPressed: () => _descargarOriginalConocimiento(doc),
+                    tooltip: 'Descargar original',
+                  ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () => _eliminarDocumento(doc['id_mensaje']),
+                  onPressed: () => esDocumentoBiblioteca
+                      ? _eliminarConocimiento(doc['id_document'])
+                      : _eliminarDocumento(doc['id_mensaje']),
                   tooltip: 'Eliminar',
                 ),
               ],
