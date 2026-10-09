@@ -1,11 +1,74 @@
-import requests
-import urllib3
+import atexit
+import base64
+import binascii
 import os
+import ssl
+import tempfile
+
+import requests
 
 _environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower()
 _allow_insecure_tls = os.getenv("MIKROTIK_ALLOW_INSECURE_TLS", "").lower() == "true"
 if _allow_insecure_tls and _environment in {"production", "prod"}:
     raise RuntimeError("MIKROTIK_ALLOW_INSECURE_TLS no se permite en producción.")
+
+
+def _ca_bundle_from_environment() -> str | bool:
+    """Return the CA bundle configured for RouterOS HTTPS connections.
+
+    ``MIKROTIK_CA_BUNDLE`` is retained for deployments that mount a PEM file.
+    Railway has no secret-file primitive for this service, so
+    ``MIKROTIK_CA_CERT_PEM_B64`` accepts a base64-encoded PEM chain and writes
+    it to a private temporary file owned by the running application.
+    """
+    bundle_path = os.getenv("MIKROTIK_CA_BUNDLE")
+    if bundle_path:
+        if not os.path.isfile(bundle_path):
+            raise RuntimeError(
+                "MIKROTIK_CA_BUNDLE apunta a un archivo inexistente. "
+                "Usa MIKROTIK_CA_CERT_PEM_B64 en Railway o monta el PEM."
+            )
+        return bundle_path
+
+    encoded_pem = os.getenv("MIKROTIK_CA_CERT_PEM_B64")
+    if not encoded_pem:
+        return True
+
+    try:
+        pem_bytes = base64.b64decode(encoded_pem, validate=True)
+        pem_text = pem_bytes.decode("utf-8")
+        if "-----BEGIN CERTIFICATE-----" not in pem_text:
+            raise ValueError("no contiene un certificado PEM")
+        # Validate the complete PEM chain before persisting it anywhere.
+        ssl.create_default_context(cadata=pem_text)
+    except (binascii.Error, UnicodeDecodeError, ValueError, ssl.SSLError) as exc:
+        raise RuntimeError(
+            "MIKROTIK_CA_CERT_PEM_B64 debe contener una cadena PEM válida "
+            "codificada en Base64."
+        ) from exc
+
+    fd, bundle_path = tempfile.mkstemp(prefix="mikrotik-ca-", suffix=".pem")
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as pem_file:
+            pem_file.write(pem_bytes)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(bundle_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+    atexit.register(lambda: os.path.exists(bundle_path) and os.unlink(bundle_path))
+    return bundle_path
+
+
+_mikrotik_ca_bundle = _ca_bundle_from_environment()
 
 # Verbos/paths que RouterOS trata como mutación de estado. Se usa para clasificar
 # si un comando raw requiere confirmación antes de ejecutarse (ver mikrotik_tools.py).
@@ -27,7 +90,7 @@ class MikrotikService:
         if not use_https and _environment in {"production", "prod"}:
             raise ValueError("MikroTik requiere HTTPS en producción.")
         self.base_url = f"{scheme}://{self.ip}:{self.port}/rest"
-        self.verify_tls = False if _allow_insecure_tls else (os.getenv("MIKROTIK_CA_BUNDLE") or True)
+        self.verify_tls = False if _allow_insecure_tls else _mikrotik_ca_bundle
 
     def _request(self, method: str, path: str, data=None, query: dict = None):
         url = f"{self.base_url}{path}"
@@ -56,7 +119,15 @@ class MikrotikService:
                 }
             return body
         except requests.exceptions.SSLError as e:
-            return {"error": True, "status_code": None, "detail": f"Error SSL/TLS: {e}. Verifica que 'www-ssl' esté habilitado en /ip/service del router."}
+            return {
+                "error": True,
+                "status_code": None,
+                "detail": (
+                    f"Error SSL/TLS: {e}. Verifica que 'www-ssl' esté habilitado "
+                    "y que la CA interna esté configurada. Al conectar por IP, "
+                    "el certificado debe incluir esa IP en subjectAltName."
+                ),
+            }
         except requests.exceptions.ConnectionError as e:
             return {"error": True, "status_code": None, "detail": f"No se pudo conectar al router ({self.base_url}): {e}. Verifica IP/puerto y que el servicio REST esté habilitado y accesible."}
         except requests.exceptions.Timeout:
