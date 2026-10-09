@@ -433,7 +433,7 @@ async def telegram_webhook(
                 try:
                     safe_name = validate_upload(d_name, mime_type, doc_bytes)
                     document = await submit_document(
-                        db, tenant_id=user.id_tenant, user_id=user.id_usuario,
+                        db=db, tenant_id=user.id_tenant, user_id=user.id_usuario,
                         filename=safe_name, content=doc_bytes, mime_type=mime_type,
                         source_channel="telegram", folder_name="Subidos por Telegram",
                     )

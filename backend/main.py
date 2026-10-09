@@ -862,7 +862,7 @@ async def subir_conocimiento(
         file_bytes = await file.read()
         safe_filename = validate_upload(file.filename, file.content_type, file_bytes)
         document = await submit_document(
-            db, tenant_id=usuario["id_tenant"], user_id=usuario["id_usuario"],
+            db=db, tenant_id=usuario["id_tenant"], user_id=usuario["id_usuario"],
             filename=safe_filename, content=file_bytes, mime_type=file.content_type,
             source_channel="web", folder_name="Subidos desde la aplicación",
         )
