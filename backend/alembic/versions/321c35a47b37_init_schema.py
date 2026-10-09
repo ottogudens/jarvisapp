@@ -64,6 +64,24 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id_usuario'),
     sa.UniqueConstraint('email')
     )
+    # Esta tabla ya existía cuando se introdujo la migración MQTT siguiente.
+    # Debe formar parte del esquema base para instalaciones nuevas; de otro
+    # modo e2b4f982dd54 intenta agregarle una columna antes de crearla.
+    op.create_table('iot_configs',
+    sa.Column('id_iot_config', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('id_usuario', sa.Integer(), nullable=False),
+    sa.Column('ha_url', sa.String(length=255), nullable=True),
+    sa.Column('ha_token', sa.Text(), nullable=True),
+    sa.Column('mqtt_broker', sa.String(length=255), nullable=True),
+    sa.Column('mqtt_port', sa.Integer(), nullable=True, server_default='1883'),
+    sa.Column('mqtt_user', sa.String(length=100), nullable=True),
+    sa.Column('mqtt_password', sa.String(length=255), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['id_usuario'], ['usuarios.id_usuario'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id_iot_config'),
+    sa.UniqueConstraint('id_usuario')
+    )
     op.create_table('vehiculos',
     sa.Column('id_vehiculo', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('id_tenant', sa.Integer(), nullable=False),
@@ -115,6 +133,7 @@ def downgrade() -> None:
     op.drop_table('pagos_mercado_pago')
     op.drop_table('ordenes_trabajo')
     op.drop_table('vehiculos')
+    op.drop_table('iot_configs')
     op.drop_table('usuarios')
     op.drop_table('clientes')
     op.drop_table('saas_tenants')
