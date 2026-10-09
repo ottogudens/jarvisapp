@@ -9,7 +9,9 @@ import os
 from backend.database import SessionLocal, inicializar_base_de_datos_remota
 from backend.knowledge_service import process_next_job
 
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+# Railway y otros proveedores suelen aceptar valores en minúsculas; logging de
+# Python no. Normalizar evita que el worker caiga antes de procesar trabajos.
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger("bonso.knowledge_worker")
 POLL_SECONDS = float(os.getenv("KNOWLEDGE_WORKER_POLL_SECONDS", "2"))
 ALERT_CHECK_SECONDS = 60
