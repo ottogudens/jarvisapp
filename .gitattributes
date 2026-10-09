@@ -1,0 +1,2 @@
+# Los scripts ejecutados por Linux (Vercel/Railway) deben conservar saltos LF.
+*.sh text eol=lf
