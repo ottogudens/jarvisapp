@@ -706,7 +706,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                     margin: const EdgeInsets.only(bottom: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withOpacity(0.05))),
                     child: ListTile(
-                      leading: CircleAvatar(backgroundColor: _statusColor(doc['status']).withOpacity(0.16), child: Icon(Icons.memory, color: _statusColor(doc['status'])),
+                      leading: CircleAvatar(backgroundColor: _statusColor(doc['status']).withOpacity(0.16), child: Icon(Icons.memory, color: _statusColor(doc['status']))),
                       title: Text(doc['nombre'] ?? 'Documento RAG', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Text('${_statusLabel(doc['status'])} · v${doc['version'] ?? 1} · ${doc['chunk_count'] ?? 0} fragmentos\n${doc['error_message'] ?? 'Origen: ${doc['source_channel'] ?? 'web'}'}', style: TextStyle(color: doc['status'] == 'failed' ? Colors.redAccent : Colors.white54, fontSize: 12)),
                       isThreeLine: true,
