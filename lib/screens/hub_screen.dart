@@ -13,6 +13,7 @@ import 'documents_screen.dart';
 import 'custom_profile_screen.dart';
 import 'billing_screen.dart';
 import 'marketing_screen.dart';
+import 'templates_screen.dart';
 import '../brand.dart';
 
 class HubScreen extends StatefulWidget {
@@ -612,7 +613,7 @@ class _HubScreenState extends State<HubScreen> {
             value: '$_plantillas',
             icon: Icons.description_outlined,
             color: Colors.orangeAccent,
-            onTap: _uploadTemplate,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TemplatesScreen())).then((_) => _fetchDashboardSummary()),
           );
       if (narrow) {
         return Column(children: [uploaded, const SizedBox(height: 12), generated, const SizedBox(height: 12), tokens, const SizedBox(height: 12), templates]);

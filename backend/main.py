@@ -822,6 +822,23 @@ async def listar_plantillas(usuario: dict = Depends(obtener_usuario_actual), db:
     return [{"id_template": t.id_template, "nombre": t.nombre, "extension": t.extension, "campos": t.campos, "created_at": t.created_at.isoformat() if t.created_at else None} for t in templates]
 
 
+@app.put("/v1/templates/{template_id}")
+async def renombrar_plantilla(template_id: str, data: dict, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id_template == template_id, DocumentTemplate.id_tenant == usuario["id_tenant"], DocumentTemplate.deleted_at.is_(None)).first()
+    nombre = str(data.get("nombre") or "").strip()
+    if not template or not nombre or len(nombre) > 255: raise HTTPException(status_code=422, detail="Plantilla o nombre inválido")
+    template.nombre = nombre; db.commit()
+    return {"nombre": template.nombre}
+
+
+@app.delete("/v1/templates/{template_id}")
+async def eliminar_plantilla(template_id: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id_template == template_id, DocumentTemplate.id_tenant == usuario["id_tenant"], DocumentTemplate.deleted_at.is_(None)).first()
+    if not template: raise HTTPException(status_code=404, detail="Plantilla no encontrada")
+    template.deleted_at = datetime.now(timezone.utc); db.commit()
+    return {"message": "Plantilla enviada a papelera"}
+
+
 @app.post("/v1/templates/{template_id}/fill")
 async def rellenar_plantilla(template_id: str, body: TemplateFillRequest, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
     from backend.template_service import render_template
