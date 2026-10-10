@@ -638,7 +638,28 @@ class _HubScreenState extends State<HubScreen> {
     ];
     return LayoutBuilder(builder: (context, constraints) {
       final width = (constraints.maxWidth - 10) / 2;
-      return Wrap(spacing: 10, runSpacing: 10, children: actions.map((action) => SizedBox(width: width, child: OutlinedButton.icon(onPressed: action.$3, icon: Icon(action.$1, size: 18), label: Text(action.$2, overflow: TextOverflow.ellipsis), style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: BonsoBrand.aqua, side: BorderSide(color: BonsoBrand.aqua.withOpacity(.45)), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14)))).toList());
+      return Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: actions
+            .map<Widget>(
+              (action) => SizedBox(
+                width: width,
+                child: OutlinedButton.icon(
+                  onPressed: action.$3,
+                  icon: Icon(action.$1, size: 18),
+                  label: Text(action.$2, overflow: TextOverflow.ellipsis),
+                  style: OutlinedButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    foregroundColor: BonsoBrand.aqua,
+                    side: BorderSide(color: BonsoBrand.aqua.withOpacity(.45)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+      );
     });
   }
 
