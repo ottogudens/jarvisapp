@@ -498,6 +498,14 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir papelera: $e'))); }
   }
 
+  Future<void> _addWebSource() async {
+    final title = TextEditingController(); final url = TextEditingController(text: 'https://');
+    final ok = await showDialog<bool>(context: context, builder: (_) => AlertDialog(backgroundColor: BonsoBrand.surface, title: const Text('Agregar página web', style: TextStyle(color: Colors.white)), content: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: title, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Título', labelStyle: TextStyle(color: Colors.white54))), TextField(controller: url, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Dirección web', labelStyle: TextStyle(color: Colors.white54)))]), actions: [TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancelar')), ElevatedButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Indexar'))]));
+    if (ok != true) return;
+    final r = await http.post(Uri.parse('$kApiBaseUrl/v1/knowledge/web-source'), headers: {'Authorization':'Bearer ${await _token()}', 'Content-Type':'application/json'}, body: jsonEncode({'titulo':title.text.trim(),'url':url.text.trim()}));
+    if (r.statusCode == 200) { await _cargarConocimiento(); } else if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo indexar: ${r.body}')));
+  }
+
   Future<void> _renombrarRecurso({required String title, required String currentName, required Uri uri, required Map<String, dynamic> body}) async {
     final controller = TextEditingController(text: currentName);
     final name = await showDialog<String>(context: context, builder: (_) => AlertDialog(
@@ -904,7 +912,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         title: const Text('Mis Documentos', style: TextStyle(color: Colors.white)),
         backgroundColor: BonsoBrand.surface,
         iconTheme: const IconThemeData(color: Colors.white),
-        actions: [IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Papelera', onPressed: _openTrash)],
+        actions: [IconButton(icon: const Icon(Icons.language), tooltip: 'Agregar página web', onPressed: _addWebSource), IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Papelera', onPressed: _openTrash)],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: BonsoBrand.aqua,

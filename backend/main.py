@@ -608,6 +608,40 @@ class MasterPromptUpdate(BaseModel):
 
 class WebKnowledgeSource(BaseModel):
     url: str = Field(min_length=10, max_length=2000)
+    titulo: str = Field(default="", max_length=255)
+
+
+async def _fetch_public_web_text(url: str) -> tuple[str, str]:
+    """Descarga sólo páginas públicas; evita SSRF hacia redes internas."""
+    from urllib.parse import urlparse
+    import ipaddress, socket
+    parsed = urlparse(url)
+    if parsed.scheme not in {"https", "http"} or not parsed.netloc:
+        raise HTTPException(status_code=422, detail="Ingresa una URL pública válida (https://...).")
+    try:
+        resolved = {ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(parsed.hostname, None)}
+        if any(address.is_private or address.is_loopback or address.is_link_local or address.is_reserved for address in resolved):
+            raise HTTPException(status_code=422, detail="Solo se permiten páginas web públicas.")
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            response = await client.get(url, headers={"User-Agent": "BonsoKnowledgeBot/1.0"})
+            response.raise_for_status()
+        if len(response.content) > 2 * 1024 * 1024 or ("html" not in response.headers.get("content-type", "") and "text" not in response.headers.get("content-type", "")):
+            raise HTTPException(status_code=422, detail="La URL no contiene una página de texto procesable.")
+        text_content = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", response.text)).strip()
+        if len(text_content) < 40: raise HTTPException(status_code=422, detail="La página no contiene suficiente texto visible.")
+        return text_content[:120000], parsed.netloc
+    except HTTPException: raise
+    except Exception as exc: raise HTTPException(status_code=422, detail=f"No se pudo leer la página: {exc}") from exc
+
+
+@app.post("/v1/knowledge/web-source")
+async def agregar_fuente_web_general(body: WebKnowledgeSource, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Agrega una URL con título a la biblioteca RAG prioritaria del tenant."""
+    from backend.knowledge_service import submit_document
+    text_content, host = await _fetch_public_web_text(body.url)
+    title = body.titulo.strip() or f"Web: {host}"
+    doc = await submit_document(db=db, tenant_id=usuario["id_tenant"], user_id=usuario["id_usuario"], filename=f"{title}.txt", content=text_content.encode("utf-8"), mime_type="text/plain", source_channel="web")
+    return {"message": "Página agregada e indexada como fuente prioritaria.", "document_id": doc.id_document, "title": title, "url": body.url}
 
 
 def _build_master_prompt(profile: dict) -> str:
