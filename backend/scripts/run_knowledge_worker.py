@@ -7,7 +7,7 @@ import logging
 import os
 
 from backend.database import SessionLocal, inicializar_base_de_datos_remota
-from backend.knowledge_service import process_next_job
+from backend.knowledge_service import process_next_job, recover_stale_jobs
 
 # Railway y otros proveedores suelen aceptar valores en minúsculas; logging de
 # Python no. Normalizar evita que el worker caiga antes de procesar trabajos.
@@ -28,6 +28,9 @@ async def consume(worker_number: int) -> None:
             now = asyncio.get_running_loop().time()
             if worker_number == 0 and now - last_alert_check >= ALERT_CHECK_SECONDS:
                 from backend.operations_alerts import cleanup_operational_data, dispatch_operational_alerts, record_worker_heartbeat
+                recovered = recover_stale_jobs(db)
+                if recovered:
+                    logger.warning("Se recuperaron %s trabajo(s) documental(es) abandonado(s)", recovered)
                 record_worker_heartbeat(db)
                 removed = cleanup_operational_data(db)
                 if any(removed.values()):

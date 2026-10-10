@@ -21,6 +21,7 @@ CHUNK_SIZE = 1000
 EMBEDDING_BATCH_SIZE = max(1, min(int(os.getenv("KNOWLEDGE_EMBEDDING_BATCH_SIZE", "24")), 96))
 RETRY_BASE_SECONDS = max(10, min(int(os.getenv("KNOWLEDGE_RETRY_BASE_SECONDS", "30")), 600))
 RETRY_MAX_SECONDS = max(RETRY_BASE_SECONDS, min(int(os.getenv("KNOWLEDGE_RETRY_MAX_SECONDS", "600")), 3600))
+STALE_JOB_SECONDS = max(300, min(int(os.getenv("KNOWLEDGE_STALE_JOB_SECONDS", "2700")), 86400))
 KNOWLEDGE_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx"}
 KNOWLEDGE_MIME_TYPES = {
     ".pdf": "application/pdf",
@@ -46,6 +47,33 @@ def knowledge_mime_type(filename: str, supplied_mime_type: str | None) -> str:
 def retry_delay_seconds(attempts: int) -> int:
     """Backoff acotado: 30 s, 60 s, 120 s… sin dejar el documento perdido."""
     return min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * (2 ** max(0, attempts - 1)))
+
+
+def recover_stale_jobs(db: Session) -> int:
+    """Devuelve a cola trabajos abandonados tras un reinicio del worker.
+
+    La ventana es deliberadamente amplia y configurable: no recupera trabajos
+    activos normales, sólo los que superaron el tiempo máximo operacional.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=STALE_JOB_SECONDS)
+    stale_jobs = db.query(KnowledgeIngestionJob).filter(
+        KnowledgeIngestionJob.status == "processing",
+        KnowledgeIngestionJob.started_at < cutoff,
+    ).with_for_update(skip_locked=True).all()
+    for job in stale_jobs:
+        terminal = job.attempts >= job.max_attempts
+        job.status = "failed" if terminal else "queued"
+        job.stage, job.progress_percent = ("failed", 0) if terminal else ("queued", 0)
+        job.error_message = "El worker se interrumpió antes de completar la indexación."
+        job.finished_at = now if terminal else None
+        job.next_attempt_at = None if terminal else now
+        if job.document:
+            job.document.status = "failed" if terminal else "queued"
+            job.document.error_message = job.error_message if terminal else None
+    if stale_jobs:
+        db.commit()
+    return len(stale_jobs)
 
 
 def folder_scope_ids(db: Session, tenant_id: int, folder_id: str | None) -> list[str] | None:

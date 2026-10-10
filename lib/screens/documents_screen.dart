@@ -585,6 +585,13 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
       'finalizing': 'Guardando índice',
     }[stage] ?? _statusLabel(doc['status']);
     final fragments = total > 0 ? ' · $processed/$total fragmentos' : '';
+    final retryAt = DateTime.tryParse(job['next_attempt_at']?.toString() ?? '');
+    if (stage == 'queued' && retryAt != null && retryAt.isAfter(DateTime.now())) {
+      final wait = retryAt.difference(DateTime.now());
+      final seconds = wait.inSeconds.clamp(1, 3599).toInt();
+      final when = seconds >= 60 ? '${(seconds / 60).ceil()} min' : '$seconds s';
+      return 'Reintento automático en $when';
+    }
     return '$stageLabel · $progress%$fragments';
   }
 

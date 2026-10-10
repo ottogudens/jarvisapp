@@ -1133,6 +1133,7 @@ async def listar_conocimiento(
                 "progress_percent": jobs_by_document[d.id_document].progress_percent,
                 "total_chunks": jobs_by_document[d.id_document].total_chunks,
                 "processed_chunks": jobs_by_document[d.id_document].processed_chunks,
+                "next_attempt_at": jobs_by_document[d.id_document].next_attempt_at.isoformat() if jobs_by_document[d.id_document].next_attempt_at else None,
             }
         } for d in documentos_db]
     }
