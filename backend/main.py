@@ -594,6 +594,11 @@ class TemplateFillRequest(BaseModel):
     fields: dict[str, str | int | float | bool] = {}
 
 
+class TemplateContentUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    contenido: str = Field(min_length=1, max_length=15 * 1024 * 1024)
+
+
 class CustomProfileDraftRequest(BaseModel):
     nombre: str = Field(min_length=2, max_length=100)
     personalidad: str = Field(min_length=3, max_length=255)
@@ -865,6 +870,70 @@ async def renombrar_plantilla(template_id: str, data: dict, usuario: dict = Depe
     if not template or not nombre or len(nombre) > 255: raise HTTPException(status_code=422, detail="Plantilla o nombre inválido")
     template.nombre = nombre; db.commit()
     return {"nombre": template.nombre}
+
+
+def _obtener_plantilla_activa(template_id: str, usuario: dict, db: Session) -> DocumentTemplate:
+    template = db.query(DocumentTemplate).filter(
+        DocumentTemplate.id_template == template_id,
+        DocumentTemplate.id_tenant == usuario["id_tenant"],
+        DocumentTemplate.deleted_at.is_(None),
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Plantilla no encontrada")
+    return template
+
+
+EDITABLE_TEMPLATE_SUFFIXES = {".html", ".htm", ".md", ".txt"}
+
+
+@app.get("/v1/templates/{template_id}/content")
+async def obtener_contenido_plantilla(template_id: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Entrega el texto fuente solo para formatos editables de manera segura en la aplicación."""
+    template = _obtener_plantilla_activa(template_id, usuario, db)
+    if template.extension.lower() not in EDITABLE_TEMPLATE_SUFFIXES:
+        raise HTTPException(status_code=422, detail="Este formato no admite edición de texto. Reemplaza el archivo para actualizarlo.")
+    try:
+        contenido = base64.b64decode(template.contenido_base64).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=422, detail="No fue posible leer el contenido de la plantilla.") from exc
+    return {"id_template": template.id_template, "nombre": template.nombre, "contenido": contenido}
+
+
+@app.put("/v1/templates/{template_id}/content")
+async def actualizar_contenido_plantilla(template_id: str, data: TemplateContentUpdate, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Edita plantillas de texto y recalcula sus marcadores {{campo}}."""
+    from backend.template_service import detect_fields
+    template = _obtener_plantilla_activa(template_id, usuario, db)
+    if template.extension.lower() not in EDITABLE_TEMPLATE_SUFFIXES:
+        raise HTTPException(status_code=422, detail="Este formato no admite edición de texto. Reemplaza el archivo para actualizarlo.")
+    content = data.contenido.encode("utf-8")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="La plantilla supera el tamaño máximo permitido.")
+    if data.nombre:
+        template.nombre = data.nombre.strip()
+    template.contenido_base64 = base64.b64encode(content).decode()
+    template.campos = detect_fields(content, template.extension)
+    db.commit()
+    return {"id_template": template.id_template, "nombre": template.nombre, "campos": template.campos}
+
+
+@app.put("/v1/templates/{template_id}/file")
+async def reemplazar_archivo_plantilla(template_id: str, file: UploadFile = File(...), usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Reemplaza el archivo de una plantilla (DOCX y PDF incluidos) y redetecta sus campos."""
+    from pathlib import Path
+    from backend.template_service import detect_fields
+    template = _obtener_plantilla_activa(template_id, usuario, db)
+    content = await file.read()
+    filename = Path(file.filename or "").name
+    extension = Path(filename).suffix.lower()
+    if extension not in TEMPLATE_SUFFIXES or not content or len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="Plantilla inválida o mayor a 15 MB.")
+    template.nombre = filename
+    template.extension = extension
+    template.contenido_base64 = base64.b64encode(content).decode()
+    template.campos = detect_fields(content, extension)
+    db.commit()
+    return {"id_template": template.id_template, "nombre": template.nombre, "extension": template.extension, "campos": template.campos}
 
 
 @app.delete("/v1/templates/{template_id}")

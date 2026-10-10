@@ -515,7 +515,7 @@ class TelegramWebhookEvent(Base):
 
 
 class DocumentTemplate(Base):
-    """Plantillas del tenant. El original se conserva inmutable en base64."""
+    """Plantillas del tenant, con contenido versionable mediante reemplazo explícito."""
     __tablename__ = 'document_templates'
 
     id_template = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
