@@ -1062,6 +1062,36 @@ async def renombrar_knowledge_document(id_document: str, data: dict, usuario: di
     return {"status": "success", "nombre": doc.nombre}
 
 
+@app.post("/v1/knowledge/batch")
+async def operar_documentos_lote(data: dict, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Mueve, duplica o envía a papelera documentos del tenant, de forma atómica."""
+    from backend.models import KnowledgeDocument, KnowledgeFolder, KnowledgeIngestionJob
+    ids = list(dict.fromkeys(str(value) for value in (data.get("document_ids") or []) if value))
+    action = data.get("action")
+    if not ids or len(ids) > 100 or action not in {"move", "copy", "delete"}:
+        raise HTTPException(status_code=422, detail="Operación documental inválida")
+    documents = db.query(KnowledgeDocument).filter(KnowledgeDocument.id_tenant == usuario["id_tenant"], KnowledgeDocument.id_document.in_(ids), KnowledgeDocument.deleted_at.is_(None)).all()
+    if len(documents) != len(ids):
+        raise HTTPException(status_code=404, detail="Uno o más documentos no existen o no pertenecen a tu organización")
+    folder_id = data.get("id_folder")
+    if action == "move" and folder_id:
+        folder = db.query(KnowledgeFolder).filter(KnowledgeFolder.id_folder == folder_id, KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.deleted_at.is_(None)).first()
+        if not folder: raise HTTPException(status_code=404, detail="Carpeta de destino no encontrada")
+    now = datetime.now(timezone.utc)
+    if action == "move":
+        for document in documents: document.id_folder = folder_id or None
+    elif action == "delete":
+        for document in documents:
+            document.deleted_at, document.status = now, "deleted"
+    else:
+        for document in documents:
+            copy = KnowledgeDocument(id_tenant=document.id_tenant, id_usuario=usuario["id_usuario"], id_folder=folder_id or document.id_folder, nombre=f"Copia de {document.nombre}", storage_path=document.storage_path, mime_type=document.mime_type, byte_size=document.byte_size, content_sha256=document.content_sha256, source_channel="copy", version=1, status="queued")
+            db.add(copy); db.flush()
+            db.add(KnowledgeIngestionJob(id_document=copy.id_document, status="queued"))
+    db.commit()
+    return {"status": "success", "action": action, "count": len(documents)}
+
+
 @app.put("/v1/chat/sessions/{session_id}/knowledge-scope")
 async def seleccionar_alcance_documental_chat(
     session_id: str,

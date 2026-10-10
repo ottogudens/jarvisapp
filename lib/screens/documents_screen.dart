@@ -25,6 +25,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
   List<Map<String, dynamic>> _carpetas = [];
   Map<String, dynamic> _quota = {};
   String? _currentFolderId;
+  final Set<String> _selectedKnowledgeIds = {};
   String _searchQuery = '';
   late TabController _tabController;
   Timer? _knowledgeStatusPoll;
@@ -472,6 +473,20 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _batchAction(String action) async {
+    if (_selectedKnowledgeIds.isEmpty) return;
+    String? folderId;
+    if (action == 'move' || action == 'copy') {
+      folderId = await showDialog<String?>(context: context, builder: (_) => AlertDialog(backgroundColor: BonsoBrand.surface, title: Text(action == 'move' ? 'Mover seleccionados a…' : 'Copiar seleccionados a…', style: const TextStyle(color: Colors.white)), content: SizedBox(width: double.maxFinite, child: ListView(shrinkWrap: true, children: [ListTile(title: const Text('Carpeta principal', style: TextStyle(color: Colors.white)), onTap: () => Navigator.pop(context, 'ROOT')), ..._carpetas.map((c) => ListTile(title: Text(c['nombre'], style: const TextStyle(color: Colors.white)), onTap: () => Navigator.pop(context, c['id_folder'])))]))));
+      if (folderId == null) return;
+    }
+    try {
+      final response = await http.post(Uri.parse('$kApiBaseUrl/v1/knowledge/batch'), headers: {'Authorization': 'Bearer ${await _token()}', 'Content-Type': 'application/json'}, body: jsonEncode({'action': action, 'document_ids': _selectedKnowledgeIds.toList(), if (folderId != null) 'id_folder': folderId == 'ROOT' ? null : folderId}));
+      if (response.statusCode != 200) throw Exception(response.body);
+      setState(() => _selectedKnowledgeIds.clear()); await _cargarConocimiento();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo completar la operación: $e'))); }
+  }
+
   Future<void> _renombrarRecurso({required String title, required String currentName, required Uri uri, required Map<String, dynamic> body}) async {
     final controller = TextEditingController(text: currentName);
     final name = await showDialog<String>(context: context, builder: (_) => AlertDialog(
@@ -739,6 +754,18 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
               ),
             ),
           ),
+        if (_selectedKnowledgeIds.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(children: [
+              Text('${_selectedKnowledgeIds.length} seleccionado(s)', style: const TextStyle(color: BonsoBrand.aqua)),
+              const Spacer(),
+              IconButton(onPressed: () => _batchAction('move'), icon: const Icon(Icons.drive_file_move, color: BonsoBrand.aqua), tooltip: 'Mover'),
+              IconButton(onPressed: () => _batchAction('copy'), icon: const Icon(Icons.copy, color: BonsoBrand.aqua), tooltip: 'Copiar'),
+              IconButton(onPressed: () => _batchAction('delete'), icon: const Icon(Icons.delete, color: Colors.redAccent), tooltip: 'Enviar a papelera'),
+              IconButton(onPressed: () => setState(() => _selectedKnowledgeIds.clear()), icon: const Icon(Icons.close, color: Colors.white54), tooltip: 'Cancelar'),
+            ]),
+          ),
         Expanded(
           child: _carpetas.isEmpty && _conocimiento.isEmpty
             ? const Center(child: Text('La memoria de Bonso está vacía', style: TextStyle(color: Colors.white54)))
@@ -765,11 +792,13 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                     margin: const EdgeInsets.only(bottom: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.white.withOpacity(0.05))),
                     child: ListTile(
-                      leading: CircleAvatar(backgroundColor: _statusColor(doc['status']).withOpacity(0.16), child: Icon(Icons.memory, color: _statusColor(doc['status']))),
                       title: Text(doc['nombre'] ?? 'Documento RAG', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Text('${_progressLabel(doc)} · v${doc['version'] ?? 1} · ${doc['chunk_count'] ?? 0} fragmentos\n${doc['error_message'] ?? 'Origen: ${doc['source_channel'] ?? 'web'}'}', style: TextStyle(color: doc['status'] == 'failed' ? Colors.redAccent : Colors.white54, fontSize: 12)),
                       isThreeLine: true,
-                      onTap: () => _verDetalleConocimiento(doc),
+                      selected: _selectedKnowledgeIds.contains(doc['id_document']),
+                      onLongPress: () => setState(() => _selectedKnowledgeIds.add(doc['id_document'].toString())),
+                      onTap: _selectedKnowledgeIds.isNotEmpty ? () => setState(() { final id = doc['id_document'].toString(); _selectedKnowledgeIds.contains(id) ? _selectedKnowledgeIds.remove(id) : _selectedKnowledgeIds.add(id); }) : () => _verDetalleConocimiento(doc),
+                      leading: Checkbox(value: _selectedKnowledgeIds.contains(doc['id_document']), activeColor: BonsoBrand.aqua, onChanged: (_) => setState(() { final id = doc['id_document'].toString(); _selectedKnowledgeIds.contains(id) ? _selectedKnowledgeIds.remove(id) : _selectedKnowledgeIds.add(id); })),
                       trailing: PopupMenuButton<String>(
                         color: BonsoBrand.surfaceRaised,
                         icon: const Icon(Icons.more_vert, color: Colors.white70),
