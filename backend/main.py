@@ -1132,19 +1132,20 @@ async def obtener_alcance_documental_chat(
 
 @app.get("/v1/knowledge/all")
 async def listar_conocimiento(
+    include_deleted: bool = False,
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
     from backend.models import KnowledgeDocument, KnowledgeFolder, KnowledgeIngestionJob
     from backend.knowledge_service import document_quota_snapshot
     
-    carpetas_db = db.query(KnowledgeFolder).filter(
-        KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.deleted_at.is_(None)
-    ).order_by(KnowledgeFolder.created_at.desc()).all()
+    folder_filters = [KnowledgeFolder.id_tenant == usuario["id_tenant"]]
+    document_filters = [KnowledgeDocument.id_tenant == usuario["id_tenant"]]
+    folder_filters.append(KnowledgeFolder.deleted_at.isnot(None) if include_deleted else KnowledgeFolder.deleted_at.is_(None))
+    document_filters.append(KnowledgeDocument.deleted_at.isnot(None) if include_deleted else KnowledgeDocument.deleted_at.is_(None))
+    carpetas_db = db.query(KnowledgeFolder).filter(*folder_filters).order_by(KnowledgeFolder.created_at.desc()).all()
     
-    documentos_db = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.id_tenant == usuario["id_tenant"], KnowledgeDocument.deleted_at.is_(None)
-    ).order_by(KnowledgeDocument.created_at.desc()).all()
+    documentos_db = db.query(KnowledgeDocument).filter(*document_filters).order_by(KnowledgeDocument.created_at.desc()).all()
     
     jobs_by_document = {
         job.id_document: job for job in db.query(KnowledgeIngestionJob).filter(
@@ -1406,6 +1407,17 @@ async def restaurar_conocimiento(id_document: str, usuario: dict = Depends(obten
             db.add(KnowledgeIngestionJob(id_document=doc.id_document, status="queued"))
     db.commit()
     return {"message": "Documento restaurado", "status": doc.status}
+
+
+@app.delete("/v1/knowledge/{id_document}/permanent")
+async def eliminar_conocimiento_definitivamente(id_document: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id_document == id_document, KnowledgeDocument.id_tenant == usuario["id_tenant"], KnowledgeDocument.deleted_at.isnot(None)).first()
+    if not doc: raise HTTPException(status_code=404, detail="Documento no está en la papelera")
+    if doc.storage_path:
+        from backend.knowledge_service import delete_original
+        delete_original(doc.storage_path)
+    db.delete(doc); db.commit()
+    return {"message": "Documento eliminado definitivamente"}
 
 
 # ── Gestión de documentos / mensajes con archivos ──────────────

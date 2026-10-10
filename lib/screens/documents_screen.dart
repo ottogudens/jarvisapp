@@ -487,6 +487,17 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo completar la operación: $e'))); }
   }
 
+  Future<void> _openTrash() async {
+    try {
+      final response = await http.get(Uri.parse('$kApiBaseUrl/v1/knowledge/all?include_deleted=true'), headers: {'Authorization': 'Bearer ${await _token()}'});
+      if (response.statusCode != 200) throw Exception(response.body);
+      final data = Map<String, dynamic>.from(jsonDecode(response.body));
+      final docs = List<Map<String, dynamic>>.from(data['documentos'] ?? []);
+      if (!mounted) return;
+      await showModalBottomSheet<void>(context: context, backgroundColor: BonsoBrand.surface, isScrollControlled: true, builder: (_) => SafeArea(child: SizedBox(height: 500, child: Column(children: [const Padding(padding: EdgeInsets.all(16), child: Text('Papelera', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))), Expanded(child: docs.isEmpty ? const Center(child: Text('La papelera está vacía', style: TextStyle(color: Colors.white54))) : ListView(children: docs.map((doc) => ListTile(leading: const Icon(Icons.delete_outline, color: Colors.redAccent), title: Text(doc['nombre'] ?? 'Documento', style: const TextStyle(color: Colors.white)), subtitle: const Text('Eliminado de la memoria', style: TextStyle(color: Colors.white54)), trailing: Wrap(children: [IconButton(icon: const Icon(Icons.restore, color: BonsoBrand.aqua), onPressed: () async { await http.post(Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/restore'), headers: {'Authorization': 'Bearer ${await _token()}'}); if (mounted) Navigator.pop(context); await _cargarConocimiento(); }), IconButton(icon: const Icon(Icons.delete_forever, color: Colors.redAccent), onPressed: () async { await http.delete(Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/permanent'), headers: {'Authorization': 'Bearer ${await _token()}'}); if (mounted) Navigator.pop(context); await _cargarConocimiento(); })]))).toList()))]))));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir papelera: $e'))); }
+  }
+
   Future<void> _renombrarRecurso({required String title, required String currentName, required Uri uri, required Map<String, dynamic> body}) async {
     final controller = TextEditingController(text: currentName);
     final name = await showDialog<String>(context: context, builder: (_) => AlertDialog(
@@ -893,6 +904,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         title: const Text('Mis Documentos', style: TextStyle(color: Colors.white)),
         backgroundColor: BonsoBrand.surface,
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Papelera', onPressed: _openTrash)],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: BonsoBrand.aqua,
