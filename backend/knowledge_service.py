@@ -365,7 +365,9 @@ def queue_document(
         raise
 
 
-async def _index_existing_document(db: Session, document: KnowledgeDocument, content: bytes) -> None:
+async def _index_existing_document(
+    db: Session, document: KnowledgeDocument, content: bytes, job: KnowledgeIngestionJob | None = None,
+) -> None:
     chunks = chunks_with_provenance(document.nombre, content)
     if not chunks:
         raise RuntimeError("El documento no contiene texto extraíble.")
@@ -376,6 +378,12 @@ async def _index_existing_document(db: Session, document: KnowledgeDocument, con
     from backend.ai_service import load_ai_keys
     from litellm import aembedding
     load_ai_keys(db)
+    if job:
+        job.stage = "embedding"
+        job.total_chunks = len(chunks)
+        job.processed_chunks = 0
+        job.progress_percent = 10
+        db.commit()
     db.query(DocumentChunk).filter_by(id_document=document.id_document).delete(synchronize_session=False)
     # Una llamada por fragmento multiplica la latencia de documentos largos.
     # Se conserva el orden y la procedencia, pero el proveedor recibe lotes.
@@ -391,7 +399,14 @@ async def _index_existing_document(db: Session, document: KnowledgeDocument, con
                 embedding=vector,
                 metadata_json=metadata,
             ))
+        if job:
+            job.processed_chunks = min(start + len(batch), len(chunks))
+            # La última parte queda reservada para persistir y confirmar el índice.
+            job.progress_percent = min(95, 10 + int(85 * job.processed_chunks / len(chunks)))
+            db.commit()
     document.chunk_count = len(chunks)
+    if job:
+        job.stage, job.progress_percent = "finalizing", 98
     document.status = "ready"
     document.error_message = None
     document.indexed_at = datetime.now(timezone.utc)
@@ -408,13 +423,15 @@ async def process_next_job(db: Session) -> bool:
     document = job.document
     job_id, document_id = job.id_job, document.id_document
     job.status, job.attempts, job.started_at = "processing", job.attempts + 1, datetime.now(timezone.utc)
+    job.stage, job.progress_percent, job.total_chunks, job.processed_chunks = "extracting", 3, 0, 0
     document.status = "processing"
     db.commit()
     try:
         if not document.storage_path:
             raise RuntimeError("El documento no tiene original en Storage.")
-        await _index_existing_document(db, document, _download_original(document.storage_path))
+        await _index_existing_document(db, document, _download_original(document.storage_path), job)
         job.status, job.finished_at, job.error_message = "completed", datetime.now(timezone.utc), None
+        job.stage, job.progress_percent = "completed", 100
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -422,6 +439,7 @@ async def process_next_job(db: Session) -> bool:
         document = db.query(KnowledgeDocument).filter_by(id_document=document_id).first()
         terminal = job.attempts >= job.max_attempts
         job.status, job.error_message = ("failed" if terminal else "queued"), str(exc)[:2000]
+        job.stage, job.progress_percent = ("failed", 0) if terminal else ("queued", 0)
         if terminal:
             document.status, document.error_message = "failed", job.error_message
         else:

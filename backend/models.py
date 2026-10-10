@@ -471,6 +471,12 @@ class KnowledgeIngestionJob(Base):
     started_at = Column(DateTime(timezone=True), nullable=True)
     finished_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Campos visibles para que la biblioteca pueda informar progreso real, no
+    # una estimación únicamente basada en el estado de la cola.
+    stage = Column(String(40), nullable=False, default="queued")
+    progress_percent = Column(Integer, nullable=False, default=0)
+    total_chunks = Column(Integer, nullable=False, default=0)
+    processed_chunks = Column(Integer, nullable=False, default=0)
 
     document = relationship("KnowledgeDocument")
 

@@ -1068,12 +1068,28 @@ async def seleccionar_alcance_documental_chat(
     db.commit()
     return {"status": "success", "folder_id": session.active_knowledge_folder_id}
 
+
+@app.get("/v1/chat/sessions/{session_id}/knowledge-scope")
+async def obtener_alcance_documental_chat(
+    session_id: str,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Devuelve el proyecto activo de una conversación para restaurar su contexto en la UI."""
+    session = db.query(ChatSession).filter(
+        ChatSession.id_session == session_id,
+        ChatSession.id_usuario == usuario["id_usuario"],
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    return {"folder_id": session.active_knowledge_folder_id}
+
 @app.get("/v1/knowledge/all")
 async def listar_conocimiento(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import KnowledgeDocument, KnowledgeFolder
+    from backend.models import KnowledgeDocument, KnowledgeFolder, KnowledgeIngestionJob
     from backend.knowledge_service import document_quota_snapshot
     
     carpetas_db = db.query(KnowledgeFolder).filter(
@@ -1084,6 +1100,11 @@ async def listar_conocimiento(
         KnowledgeDocument.id_tenant == usuario["id_tenant"]
     ).order_by(KnowledgeDocument.created_at.desc()).all()
     
+    jobs_by_document = {
+        job.id_document: job for job in db.query(KnowledgeIngestionJob).filter(
+            KnowledgeIngestionJob.id_document.in_([d.id_document for d in documentos_db])
+        ).all()
+    } if documentos_db else {}
     return {
         "quota": document_quota_snapshot(db, usuario["id_tenant"]),
         "carpetas": [{
@@ -1106,7 +1127,13 @@ async def listar_conocimiento(
             "original_available": bool(d.storage_path),
             "chunk_count": d.chunk_count,
             "indexed_at": d.indexed_at.isoformat() if d.indexed_at else None,
-            "created_at": d.created_at.isoformat() if d.created_at else None
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+            "job": None if not jobs_by_document.get(d.id_document) else {
+                "stage": jobs_by_document[d.id_document].stage,
+                "progress_percent": jobs_by_document[d.id_document].progress_percent,
+                "total_chunks": jobs_by_document[d.id_document].total_chunks,
+                "processed_chunks": jobs_by_document[d.id_document].processed_chunks,
+            }
         } for d in documentos_db]
     }
 
@@ -1143,6 +1170,8 @@ async def detalle_conocimiento(
         "job": None if not job else {
             "status": job.status, "attempts": job.attempts, "max_attempts": job.max_attempts,
             "error_message": job.error_message,
+            "stage": job.stage, "progress_percent": job.progress_percent,
+            "total_chunks": job.total_chunks, "processed_chunks": job.processed_chunks,
         },
     }
 
@@ -1162,6 +1191,7 @@ async def reintentar_conocimiento(
         job = KnowledgeIngestionJob(id_document=doc.id_document)
         db.add(job)
     job.status, job.attempts, job.error_message, job.finished_at = "queued", 0, None, None
+    job.stage, job.progress_percent, job.total_chunks, job.processed_chunks = "queued", 0, 0, 0
     doc.status, doc.error_message = "queued", None
     db.commit()
     return {"message": "Documento enviado nuevamente a indexación.", "status": "queued"}

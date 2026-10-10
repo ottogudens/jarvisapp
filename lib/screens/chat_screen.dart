@@ -43,6 +43,8 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
   List<PlatformFile> _selectedFiles = [];
   List<String> _focusedDocumentIds = [];
   List<Map<String,dynamic>> _availableDocsForFocus = [];
+  List<Map<String, dynamic>> _knowledgeFolders = [];
+  String? _activeKnowledgeFolderId;
   
   // Ajustes de Agente
   String _voiceId = '';
@@ -94,7 +96,76 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
 
     _loadSettings().then((_) {
       _fetchMessages();
+      _loadKnowledgeScope();
     });
+  }
+
+  Future<void> _loadKnowledgeScope() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token') ?? '';
+      final responses = await Future.wait([
+        http.get(Uri.parse('$kApiBaseUrl/v1/knowledge/all'), headers: {'Authorization': 'Bearer $token'}),
+        http.get(Uri.parse('$kApiBaseUrl/v1/chat/sessions/${widget.sessionId}/knowledge-scope'), headers: {'Authorization': 'Bearer $token'}),
+      ]);
+      if (responses[0].statusCode != 200 || responses[1].statusCode != 200 || !mounted) return;
+      final knowledge = Map<String, dynamic>.from(jsonDecode(responses[0].body));
+      final scope = Map<String, dynamic>.from(jsonDecode(responses[1].body));
+      setState(() {
+        _knowledgeFolders = List<Map<String, dynamic>>.from(knowledge['carpetas'] ?? []);
+        _activeKnowledgeFolderId = scope['folder_id']?.toString();
+      });
+    } catch (_) {
+      // El chat sigue operativo aunque no pueda cargar el selector de proyecto.
+    }
+  }
+
+  String get _activeFolderName {
+    if (_activeKnowledgeFolderId == null) return 'Toda la biblioteca';
+    return _knowledgeFolders
+        .firstWhere((folder) => folder['id_folder'] == _activeKnowledgeFolderId, orElse: () => {'nombre': 'Proyecto'})['nombre']
+        .toString();
+  }
+
+  Future<void> _chooseKnowledgeScope() async {
+    final selected = await showModalBottomSheet<String?>(
+      context: context,
+      backgroundColor: BonsoBrand.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('Proyecto documental', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), subtitle: Text('Limita las respuestas a los documentos de este proyecto.', style: TextStyle(color: Colors.white54))),
+            ListTile(
+              leading: const Icon(Icons.library_books, color: BonsoBrand.aqua),
+              title: const Text('Toda la biblioteca', style: TextStyle(color: Colors.white)),
+              trailing: _activeKnowledgeFolderId == null ? const Icon(Icons.check, color: BonsoBrand.aqua) : null,
+              onTap: () => Navigator.pop(context, ''),
+            ),
+            ..._knowledgeFolders.map((folder) => ListTile(
+              leading: const Icon(Icons.folder, color: BonsoBrand.aqua),
+              title: Text(folder['nombre']?.toString() ?? 'Carpeta', style: const TextStyle(color: Colors.white)),
+              trailing: _activeKnowledgeFolderId == folder['id_folder'] ? const Icon(Icons.check, color: BonsoBrand.aqua) : null,
+              onTap: () => Navigator.pop(context, folder['id_folder']?.toString()),
+            )),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final response = await http.put(
+        Uri.parse('$kApiBaseUrl/v1/chat/sessions/${widget.sessionId}/knowledge-scope'),
+        headers: {'Authorization': 'Bearer ${prefs.getString('jwt_token') ?? ''}', 'Content-Type': 'application/json'},
+        body: jsonEncode({'folder_id': selected.isEmpty ? null : selected}),
+      );
+      if (response.statusCode != 200) throw Exception('No se pudo guardar el proyecto');
+      if (mounted) setState(() => _activeKnowledgeFolderId = selected.isEmpty ? null : selected);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo seleccionar el proyecto: $e')));
+    }
   }
 
   void _initHeadsetListener() {
@@ -420,6 +491,7 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     _scrollToBottom();
 
     final filesToSend = List<PlatformFile>.from(_selectedFiles);
+    final focusedDocumentIds = List<String>.from(_focusedDocumentIds);
     setState(() { _selectedFiles.clear(); _focusedDocumentIds.clear(); });
 
     try {
@@ -445,8 +517,11 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
       }
       
       request.fields['mensaje'] = userText;
-      if (_focusedDocumentIds.isNotEmpty) {
-        request.fields['focused_document_ids'] = jsonEncode(_focusedDocumentIds);
+      if (_activeKnowledgeFolderId != null) {
+        request.fields['knowledge_folder_id'] = _activeKnowledgeFolderId!;
+      }
+      if (focusedDocumentIds.isNotEmpty) {
+        request.fields['focused_document_ids'] = jsonEncode(focusedDocumentIds);
       }
       if (_customPrompt.isNotEmpty) {
         request.fields['custom_prompt'] = _customPrompt;
@@ -642,6 +717,11 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.folder_open, color: BonsoBrand.aqua),
+            tooltip: 'Proyecto: $_activeFolderName',
+            onPressed: _chooseKnowledgeScope,
+          ),
+          IconButton(
             icon: Icon(
               _handsFreeMode ? Icons.headset_mic : Icons.headset_off,
               color: _handsFreeMode ? BonsoBrand.aqua : Colors.white38,
@@ -698,6 +778,20 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
                   ),
                 ),
               if (_selectedFiles.isNotEmpty) _buildSelectedFilesPreview(),
+              Container(
+                width: double.infinity,
+                color: BonsoBrand.surface,
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                child: InkWell(
+                  onTap: _chooseKnowledgeScope,
+                  child: Row(children: [
+                    const Icon(Icons.folder_open, size: 15, color: BonsoBrand.aqua),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text('Memoria: $_activeFolderName', style: const TextStyle(color: Colors.white54, fontSize: 11), overflow: TextOverflow.ellipsis)),
+                    const Icon(Icons.expand_more, size: 16, color: Colors.white54),
+                  ]),
+                ),
+              ),
               _buildInputBar(),
             ],
           ),
