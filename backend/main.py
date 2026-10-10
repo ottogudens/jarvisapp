@@ -1051,6 +1051,17 @@ async def mover_knowledge_document(
     return {"status": "success", "message": "Documento movido"}
 
 
+@app.put("/v1/knowledge/{id_document}")
+async def renombrar_knowledge_document(id_document: str, data: dict, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    nombre = str(data.get("nombre") or "").strip()
+    if not nombre or len(nombre) > 255:
+        raise HTTPException(status_code=422, detail="Nombre de documento inválido")
+    doc = _obtener_documento_tenant(db, id_document, usuario["id_tenant"])
+    doc.nombre = nombre
+    db.commit()
+    return {"status": "success", "nombre": doc.nombre}
+
+
 @app.put("/v1/chat/sessions/{session_id}/knowledge-scope")
 async def seleccionar_alcance_documental_chat(
     session_id: str,

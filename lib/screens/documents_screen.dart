@@ -472,6 +472,24 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     }
   }
 
+  Future<void> _renombrarRecurso({required String title, required String currentName, required Uri uri, required Map<String, dynamic> body}) async {
+    final controller = TextEditingController(text: currentName);
+    final name = await showDialog<String>(context: context, builder: (_) => AlertDialog(
+      backgroundColor: BonsoBrand.surface,
+      title: Text(title, style: const TextStyle(color: Colors.white)),
+      content: TextField(controller: controller, style: const TextStyle(color: Colors.white), autofocus: true),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')), ElevatedButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Guardar'))],
+    ));
+    if (name == null || name.isEmpty) return;
+    try {
+      final token = await _token();
+      body['nombre'] = name;
+      final response = await http.put(uri, headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'}, body: jsonEncode(body));
+      if (response.statusCode != 200) throw Exception(response.body);
+      await _cargarConocimiento();
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo guardar: $e'))); }
+  }
+
   Future<void> _verMemoria(Map<String, dynamic> doc) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -736,10 +754,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                         title: Text(c['nombre'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                         subtitle: const Text('Carpeta', style: TextStyle(color: Colors.white54, fontSize: 12)),
                         onTap: () => setState(() => _currentFolderId = c['id_folder']),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.redAccent),
-                          onPressed: () => _eliminarCarpeta(c['id_folder']),
-                        ),
+                        trailing: PopupMenuButton<String>(color: BonsoBrand.surfaceRaised, onSelected: (value) {
+                          if (value == 'rename') _renombrarRecurso(title: 'Renombrar carpeta', currentName: c['nombre'], uri: Uri.parse('$kApiBaseUrl/v1/knowledge/folders/${c['id_folder']}'), body: {'parent_id': c['parent_id']});
+                          if (value == 'delete') _eliminarCarpeta(c['id_folder']);
+                        }, itemBuilder: (_) => const [PopupMenuItem(value: 'rename', child: Text('Renombrar', style: TextStyle(color: Colors.white))), PopupMenuItem(value: 'delete', child: Text('Enviar a papelera', style: TextStyle(color: Colors.redAccent)))]),
                       ),
                     )),
                   ...itemsToShow.map((doc) => Card(
@@ -763,6 +781,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                           if (value == 'replace') _reemplazarConocimiento(doc);
                           if (value == 'reprocess') _reprocesarDocumento(doc);
                           if (value == 'move') _moverDocumento(doc['id_document']);
+                          if (value == 'rename') _renombrarRecurso(title: 'Renombrar documento', currentName: doc['nombre'], uri: Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}'), body: {});
                           if (value == 'delete') _eliminarConocimiento(doc['id_document']);
                         },
                         itemBuilder: (_) => [
@@ -773,6 +792,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                           const PopupMenuItem(value: 'replace', child: Text('Reemplazar por nueva versión', style: TextStyle(color: Colors.white))),
                           if (doc['status'] == 'ready') const PopupMenuItem(value: 'reprocess', child: Text('Reprocesar con observaciones', style: TextStyle(color: Colors.white))),
                           const PopupMenuItem(value: 'move', child: Text('Mover', style: TextStyle(color: Colors.white))),
+                          const PopupMenuItem(value: 'rename', child: Text('Renombrar', style: TextStyle(color: Colors.white))),
                           const PopupMenuItem(value: 'delete', child: Text('Eliminar', style: TextStyle(color: Colors.redAccent))),
                         ],
                       ),
