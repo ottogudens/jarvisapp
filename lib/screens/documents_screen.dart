@@ -391,7 +391,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         final resp = await http.post(
           Uri.parse('$kApiBaseUrl/v1/knowledge/folders'),
           headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-          body: jsonEncode({'nombre': result}),
+          body: jsonEncode({'nombre': result, 'parent_id': _currentFolderId}),
         );
         if (resp.statusCode == 200) {
           _cargarConocimiento();
@@ -648,6 +648,9 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     final itemsToShow = _currentFolderId == null
         ? _conocimiento.where((d) => d['id_folder'] == null).toList()
         : _conocimiento.where((d) => d['id_folder'] == _currentFolderId).toList();
+    final foldersToShow = _currentFolderId == null
+        ? _carpetas.where((folder) => folder['parent_id'] == null).toList()
+        : _carpetas.where((folder) => folder['parent_id'] == _currentFolderId).toList();
 
     return Column(
       children: [
@@ -698,8 +701,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
             : ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  if (_currentFolderId == null)
-                    ..._carpetas.map((c) => Card(
+                  ...foldersToShow.map((c) => Card(
                       color: BonsoBrand.surface,
                       margin: const EdgeInsets.only(bottom: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: BonsoBrand.aqua.withOpacity(0.3))),
@@ -778,6 +780,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         
         var request = http.MultipartRequest('POST', Uri.parse('$kApiBaseUrl/v1/knowledge/upload'));
         request.headers['Authorization'] = 'Bearer $token';
+        if (_currentFolderId != null) request.fields['folder_id'] = _currentFolderId!;
 
         if (file.bytes != null) {
           request.files.add(http.MultipartFile.fromBytes('files', file.bytes!, filename: file.name));

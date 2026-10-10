@@ -18,6 +18,7 @@ from sqlalchemy import func
 from backend.models import DocumentChunk, KnowledgeDocument, KnowledgeFolder, KnowledgeIngestionJob, KnowledgeRetrievalAudit, Tenant
 
 CHUNK_SIZE = 1000
+EMBEDDING_BATCH_SIZE = max(1, min(int(os.getenv("KNOWLEDGE_EMBEDDING_BATCH_SIZE", "24")), 96))
 KNOWLEDGE_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx"}
 KNOWLEDGE_MIME_TYPES = {
     ".pdf": "application/pdf",
@@ -38,6 +39,24 @@ def storage_is_configured() -> bool:
 def knowledge_mime_type(filename: str, supplied_mime_type: str | None) -> str:
     """Usa el MIME canónico de formatos ya validados, no el declarado por el cliente."""
     return KNOWLEDGE_MIME_TYPES.get(Path(filename).suffix.lower(), supplied_mime_type or "application/octet-stream")
+
+
+def folder_scope_ids(db: Session, tenant_id: int, folder_id: str | None) -> list[str] | None:
+    """Devuelve una carpeta de proyecto y todos sus descendientes, aislados por tenant."""
+    if not folder_id:
+        return None
+    root = db.query(KnowledgeFolder).filter_by(id_folder=folder_id, id_tenant=tenant_id).first()
+    if not root:
+        raise HTTPException(status_code=404, detail="Carpeta o proyecto documental no encontrado.")
+    result, frontier = [root.id_folder], [root.id_folder]
+    while frontier:
+        children = db.query(KnowledgeFolder.id_folder).filter(
+            KnowledgeFolder.id_tenant == tenant_id,
+            KnowledgeFolder.parent_id.in_(frontier),
+        ).all()
+        frontier = [row[0] for row in children if row[0] not in result]
+        result.extend(frontier)
+    return result
 
 
 def document_quota_snapshot(db: Session, tenant_id: int) -> dict[str, int]:
@@ -243,7 +262,7 @@ def chunks_with_provenance(filename: str, content: bytes) -> list[tuple[str, dic
 
 async def ingest_document(
     db: Session, *, tenant_id: int, user_id: int | None, filename: str, content: bytes,
-    mime_type: str | None, source_channel: str, folder_name: str | None = None,
+    mime_type: str | None, source_channel: str, folder_name: str | None = None, folder_id: str | None = None,
     version: int = 1, replaces_document_id: str | None = None,
 ) -> KnowledgeDocument:
     """Indexa bytes procedentes de web o Telegram en una única biblioteca por tenant."""
@@ -253,7 +272,11 @@ async def ingest_document(
     if not text.strip():
         raise HTTPException(status_code=422, detail=f"{filename} no contiene texto extraíble.")
     folder = None
-    if folder_name:
+    if folder_id:
+        folder = db.query(KnowledgeFolder).filter_by(id_folder=folder_id, id_tenant=tenant_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Carpeta documental no encontrada.")
+    elif folder_name:
         folder = db.query(KnowledgeFolder).filter_by(id_tenant=tenant_id, nombre=folder_name).first()
         if not folder:
             folder = KnowledgeFolder(id_tenant=tenant_id, nombre=folder_name)
@@ -301,7 +324,7 @@ async def ingest_document(
 
 def queue_document(
     db: Session, *, tenant_id: int, user_id: int | None, filename: str, content: bytes,
-    mime_type: str | None, source_channel: str, folder_name: str | None = None,
+    mime_type: str | None, source_channel: str, folder_name: str | None = None, folder_id: str | None = None,
     version: int = 1, replaces_document_id: str | None = None,
 ) -> KnowledgeDocument:
     """Conserva el original y crea un trabajo durable; responde sin esperar embeddings."""
@@ -310,7 +333,11 @@ def queue_document(
     filename = Path(filename).name
     enforce_document_quota(db, tenant_id, len(content), replaces_document_id)
     folder = None
-    if folder_name:
+    if folder_id:
+        folder = db.query(KnowledgeFolder).filter_by(id_folder=folder_id, id_tenant=tenant_id).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Carpeta documental no encontrada.")
+    elif folder_name:
         folder = db.query(KnowledgeFolder).filter_by(id_tenant=tenant_id, nombre=folder_name).first()
         if not folder:
             folder = KnowledgeFolder(id_tenant=tenant_id, nombre=folder_name)
@@ -350,10 +377,20 @@ async def _index_existing_document(db: Session, document: KnowledgeDocument, con
     from litellm import aembedding
     load_ai_keys(db)
     db.query(DocumentChunk).filter_by(id_document=document.id_document).delete(synchronize_session=False)
-    for index, (chunk, metadata) in enumerate(chunks):
-        result = await aembedding(model=model, input=[chunk], **kwargs)
-        vector = result.data[0]["embedding"] if isinstance(result.data[0], dict) else result.data[0].embedding
-        db.add(DocumentChunk(id_document=document.id_document, chunk_index=index, texto=chunk, embedding=vector, metadata_json=metadata))
+    # Una llamada por fragmento multiplica la latencia de documentos largos.
+    # Se conserva el orden y la procedencia, pero el proveedor recibe lotes.
+    for start in range(0, len(chunks), EMBEDDING_BATCH_SIZE):
+        batch = chunks[start:start + EMBEDDING_BATCH_SIZE]
+        result = await aembedding(model=model, input=[chunk for chunk, _ in batch], **kwargs)
+        for offset, ((chunk, metadata), item) in enumerate(zip(batch, result.data)):
+            vector = item["embedding"] if isinstance(item, dict) else item.embedding
+            db.add(DocumentChunk(
+                id_document=document.id_document,
+                chunk_index=start + offset,
+                texto=chunk,
+                embedding=vector,
+                metadata_json=metadata,
+            ))
     document.chunk_count = len(chunks)
     document.status = "ready"
     document.error_message = None
@@ -410,7 +447,7 @@ def _lexical_overlap(query: str, text: str) -> float:
 
 async def retrieve_knowledge(
     db: Session, *, tenant_id: int, query: str, limit: int = 4,
-    user_id: int | None = None, channel: str = "web",
+    user_id: int | None = None, channel: str = "web", folder_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Recuperación vectorial con reranking léxico, diversidad y auditoría privada."""
     tenant = db.query(Tenant).filter_by(id_tenant=tenant_id).first()
@@ -423,8 +460,14 @@ async def retrieve_knowledge(
     result = await aembedding(model=model, input=[query], **kwargs)
     vector = result.data[0]["embedding"] if isinstance(result.data[0], dict) else result.data[0].embedding
     distance = DocumentChunk.embedding.cosine_distance(vector).label("distance")
-    candidates = db.query(DocumentChunk, KnowledgeDocument, distance).join(KnowledgeDocument).filter(
+    scope_ids = folder_scope_ids(db, tenant_id, folder_id)
+    query_filter = [
         KnowledgeDocument.id_tenant == tenant_id, KnowledgeDocument.status == "ready",
+    ]
+    if scope_ids is not None:
+        query_filter.append(KnowledgeDocument.id_folder.in_(scope_ids))
+    candidates = db.query(DocumentChunk, KnowledgeDocument, distance).join(KnowledgeDocument).filter(
+        *query_filter,
     ).order_by(distance).limit(max(limit * 3, 12)).all()
 
     ranked = []

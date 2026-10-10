@@ -349,6 +349,7 @@ class ChatSession(Base):
     id_session = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='CASCADE'), nullable=False)
     titulo = Column(String(150), nullable=True)
+    active_knowledge_folder_id = Column(String(36), ForeignKey('knowledge_folders.id_folder', ondelete='SET NULL'), nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
     
@@ -405,11 +406,13 @@ class KnowledgeFolder(Base):
 
     id_folder = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), index=True, nullable=False)
+    parent_id = Column(String(36), ForeignKey('knowledge_folders.id_folder', ondelete='SET NULL'), nullable=True, index=True)
     nombre = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant")
     documentos = relationship("KnowledgeDocument", back_populates="folder")
+    parent = relationship("KnowledgeFolder", remote_side=[id_folder], backref="subcarpetas")
 
 
 class KnowledgeDocument(Base):

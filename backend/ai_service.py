@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import hashlib
 import litellm
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -162,6 +163,56 @@ LITELLM_TOOLS = [
                 "required": ["consulta"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_carpetas_documentales",
+            "description": "Lista los proyectos y carpetas documentales del cliente con sus IDs. Úsala antes de mover documentos, seleccionar un proyecto o crear una subcarpeta.",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_carpeta_documental",
+            "description": "Crea un proyecto o carpeta documental. Úsala solamente cuando el usuario lo haya pedido explícitamente o confirmado de forma inequívoca.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre": {"type": "string", "description": "Nombre del proyecto o carpeta."},
+                    "parent_id": {"type": "string", "description": "ID de la carpeta/proyecto padre; omitir para crear un proyecto raíz."}
+                },
+                "required": ["nombre"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mover_documento_a_carpeta",
+            "description": "Mueve un documento existente a una carpeta. Úsala sólo con una instrucción explícita del usuario; consulta las carpetas primero para obtener IDs válidos.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "folder_id": {"type": "string"}
+                },
+                "required": ["document_id", "folder_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "seleccionar_carpeta_documental",
+            "description": "Establece el proyecto/carpeta activo para esta conversación. Las búsquedas posteriores se limitarán a esa carpeta y sus subcarpetas. Úsala cuando el usuario pida trabajar en un proyecto específico.",
+            "parameters": {
+                "type": "object",
+                "properties": {"folder_id": {"type": "string", "description": "ID de proyecto/carpeta. Usa cadena vacía para volver a toda la biblioteca."}},
+                "required": ["folder_id"]
+            }
+        }
     }
 ]
 
@@ -180,7 +231,8 @@ def call_llm_with_tools(
     prompt_con_contexto: str,
     uploaded_urls: list,
     generated_urls: list,
-    raw_documents: list = None
+    raw_documents: list = None,
+    session_id: str | None = None,
 ):
     # Cargar keys
     load_ai_keys(db)
@@ -306,6 +358,75 @@ def call_llm_with_tools(
             if not tenant or not tenant.plan or not tenant.plan.permite_mikrotik:
                 return "Acceso a MikroTik no habilitado para este tenant."
             return comando_mikrotik_avanzado(**args, id_tenant=user_db.id_tenant)
+        elif fn_name == "listar_carpetas_documentales":
+            from backend.models import KnowledgeFolder
+            folders = db.query(KnowledgeFolder).filter(
+                KnowledgeFolder.id_tenant == user_db.id_tenant,
+            ).order_by(KnowledgeFolder.created_at.asc()).all()
+            if not folders:
+                return "No hay proyectos ni carpetas documentales aún."
+            return "\n".join(
+                f"- {folder.nombre} | id={folder.id_folder} | parent_id={folder.parent_id or 'raíz'}"
+                for folder in folders
+            )
+        elif fn_name == "crear_carpeta_documental":
+            from backend.models import KnowledgeFolder
+            name = str(args.get("nombre", "")).strip()
+            parent_id = args.get("parent_id") or None
+            if not name:
+                return "Error: el nombre de la carpeta es obligatorio."
+            if len(name) > 255:
+                return "Error: el nombre de la carpeta supera 255 caracteres."
+            if parent_id:
+                parent = db.query(KnowledgeFolder).filter(
+                    KnowledgeFolder.id_folder == parent_id,
+                    KnowledgeFolder.id_tenant == user_db.id_tenant,
+                ).first()
+                if not parent:
+                    return "Error: la carpeta padre no existe o no pertenece a tu organización."
+            existing = db.query(KnowledgeFolder).filter(
+                KnowledgeFolder.id_tenant == user_db.id_tenant,
+                KnowledgeFolder.parent_id == parent_id,
+                KnowledgeFolder.nombre == name,
+            ).first()
+            if existing:
+                return f"La carpeta ya existe: id={existing.id_folder}."
+            folder = KnowledgeFolder(id_tenant=user_db.id_tenant, nombre=name, parent_id=parent_id)
+            db.add(folder)
+            db.commit()
+            return f"Carpeta creada: {folder.nombre} (id={folder.id_folder})."
+        elif fn_name == "mover_documento_a_carpeta":
+            from backend.models import KnowledgeDocument, KnowledgeFolder
+            document = db.query(KnowledgeDocument).filter(
+                KnowledgeDocument.id_document == args.get("document_id"),
+                KnowledgeDocument.id_tenant == user_db.id_tenant,
+            ).first()
+            folder = db.query(KnowledgeFolder).filter(
+                KnowledgeFolder.id_folder == args.get("folder_id"),
+                KnowledgeFolder.id_tenant == user_db.id_tenant,
+            ).first()
+            if not document or not folder:
+                return "Error: documento o carpeta no encontrado en tu organización."
+            document.id_folder = folder.id_folder
+            db.commit()
+            return f"Documento '{document.nombre}' movido a '{folder.nombre}'."
+        elif fn_name == "seleccionar_carpeta_documental":
+            if not session_id:
+                return "Error: esta conversación no tiene una sesión documental seleccionable."
+            from backend.models import ChatSession
+            from backend.knowledge_service import folder_scope_ids
+            folder_id = args.get("folder_id") or None
+            if folder_id:
+                folder_scope_ids(db, user_db.id_tenant, folder_id)
+            session = db.query(ChatSession).filter(
+                ChatSession.id_session == session_id,
+                ChatSession.id_usuario == user_db.id_usuario,
+            ).first()
+            if not session:
+                return "Error: sesión no encontrada."
+            session.active_knowledge_folder_id = folder_id
+            db.commit()
+            return "Alcance documental actualizado a toda la biblioteca." if not folder_id else f"Proyecto/carpeta activo seleccionado: {folder_id}."
         elif fn_name == "almacenar_conocimiento":
             from backend.models import KnowledgeDocument, DocumentChunk, KnowledgeFolder
             nombre_doc = args.get("nombre_documento", "Documento sin título")
@@ -317,11 +438,26 @@ def call_llm_with_tools(
                 return "Error: El archivo subido no contenía texto extraíble."
 
             try:
-                # Buscar o crear la carpeta "Subidos por Chat"
+                # Si la conversación ya tiene un proyecto activo, el documento
+                # queda allí; de lo contrario se conserva la carpeta de chat.
+                from backend.models import ChatSession
+                active_folder_id = None
+                if session_id:
+                    session = db.query(ChatSession).filter(
+                        ChatSession.id_session == session_id,
+                        ChatSession.id_usuario == user_db.id_usuario,
+                    ).first()
+                    active_folder_id = session.active_knowledge_folder_id if session else None
                 carpeta_chat = db.query(KnowledgeFolder).filter(
                     KnowledgeFolder.id_tenant == user_db.id_tenant,
-                    KnowledgeFolder.nombre == "Subidos por Chat"
-                ).first()
+                    KnowledgeFolder.id_folder == active_folder_id,
+                ).first() if active_folder_id else None
+                if not carpeta_chat:
+                    carpeta_chat = db.query(KnowledgeFolder).filter(
+                        KnowledgeFolder.id_tenant == user_db.id_tenant,
+                        KnowledgeFolder.nombre == "Subidos por Chat",
+                        KnowledgeFolder.parent_id.is_(None),
+                    ).first()
                 
                 if not carpeta_chat:
                     carpeta_chat = KnowledgeFolder(id_tenant=user_db.id_tenant, nombre="Subidos por Chat")
@@ -333,7 +469,12 @@ def call_llm_with_tools(
                     id_tenant=user_db.id_tenant,
                     id_usuario=user_db.id_usuario,
                     id_folder=carpeta_chat.id_folder,
-                    nombre=nombre_doc
+                    nombre=nombre_doc,
+                    mime_type="text/plain",
+                    byte_size=len(texto_completo.encode("utf-8")),
+                    content_sha256=hashlib.sha256(texto_completo.encode("utf-8")).hexdigest(),
+                    source_channel="chat",
+                    status="processing",
                 )
                 db.add(nuevo_doc)
                 db.commit()
@@ -342,17 +483,16 @@ def call_llm_with_tools(
                 import textwrap
                 partes = textwrap.wrap(texto_completo, width=1000, replace_whitespace=False)
                 
-                for idx, parte in enumerate(partes):
-                    from litellm import embedding
-                    try:
-                        emb_model = "text-embedding-3-small"
-                        if ai_provider.lower() == "gemini":
-                            emb_model = "gemini/text-embedding-004"
-                        emb_res = embedding(model=emb_model, input=[parte])
-                        vector = emb_res.data[0]['embedding']
-                    except Exception as e:
-                        return f"Error al generar vector de embeddings: {str(e)}"
-                    
+                from litellm import embedding
+                try:
+                    emb_model = "gemini/text-embedding-004" if ai_provider.lower() == "gemini" else "text-embedding-3-small"
+                    emb_res = embedding(model=emb_model, input=partes, **({} if ai_provider.lower() == "gemini" else {"dimensions": 768}))
+                except Exception as e:
+                    nuevo_doc.status, nuevo_doc.error_message = "failed", str(e)[:2000]
+                    db.commit()
+                    return f"Error al generar vector de embeddings: {str(e)}"
+                for idx, (parte, item) in enumerate(zip(partes, emb_res.data)):
+                    vector = item['embedding'] if isinstance(item, dict) else item.embedding
                     chk = DocumentChunk(
                         id_document=nuevo_doc.id_document,
                         chunk_index=idx,
@@ -361,6 +501,9 @@ def call_llm_with_tools(
                     )
                     db.add(chk)
                 
+                nuevo_doc.status = "ready"
+                nuevo_doc.chunk_count = len(partes)
+                nuevo_doc.indexed_at = func.now()
                 db.commit()
                 return f"Éxito: Documento '{nombre_doc}' almacenado correctamente en la base de conocimiento permanente con {len(partes)} fragmentos."
             except Exception as e:

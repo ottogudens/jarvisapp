@@ -837,6 +837,7 @@ async def rellenar_plantilla(template_id: str, body: TemplateFillRequest, usuari
 async def subir_conocimiento(
     files: List[UploadFile] = File(...),
     profile_id: Optional[str] = Form(None),
+    folder_id: Optional[str] = Form(None),
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
@@ -856,6 +857,9 @@ async def subir_conocimiento(
         ).first()
         if not custom_profile:
             raise HTTPException(status_code=404, detail="Perfil personalizado no encontrado.")
+    if folder_id:
+        from backend.knowledge_service import folder_scope_ids
+        folder_scope_ids(db, usuario["id_tenant"], folder_id)
 
     for file in files:
         if not file.filename: continue
@@ -864,7 +868,7 @@ async def subir_conocimiento(
         document = await submit_document(
             db=db, tenant_id=usuario["id_tenant"], user_id=usuario["id_usuario"],
             filename=safe_filename, content=file_bytes, mime_type=file.content_type,
-            source_channel="web", folder_name="Subidos desde la aplicación",
+            source_channel="web", folder_name="Subidos desde la aplicación", folder_id=folder_id,
         )
         nombres_procesados.append(document.nombre)
         document_ids.append(document.id_document)
@@ -877,7 +881,8 @@ async def subir_conocimiento(
 
 from pydantic import BaseModel, Field
 class FolderCreate(BaseModel):
-    nombre: str
+    nombre: str = Field(min_length=1, max_length=255)
+    parent_id: Optional[str] = None
 
 
 class KnowledgeReprocessRequest(BaseModel):
@@ -950,14 +955,22 @@ async def crear_knowledge_folder(
     db: Session = Depends(get_db)
 ):
     from backend.models import KnowledgeFolder
+    parent_id = data.parent_id or None
+    if parent_id:
+        parent = db.query(KnowledgeFolder).filter(
+            KnowledgeFolder.id_folder == parent_id,
+            KnowledgeFolder.id_tenant == usuario["id_tenant"],
+        ).first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Carpeta padre no encontrada")
     nueva_carpeta = KnowledgeFolder(
         id_tenant=usuario["id_tenant"],
-        nombre=data.nombre
+        nombre=data.nombre.strip(), parent_id=parent_id,
     )
     db.add(nueva_carpeta)
     db.commit()
     db.refresh(nueva_carpeta)
-    return {"status": "success", "id_folder": nueva_carpeta.id_folder, "nombre": nueva_carpeta.nombre}
+    return {"status": "success", "id_folder": nueva_carpeta.id_folder, "nombre": nueva_carpeta.nombre, "parent_id": nueva_carpeta.parent_id}
 
 @app.put("/v1/knowledge/folders/{id_folder}")
 async def editar_knowledge_folder(
@@ -973,8 +986,17 @@ async def editar_knowledge_folder(
     ).first()
     if not carpeta:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
-    
-    carpeta.nombre = data.nombre
+    parent_id = data.parent_id if data.parent_id is not None else carpeta.parent_id
+    if parent_id == carpeta.id_folder:
+        raise HTTPException(status_code=400, detail="Una carpeta no puede ser su propia carpeta padre")
+    if parent_id:
+        parent = db.query(KnowledgeFolder).filter(
+            KnowledgeFolder.id_folder == parent_id,
+            KnowledgeFolder.id_tenant == usuario["id_tenant"],
+        ).first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Carpeta padre no encontrada")
+    carpeta.nombre, carpeta.parent_id = data.nombre.strip(), parent_id
     db.commit()
     return {"status": "success", "message": "Carpeta actualizada"}
 
@@ -1010,10 +1032,41 @@ async def mover_knowledge_document(
     ).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-        
-    doc.id_folder = data.get("id_folder")
+    folder_id = data.get("id_folder")
+    if folder_id:
+        from backend.models import KnowledgeFolder
+        folder = db.query(KnowledgeFolder).filter(
+            KnowledgeFolder.id_folder == folder_id,
+            KnowledgeFolder.id_tenant == usuario["id_tenant"],
+        ).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    doc.id_folder = folder_id
     db.commit()
     return {"status": "success", "message": "Documento movido"}
+
+
+@app.put("/v1/chat/sessions/{session_id}/knowledge-scope")
+async def seleccionar_alcance_documental_chat(
+    session_id: str,
+    data: dict,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Fija el proyecto/carpeta activo de una conversación; null vuelve a toda la biblioteca."""
+    session = db.query(ChatSession).filter(
+        ChatSession.id_session == session_id,
+        ChatSession.id_usuario == usuario["id_usuario"],
+    ).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    folder_id = data.get("folder_id")
+    if folder_id:
+        from backend.knowledge_service import folder_scope_ids
+        folder_scope_ids(db, usuario["id_tenant"], folder_id)
+    session.active_knowledge_folder_id = folder_id or None
+    db.commit()
+    return {"status": "success", "folder_id": session.active_knowledge_folder_id}
 
 @app.get("/v1/knowledge/all")
 async def listar_conocimiento(
@@ -1036,6 +1089,7 @@ async def listar_conocimiento(
         "carpetas": [{
             "id_folder": c.id_folder,
             "nombre": c.nombre,
+            "parent_id": c.parent_id,
             "created_at": c.created_at.isoformat() if c.created_at else None
         } for c in carpetas_db],
         "documentos": [{
@@ -1425,6 +1479,7 @@ async def enviar_mensaje_chat(
     mensaje: str = Form(""),
     custom_prompt: Optional[str] = Form(None),
     focused_document_ids: Optional[str] = Form(None),
+    knowledge_folder_id: Optional[str] = Form(None),
     files: List[UploadFile] = File(default=[]),
     x_voice_id: Optional[str] = Header(None),
     x_sarcasm_level: Optional[str] = Header(None),
@@ -1438,6 +1493,11 @@ async def enviar_mensaje_chat(
     ).first()
     if not sesion:
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    if knowledge_folder_id is not None:
+        from backend.knowledge_service import folder_scope_ids
+        folder_scope_ids(db, usuario["id_tenant"], knowledge_folder_id or None)
+        sesion.active_knowledge_folder_id = knowledge_folder_id or None
+        db.commit()
 
     uploaded_urls: list = []
     generated_urls: list = []
@@ -1744,7 +1804,22 @@ async def enviar_mensaje_chat(
         "TERCERO: Si el usuario te pide explícitamente guardar, almacenar, o aprender el archivo que acaba de enviar como conocimiento, "
         "DEBES llamar a la herramienta `almacenar_conocimiento(nombre_documento)` para guardarlo permanentemente. "
         "Asigna un nombre descriptivo basado en el contenido si el usuario no especifica uno.\n"
+        "CUARTO: Para proyectos y carpetas documentales, primero usa `listar_carpetas_documentales`. "
+        "Sólo crea o mueve carpetas/documentos si el usuario lo ordenó explícitamente. Si pide trabajar en un proyecto, "
+        "usa `seleccionar_carpeta_documental` para que las consultas posteriores se limiten a ese proyecto.\n"
     )
+    if sesion.active_knowledge_folder_id:
+        from backend.models import KnowledgeFolder
+        active_folder = db.query(KnowledgeFolder).filter(
+            KnowledgeFolder.id_folder == sesion.active_knowledge_folder_id,
+            KnowledgeFolder.id_tenant == usuario["id_tenant"],
+        ).first()
+        if active_folder:
+            sys_prompt += (
+                f"\n[PROYECTO DOCUMENTAL ACTIVO]\nTrabajas en '{active_folder.nombre}'. "
+                "Las búsquedas RAG están limitadas a esta carpeta y sus subcarpetas. "
+                "Los documentos que guardes desde el chat deben clasificarse aquí.\n"
+            )
     # Biblioteca compartida: recupera conocimiento del tenant completo, sin
     # importar si fue cargado desde la app, Telegram u otro canal. Si el motor
     # vectorial está temporalmente indisponible el chat sigue funcionando.
@@ -1757,6 +1832,7 @@ async def enviar_mensaje_chat(
                 db, tenant_id=usuario["id_tenant"],
                 query=transcripcion_audio or mensaje, limit=4,
                 user_id=usuario["id_usuario"], channel="web",
+                folder_id=sesion.active_knowledge_folder_id,
             )
             if retrieved:
                 knowledge_citations = [item["citation"] for item in retrieved]
@@ -1801,7 +1877,10 @@ async def enviar_mensaje_chat(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     from backend.ai_service import call_llm_with_tools
-    respuesta_jarvis, t_tokens = call_llm_with_tools(db, user_db, sys_prompt, prompt_con_contexto, uploaded_urls, generated_urls, raw_documents)
+    respuesta_jarvis, t_tokens = call_llm_with_tools(
+        db, user_db, sys_prompt, prompt_con_contexto, uploaded_urls, generated_urls,
+        raw_documents, session_id=session_id,
+    )
     total_tokens += t_tokens
 
     msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls)
