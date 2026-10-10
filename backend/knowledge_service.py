@@ -80,13 +80,14 @@ def folder_scope_ids(db: Session, tenant_id: int, folder_id: str | None) -> list
     """Devuelve una carpeta de proyecto y todos sus descendientes, aislados por tenant."""
     if not folder_id:
         return None
-    root = db.query(KnowledgeFolder).filter_by(id_folder=folder_id, id_tenant=tenant_id).first()
+    root = db.query(KnowledgeFolder).filter_by(id_folder=folder_id, id_tenant=tenant_id).filter(KnowledgeFolder.deleted_at.is_(None)).first()
     if not root:
         raise HTTPException(status_code=404, detail="Carpeta o proyecto documental no encontrado.")
     result, frontier = [root.id_folder], [root.id_folder]
     while frontier:
         children = db.query(KnowledgeFolder.id_folder).filter(
             KnowledgeFolder.id_tenant == tenant_id,
+            KnowledgeFolder.deleted_at.is_(None),
             KnowledgeFolder.parent_id.in_(frontier),
         ).all()
         frontier = [row[0] for row in children if row[0] not in result]
@@ -522,6 +523,7 @@ async def retrieve_knowledge(
     scope_ids = folder_scope_ids(db, tenant_id, folder_id)
     query_filter = [
         KnowledgeDocument.id_tenant == tenant_id, KnowledgeDocument.status == "ready",
+        KnowledgeDocument.deleted_at.is_(None),
     ]
     if scope_ids is not None:
         query_filter.append(KnowledgeDocument.id_folder.in_(scope_ids))

@@ -818,14 +818,14 @@ async def convertir_pdf_en_plantilla(
 
 @app.get("/v1/templates")
 async def listar_plantillas(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
-    templates = db.query(DocumentTemplate).filter(DocumentTemplate.id_tenant == usuario["id_tenant"]).order_by(DocumentTemplate.created_at.desc()).all()
+    templates = db.query(DocumentTemplate).filter(DocumentTemplate.id_tenant == usuario["id_tenant"], DocumentTemplate.deleted_at.is_(None)).order_by(DocumentTemplate.created_at.desc()).all()
     return [{"id_template": t.id_template, "nombre": t.nombre, "extension": t.extension, "campos": t.campos, "created_at": t.created_at.isoformat() if t.created_at else None} for t in templates]
 
 
 @app.post("/v1/templates/{template_id}/fill")
 async def rellenar_plantilla(template_id: str, body: TemplateFillRequest, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
     from backend.template_service import render_template
-    template = db.query(DocumentTemplate).filter(DocumentTemplate.id_template == template_id, DocumentTemplate.id_tenant == usuario["id_tenant"]).first()
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id_template == template_id, DocumentTemplate.id_tenant == usuario["id_tenant"], DocumentTemplate.deleted_at.is_(None)).first()
     if not template: raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     try:
         rendered, mime, filename = render_template(base64.b64decode(template.contenido_base64), template.nombre, body.fields)
@@ -954,7 +954,7 @@ async def crear_knowledge_folder(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import KnowledgeFolder
+    from backend.models import KnowledgeFolder, KnowledgeDocument
     parent_id = data.parent_id or None
     if parent_id:
         parent = db.query(KnowledgeFolder).filter(
@@ -1006,7 +1006,7 @@ async def eliminar_knowledge_folder(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import KnowledgeFolder
+    from backend.models import KnowledgeFolder, KnowledgeDocument
     carpeta = db.query(KnowledgeFolder).filter(
         KnowledgeFolder.id_folder == id_folder,
         KnowledgeFolder.id_tenant == usuario["id_tenant"]
@@ -1014,9 +1014,14 @@ async def eliminar_knowledge_folder(
     if not carpeta:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
     
-    db.delete(carpeta)
+    carpeta.deleted_at = datetime.now(timezone.utc)
+    # Mantener contenido recuperable y ocultarlo junto a la carpeta.
+    db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_folder == carpeta.id_folder,
+        KnowledgeDocument.id_tenant == usuario["id_tenant"],
+    ).update({"deleted_at": carpeta.deleted_at, "status": "deleted"}, synchronize_session=False)
     db.commit()
-    return {"message": "Carpeta eliminada exitosamente"}
+    return {"message": "Carpeta enviada a la papelera"}
 
 @app.put("/v1/knowledge/{id_document}/move")
 async def mover_knowledge_document(
@@ -1093,11 +1098,11 @@ async def listar_conocimiento(
     from backend.knowledge_service import document_quota_snapshot
     
     carpetas_db = db.query(KnowledgeFolder).filter(
-        KnowledgeFolder.id_tenant == usuario["id_tenant"]
+        KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.deleted_at.is_(None)
     ).order_by(KnowledgeFolder.created_at.desc()).all()
     
     documentos_db = db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.id_tenant == usuario["id_tenant"]
+        KnowledgeDocument.id_tenant == usuario["id_tenant"], KnowledgeDocument.deleted_at.is_(None)
     ).order_by(KnowledgeDocument.created_at.desc()).all()
     
     jobs_by_document = {
@@ -1331,15 +1336,35 @@ async def eliminar_conocimiento(
     db: Session = Depends(get_db)
 ):
     doc = _obtener_documento_tenant(db, id_document, usuario["id_tenant"])
-    if doc.storage_path:
-        try:
-            from backend.knowledge_service import delete_original
-            delete_original(doc.storage_path)
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail="No fue posible eliminar el original privado.") from exc
-    db.delete(doc)
+    # Papelera: el original y sus versiones se preservan para restauración.
+    doc.deleted_at = datetime.now(timezone.utc)
+    doc.status = "deleted"
+    from backend.models import KnowledgeIngestionJob
+    job = db.query(KnowledgeIngestionJob).filter_by(id_document=doc.id_document).first()
+    if job and job.status in {"queued", "processing"}:
+        job.status, job.stage, job.finished_at = "cancelled", "cancelled", datetime.now(timezone.utc)
     db.commit()
-    return {"message": "Documento eliminado de la memoria"}
+    return {"message": "Documento enviado a la papelera"}
+
+
+@app.post("/v1/knowledge/{id_document}/restore")
+async def restaurar_conocimiento(id_document: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import KnowledgeDocument, KnowledgeIngestionJob
+    doc = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_document == id_document, KnowledgeDocument.id_tenant == usuario["id_tenant"],
+    ).first()
+    if not doc or not doc.deleted_at:
+        raise HTTPException(status_code=404, detail="Documento no encontrado en la papelera")
+    doc.deleted_at = None
+    doc.status = "ready" if doc.chunk_count else "queued"
+    if doc.status == "queued":
+        job = db.query(KnowledgeIngestionJob).filter_by(id_document=doc.id_document).first()
+        if job:
+            job.status, job.stage, job.finished_at = "queued", "queued", None
+        else:
+            db.add(KnowledgeIngestionJob(id_document=doc.id_document, status="queued"))
+    db.commit()
+    return {"message": "Documento restaurado", "status": doc.status}
 
 
 # ── Gestión de documentos / mensajes con archivos ──────────────

@@ -409,6 +409,7 @@ class KnowledgeFolder(Base):
     parent_id = Column(String(36), ForeignKey('knowledge_folders.id_folder', ondelete='SET NULL'), nullable=True, index=True)
     nombre = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     tenant = relationship("Tenant")
     documentos = relationship("KnowledgeDocument", back_populates="folder")
@@ -437,6 +438,7 @@ class KnowledgeDocument(Base):
     chunk_count = Column(Integer, nullable=False, default=0)
     indexed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     tenant = relationship("Tenant")
     usuario = relationship("Usuario")
@@ -524,6 +526,7 @@ class DocumentTemplate(Base):
     contenido_base64 = Column(Text, nullable=False)
     campos = Column(JSON, nullable=False, default=list)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
 class MikrotikRouter(Base):
     __tablename__ = 'mikrotik_routers'
