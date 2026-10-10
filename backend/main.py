@@ -522,7 +522,7 @@ async def resumen_dashboard(
     db: Session = Depends(get_db),
 ):
     """Resumen compacto y seguro para el inicio del cliente."""
-    from backend.models import AIUsageStats
+    from backend.models import AIUsageStats, Tenant
 
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
     session_count = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).count()
@@ -541,8 +541,10 @@ async def resumen_dashboard(
         day = start_date + timedelta(days=offset)
         daily.append({"date": day.isoformat(), "tokens": by_day.get(day.isoformat(), 0)})
 
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
     return {
         "tokens_total": int(user.tokens_consumidos or 0) if user else 0,
+        "tokens_limit": int(tenant.plan.tokens_mensuales) if tenant and tenant.plan else 0,
         "sessions": session_count,
         "templates": template_count,
         "daily_tokens": daily,

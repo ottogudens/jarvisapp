@@ -34,6 +34,7 @@ class _HubScreenState extends State<HubScreen> {
   int _archivosSubidos = 0;
   int _archivosGenerados = 0;
   int _tokensConsumidos = 0;
+  int _tokensLimit = 0;
   int _plantillas = 0;
   List<Map<String, dynamic>> _dailyTokens = [];
   List<dynamic> _perfilesDisponibles = [];
@@ -123,6 +124,7 @@ class _HubScreenState extends State<HubScreen> {
         final data = jsonDecode(response.body);
         setState(() {
           _tokensConsumidos = data['tokens_total'] ?? 0;
+          _tokensLimit = data['tokens_limit'] ?? 0;
           _plantillas = data['templates'] ?? 0;
           _dailyTokens = List<Map<String, dynamic>>.from(data['daily_tokens'] ?? []);
         });
@@ -566,16 +568,6 @@ class _HubScreenState extends State<HubScreen> {
                 ),
               ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: BonsoBrand.lime,
-        onPressed: () {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen())).then((_) {
-            _loadProfileAndData();
-          });
-        },
-        icon: const Icon(Icons.chat, color: Colors.black),
-        label: const Text('Sesiones de Bonso', style: TextStyle(color: BonsoBrand.ink, fontWeight: FontWeight.bold)),
-      ),
     );
   }
 
@@ -607,6 +599,7 @@ class _HubScreenState extends State<HubScreen> {
             value: _formatTokens(_tokensConsumidos),
             icon: Icons.data_usage_outlined,
             color: Colors.deepPurpleAccent,
+            onTap: _showTokenDetails,
           );
       final templates = _buildGlassCard(
             title: 'Plantillas',
@@ -628,6 +621,11 @@ class _HubScreenState extends State<HubScreen> {
 
   String _formatTokens(int value) => value >= 1000 ? '${(value / 1000).toStringAsFixed(1)}k' : '$value';
 
+  void _showTokenDetails() {
+    final percent = _tokensLimit > 0 ? (_tokensConsumidos / _tokensLimit * 100).clamp(0, 100).toStringAsFixed(1) : '—';
+    showModalBottomSheet(context: context, backgroundColor: BonsoBrand.surface, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (_) => SafeArea(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Uso de tokens', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)), const SizedBox(height: 8), const Text('Los tokens miden el procesamiento de tus conversaciones y documentos.', style: TextStyle(color: Colors.white70)), const SizedBox(height: 22), Text('${_formatTokens(_tokensConsumidos)} usados', style: const TextStyle(color: BonsoBrand.aqua, fontSize: 28, fontWeight: FontWeight.bold)), Text(_tokensLimit > 0 ? 'de ${_formatTokens(_tokensLimit)} incluidos este mes · $percent%' : 'Sin límite mensual informado', style: const TextStyle(color: Colors.white54)), const SizedBox(height: 16), LinearProgressIndicator(value: _tokensLimit > 0 ? (_tokensConsumidos / _tokensLimit).clamp(0, 1) : 0, color: BonsoBrand.aqua, backgroundColor: Colors.white12), const SizedBox(height: 20), const Text('Incluye consultas, análisis de archivos y generación de respuestas. El detalle diario está disponible en el gráfico del inicio.', style: TextStyle(color: Colors.white70, height: 1.4))]))));
+  }
+
   Widget _buildQuickActions() {
     final List<(IconData, String, VoidCallback)> actions = [
       (Icons.add_comment_outlined, 'Nueva consulta', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen())).then((_) => _loadProfileAndData())),
@@ -638,18 +636,10 @@ class _HubScreenState extends State<HubScreen> {
       (Icons.receipt_long_outlined, 'Plan y facturación', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BillingScreen()))),
       (Icons.campaign_outlined, 'Marketing Hub', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketingScreen()))),
     ];
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: actions.map((action) => ActionChip(
-        avatar: Icon(action.$1, size: 18, color: BonsoBrand.aqua),
-        label: Text(action.$2),
-        onPressed: action.$3,
-        backgroundColor: BonsoBrand.surface,
-        side: BorderSide(color: BonsoBrand.aqua.withOpacity(.25)),
-        labelStyle: const TextStyle(color: Colors.white),
-      )).toList(),
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      final width = (constraints.maxWidth - 10) / 2;
+      return Wrap(spacing: 10, runSpacing: 10, children: actions.map((action) => SizedBox(width: width, child: OutlinedButton.icon(onPressed: action.$3, icon: Icon(action.$1, size: 18), label: Text(action.$2, overflow: TextOverflow.ellipsis), style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: BonsoBrand.aqua, side: BorderSide(color: BonsoBrand.aqua.withOpacity(.45)), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14)))).toList());
+    });
   }
 
   Widget _buildUsageChart() {
