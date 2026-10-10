@@ -477,6 +477,9 @@ class KnowledgeIngestionJob(Base):
     progress_percent = Column(Integer, nullable=False, default=0)
     total_chunks = Column(Integer, nullable=False, default=0)
     processed_chunks = Column(Integer, nullable=False, default=0)
+    # Evita reintentos inmediatos que saturan al proveedor cuando una caída es
+    # transitoria. El worker sólo toma el trabajo cuando esta fecha vence.
+    next_attempt_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     document = relationship("KnowledgeDocument")
 

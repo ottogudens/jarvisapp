@@ -7,18 +7,20 @@ import io
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from backend.models import DocumentChunk, KnowledgeDocument, KnowledgeFolder, KnowledgeIngestionJob, KnowledgeRetrievalAudit, Tenant
 
 CHUNK_SIZE = 1000
 EMBEDDING_BATCH_SIZE = max(1, min(int(os.getenv("KNOWLEDGE_EMBEDDING_BATCH_SIZE", "24")), 96))
+RETRY_BASE_SECONDS = max(10, min(int(os.getenv("KNOWLEDGE_RETRY_BASE_SECONDS", "30")), 600))
+RETRY_MAX_SECONDS = max(RETRY_BASE_SECONDS, min(int(os.getenv("KNOWLEDGE_RETRY_MAX_SECONDS", "600")), 3600))
 KNOWLEDGE_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx"}
 KNOWLEDGE_MIME_TYPES = {
     ".pdf": "application/pdf",
@@ -39,6 +41,11 @@ def storage_is_configured() -> bool:
 def knowledge_mime_type(filename: str, supplied_mime_type: str | None) -> str:
     """Usa el MIME canónico de formatos ya validados, no el declarado por el cliente."""
     return KNOWLEDGE_MIME_TYPES.get(Path(filename).suffix.lower(), supplied_mime_type or "application/octet-stream")
+
+
+def retry_delay_seconds(attempts: int) -> int:
+    """Backoff acotado: 30 s, 60 s, 120 s… sin dejar el documento perdido."""
+    return min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * (2 ** max(0, attempts - 1)))
 
 
 def folder_scope_ids(db: Session, tenant_id: int, folder_id: str | None) -> list[str] | None:
@@ -415,14 +422,19 @@ async def _index_existing_document(
 
 async def process_next_job(db: Session) -> bool:
     """Toma un trabajo con bloqueo de fila para permitir varios workers sin duplicar."""
-    job = db.query(KnowledgeIngestionJob).filter_by(status="queued").order_by(
+    now = datetime.now(timezone.utc)
+    job = db.query(KnowledgeIngestionJob).filter(
+        KnowledgeIngestionJob.status == "queued",
+        or_(KnowledgeIngestionJob.next_attempt_at.is_(None), KnowledgeIngestionJob.next_attempt_at <= now),
+    ).order_by(
         KnowledgeIngestionJob.created_at.asc()
     ).with_for_update(skip_locked=True).first()
     if not job:
         return False
     document = job.document
     job_id, document_id = job.id_job, document.id_document
-    job.status, job.attempts, job.started_at = "processing", job.attempts + 1, datetime.now(timezone.utc)
+    job.status, job.attempts, job.started_at = "processing", job.attempts + 1, now
+    job.next_attempt_at = None
     job.stage, job.progress_percent, job.total_chunks, job.processed_chunks = "extracting", 3, 0, 0
     document.status = "processing"
     db.commit()
@@ -440,6 +452,7 @@ async def process_next_job(db: Session) -> bool:
         terminal = job.attempts >= job.max_attempts
         job.status, job.error_message = ("failed" if terminal else "queued"), str(exc)[:2000]
         job.stage, job.progress_percent = ("failed", 0) if terminal else ("queued", 0)
+        job.next_attempt_at = None if terminal else datetime.now(timezone.utc) + timedelta(seconds=retry_delay_seconds(job.attempts))
         if terminal:
             document.status, document.error_message = "failed", job.error_message
         else:

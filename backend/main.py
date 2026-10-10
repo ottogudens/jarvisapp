@@ -1172,6 +1172,7 @@ async def detalle_conocimiento(
             "error_message": job.error_message,
             "stage": job.stage, "progress_percent": job.progress_percent,
             "total_chunks": job.total_chunks, "processed_chunks": job.processed_chunks,
+            "next_attempt_at": job.next_attempt_at.isoformat() if job.next_attempt_at else None,
         },
     }
 
@@ -1192,6 +1193,7 @@ async def reintentar_conocimiento(
         db.add(job)
     job.status, job.attempts, job.error_message, job.finished_at = "queued", 0, None, None
     job.stage, job.progress_percent, job.total_chunks, job.processed_chunks = "queued", 0, 0, 0
+    job.next_attempt_at = None
     doc.status, doc.error_message = "queued", None
     db.commit()
     return {"message": "Documento enviado nuevamente a indexación.", "status": "queued"}
