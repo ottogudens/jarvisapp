@@ -3,6 +3,7 @@ import io
 import re
 import zipfile
 from pathlib import Path
+import unicodedata
 
 # Permite nombres legibles en español (por ejemplo ``{{razón_social}}``), sin
 # aceptar espacios ni expresiones ejecutables dentro de los marcadores.
@@ -129,11 +130,11 @@ def convert_pdf_to_fillable(content: bytes, fields: list[dict]) -> tuple[bytes, 
     abajo-izquierda). La UI será responsable de capturar estas coordenadas.
     """
     from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import NameObject
     from reportlab.pdfgen import canvas
     reader = PdfReader(io.BytesIO(content))
     if reader.get_fields():
         raise ValueError("El PDF ya contiene campos rellenables.")
-    writer = PdfWriter()
     names = []
     by_page = {}
     for field in fields:
@@ -147,15 +148,152 @@ def convert_pdf_to_fillable(content: bytes, fields: list[dict]) -> tuple[bytes, 
         if not FIELD_RE.fullmatch("{{" + name + "}}") or page < 0 or page >= len(reader.pages) or min(width, height) <= 0:
             raise ValueError("Definición de campo inválida.")
         by_page.setdefault(page, []).append((name, x, y, width, height)); names.append(name)
+    # Un único documento de capas preserva un catálogo AcroForm coherente para
+    # todos los campos y páginas; fusionar capas aisladas lo perdía.
+    layer = io.BytesIO()
+    canvas_obj = canvas.Canvas(layer)
     for number, background in enumerate(reader.pages):
         size = (float(background.mediabox.width), float(background.mediabox.height))
-        layer = io.BytesIO(); canvas_obj = canvas.Canvas(layer, pagesize=size)
+        canvas_obj.setPageSize(size)
         for name, x, y, width, height in by_page.get(number, []):
-            canvas_obj.acroform.textfield(name=name, x=x, y=y, width=width, height=height, borderWidth=1, forceBorder=True)
-        canvas_obj.save(); layer.seek(0)
-        form_page = PdfReader(layer).pages[0]
+            canvas_obj.acroForm.textfield(name=name, x=x, y=y, width=width, height=height, borderWidth=1, forceBorder=True)
+        canvas_obj.showPage()
+    canvas_obj.save(); layer.seek(0)
+    form_reader = PdfReader(layer)
+    writer = PdfWriter()
+    for number, background in enumerate(reader.pages):
+        form_page = form_reader.pages[number]
         form_page.merge_page(background)
         writer.add_page(form_page)
+    acro_form = form_reader.trailer["/Root"].get("/AcroForm")
+    if acro_form:
+        writer._root_object[NameObject("/AcroForm")] = acro_form.clone(writer)
     writer.set_need_appearances_writer()
     out = io.BytesIO(); writer.write(out)
     return out.getvalue(), names
+
+
+_LABEL_FIELDS = {
+    "nombre": "nombre_cliente", "cliente": "nombre_cliente", "razon social": "razon_social",
+    "rut": "rut_cliente", "dni": "documento_cliente", "email": "email_cliente",
+    "correo": "email_cliente", "telefono": "telefono_cliente", "direccion": "direccion_cliente",
+    "fecha": "fecha", "patente": "patente", "vin": "vin", "kilometraje": "kilometraje",
+    "marca": "marca_vehiculo", "modelo": "modelo_vehiculo", "ano": "ano_vehiculo",
+    "diagnostico": "diagnostico", "observaciones": "observaciones", "total": "total",
+}
+
+
+def _normalise_label(value: str) -> str:
+    return " ".join("".join(
+        char for char in unicodedata.normalize("NFD", value.lower())
+        if unicodedata.category(char) != "Mn"
+    ).replace("_", " ").split()).rstrip(":")
+
+
+def _suggested_name(label: str, used: set[str]) -> str | None:
+    normalised = _normalise_label(label)
+    name = _LABEL_FIELDS.get(normalised)
+    if not name:
+        return None
+    candidate, counter = name, 2
+    while candidate in used:
+        candidate = f"{name}_{counter}"; counter += 1
+    used.add(candidate)
+    return candidate
+
+
+def suggest_fields(content: bytes, extension: str) -> tuple[list[dict], str | None]:
+    """Propone campos a partir de etiquetas visibles, sin modificar el archivo."""
+    extension = extension.lower()
+    if detect_fields(content, extension):
+        return [], "La plantilla ya contiene campos. Usa Reprocesar campos para actualizarlos."
+    used: set[str] = set()
+    suggestions: list[dict] = []
+    if extension in {".docx", ".dotx"}:
+        from docx import Document
+        document = Document(io.BytesIO(content))
+        for index, paragraph in enumerate(_docx_paragraphs(document)):
+            text = paragraph.text.strip()
+            match = re.match(r"^\s*([^:\n]{2,60}):(?:\s*_+)?\s*$", text)
+            if match and (name := _suggested_name(match.group(1), used)):
+                suggestions.append({"name": name, "label": match.group(1).strip(), "type": "text", "target_index": index})
+    elif extension in {".xlsx", ".xltx"}:
+        from openpyxl import load_workbook
+        workbook = load_workbook(io.BytesIO(content), data_only=False)
+        for sheet in workbook.worksheets:
+            for row in sheet.iter_rows():
+                for cell in row:
+                    if not isinstance(cell.value, str):
+                        continue
+                    if name := _suggested_name(cell.value, used):
+                        target = sheet.cell(row=cell.row, column=cell.column + 1)
+                        if target.value in (None, ""):
+                            suggestions.append({"name": name, "label": cell.value.strip(), "type": "text", "sheet": sheet.title, "cell": target.coordinate})
+    elif extension == ".pdf":
+        import fitz
+        document = fitz.open(stream=content, filetype="pdf")
+        for page_number, page in enumerate(document):
+            for x0, y0, x1, y1, text, *_ in page.get_text("blocks"):
+                match = re.match(r"^\s*([^:\n]{2,60}):\s*$", text.strip())
+                if not match or not (name := _suggested_name(match.group(1), used)):
+                    continue
+                height = float(page.rect.height)
+                suggestions.append({
+                    "name": name, "label": match.group(1).strip(), "type": "text", "page": page_number,
+                    "x": round(float(x1) + 8, 1), "y": round(height - float(y1) - 18, 1),
+                    "width": 180.0, "height": 18.0,
+                })
+        document.close()
+    else:
+        return [], "La generación asistida está disponible para PDF, Word y Excel."
+    return suggestions, None if suggestions else "No se identificaron etiquetas. Agrega campos manualmente o usa un documento con etiquetas como “VIN:”."
+
+
+def generate_fields(content: bytes, extension: str, fields: list[dict]) -> tuple[bytes, list[str]]:
+    """Crea una copia rellenable; nunca modifica la plantilla fuente."""
+    extension = extension.lower()
+    names = []
+    for field in fields:
+        name = str(field.get("name", "")).strip()
+        if not FIELD_RE.fullmatch("{{" + name + "}}"):
+            raise ValueError("Cada campo debe tener un nombre válido (ej.: nombre_cliente).")
+        if name in names:
+            raise ValueError("Los nombres de campo no pueden repetirse.")
+        names.append(name)
+    if not names:
+        raise ValueError("Selecciona al menos un campo para generar la plantilla.")
+    if extension == ".pdf":
+        return convert_pdf_to_fillable(content, fields)
+    if extension in {".docx", ".dotx"}:
+        from docx import Document
+        document = Document(io.BytesIO(content))
+        paragraphs = list(_docx_paragraphs(document))
+        for field in fields:
+            index = int(field.get("target_index", -1))
+            if index < 0 or index >= len(paragraphs):
+                raise ValueError("Una sugerencia de Word ya no corresponde al documento. Vuelve a analizarlo.")
+            paragraph = paragraphs[index]
+            marker = "{{" + field["name"].strip() + "}}"
+            text = paragraph.text
+            updated = re.sub(r"_+\s*$", marker, text)
+            if updated == text:
+                updated = f"{text} {marker}".strip()
+            if paragraph.runs:
+                paragraph.runs[0].text = updated
+                for run in paragraph.runs[1:]: run.text = ""
+            else:
+                paragraph.add_run(updated)
+        output = io.BytesIO(); document.save(output)
+        return output.getvalue(), names
+    if extension in {".xlsx", ".xltx"}:
+        from openpyxl import load_workbook
+        workbook = load_workbook(io.BytesIO(content))
+        for field in fields:
+            sheet = workbook[str(field.get("sheet", ""))]
+            cell = sheet[str(field.get("cell", ""))]
+            if cell.value not in (None, ""):
+                raise ValueError("La celda sugerida ya contiene información. Vuelve a analizar el archivo.")
+            cell.value = "{{" + field["name"].strip() + "}}"
+        output = io.BytesIO(); workbook.save(output)
+        return output.getvalue(), names
+    raise ValueError("La generación asistida está disponible para PDF, Word y Excel.")

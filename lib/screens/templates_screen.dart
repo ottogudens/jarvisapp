@@ -152,6 +152,54 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     }
   }
 
+  Future<void> _generateFields(Map<String, dynamic> item) async {
+    try {
+      final suggestionsResponse = await http.post(Uri.parse('$kApiBaseUrl/v1/templates/${item['id_template']}/field-suggestions'), headers: await _headers);
+      if (suggestionsResponse.statusCode != 200) throw Exception(_detail(suggestionsResponse));
+      final result = Map<String, dynamic>.from(jsonDecode(suggestionsResponse.body));
+      final suggestions = List<Map<String, dynamic>>.from((result['suggestions'] ?? []).map((value) => Map<String, dynamic>.from(value)));
+      if (!mounted) return;
+      if (suggestions.isEmpty) {
+        await showDialog<void>(context: context, builder: (context) => AlertDialog(backgroundColor: BonsoBrand.surface, title: const Text('Sin sugerencias automáticas', style: TextStyle(color: Colors.white)), content: Text('${result['warning'] ?? 'No se identificaron etiquetas para generar campos.'}\n\nUsa etiquetas como “VIN:”, “Patente:” o “Nombre:” para que Bonso pueda proponer campos.', style: const TextStyle(color: Colors.white70)), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))]));
+        return;
+      }
+      final selected = List<bool>.filled(suggestions.length, true);
+      final names = suggestions.map((field) => TextEditingController(text: '${field['name']}')).toList();
+      final create = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: const Text('Generar campos sugeridos', style: TextStyle(color: Colors.white)),
+        content: SizedBox(width: 520, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Revisa los campos antes de crear una copia rellenable. El original no se modifica.', style: TextStyle(color: Colors.white70)),
+          const SizedBox(height: 12),
+          Flexible(child: ListView.builder(shrinkWrap: true, itemCount: suggestions.length, itemBuilder: (_, index) => CheckboxListTile(
+            value: selected[index], activeColor: BonsoBrand.aqua, onChanged: (value) => setDialogState(() => selected[index] = value ?? false),
+            title: Text('${suggestions[index]['label']}', style: const TextStyle(color: Colors.white)),
+            subtitle: TextField(controller: names[index], enabled: selected[index], style: const TextStyle(color: Colors.white70), decoration: const InputDecoration(labelText: 'Nombre del campo', labelStyle: TextStyle(color: Colors.white54))),
+          )),
+        ])),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Crear copia rellenable'))],
+      )));
+      if (create != true) return;
+      final fields = <Map<String, dynamic>>[];
+      for (var index = 0; index < suggestions.length; index++) {
+        if (!selected[index]) continue;
+        final field = Map<String, dynamic>.from(suggestions[index]);
+        field['name'] = names[index].text.trim();
+        fields.add(field);
+      }
+      if (fields.isEmpty) {
+        _message('Selecciona al menos un campo.', error: true);
+        return;
+      }
+      final response = await http.post(Uri.parse('$kApiBaseUrl/v1/templates/${item['id_template']}/generate-fields'), headers: {...await _headers, 'Content-Type': 'application/json'}, body: jsonEncode({'fields': fields}));
+      if (response.statusCode != 200) throw Exception(_detail(response));
+      _message('Se creó una copia rellenable de la plantilla.');
+      await _load();
+    } catch (error) {
+      _message('No se pudieron generar los campos: $error', error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: BonsoBrand.ink,
@@ -161,7 +209,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
       final item = _items[index];
       final extension = '${item['extension'] ?? ''}'.toLowerCase();
       final fields = List.from(item['campos'] ?? []);
-      return Card(color: BonsoBrand.surface, child: ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), leading: const Icon(Icons.description_outlined, color: BonsoBrand.aqua), title: Text('${item['nombre']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)), subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text('$extension · ${fields.length} ${fields.length == 1 ? 'campo' : 'campos'}', style: const TextStyle(color: Colors.white54))), trailing: PopupMenuButton<String>(color: BonsoBrand.surfaceRaised, icon: const Icon(Icons.more_vert, color: Colors.white70), onSelected: (value) { if (value == 'rename') _rename(item); if (value == 'edit') _editContent(item); if (value == 'reprocess') _reprocess(item); if (value == 'replace') _upload(replacing: item); if (value == 'delete') _delete(item); }, itemBuilder: (_) => [const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.drive_file_rename_outline), title: Text('Renombrar'))), if (_editableExtensions.contains(extension)) const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Editar contenido'))), const PopupMenuItem(value: 'reprocess', child: ListTile(leading: Icon(Icons.find_replace_outlined), title: Text('Reprocesar campos'))), const PopupMenuItem(value: 'replace', child: ListTile(leading: Icon(Icons.upload_file_outlined), title: Text('Reemplazar archivo'))), const PopupMenuDivider(), const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, color: Colors.redAccent), title: Text('Enviar a papelera', style: TextStyle(color: Colors.redAccent))))])));
+      return Card(color: BonsoBrand.surface, child: ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), leading: const Icon(Icons.description_outlined, color: BonsoBrand.aqua), title: Text('${item['nombre']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)), subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text('$extension · ${fields.length} ${fields.length == 1 ? 'campo' : 'campos'}', style: const TextStyle(color: Colors.white54))), trailing: PopupMenuButton<String>(color: BonsoBrand.surfaceRaised, icon: const Icon(Icons.more_vert, color: Colors.white70), onSelected: (value) { if (value == 'rename') _rename(item); if (value == 'edit') _editContent(item); if (value == 'generate') _generateFields(item); if (value == 'reprocess') _reprocess(item); if (value == 'replace') _upload(replacing: item); if (value == 'delete') _delete(item); }, itemBuilder: (_) => [const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.drive_file_rename_outline), title: Text('Renombrar'))), if (_editableExtensions.contains(extension)) const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Editar contenido'))), if (fields.isEmpty && {'.pdf', '.docx', '.dotx', '.xlsx', '.xltx'}.contains(extension)) const PopupMenuItem(value: 'generate', child: ListTile(leading: Icon(Icons.auto_fix_high_outlined), title: Text('Generar campos'))), const PopupMenuItem(value: 'reprocess', child: ListTile(leading: Icon(Icons.find_replace_outlined), title: Text('Reprocesar campos'))), const PopupMenuItem(value: 'replace', child: ListTile(leading: Icon(Icons.upload_file_outlined), title: Text('Reemplazar archivo'))), const PopupMenuDivider(), const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, color: Colors.redAccent), title: Text('Enviar a papelera', style: TextStyle(color: Colors.redAccent))))])));
     })),
   );
 }

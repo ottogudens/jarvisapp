@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from backend.template_service import detect_fields, render_template
+from backend.template_service import convert_pdf_to_fillable, detect_fields, generate_fields, render_template, suggest_fields
 
 
 def test_detect_fields_accepts_unicode_names_and_ignores_invalid_markers():
@@ -35,3 +35,34 @@ def test_pdf_fields_are_discovered_from_acroform():
     canvas.save()
 
     assert detect_fields(source.getvalue(), ".pdf") == ["vin"]
+
+
+def test_excel_suggestions_create_markers_in_blank_adjacent_cells():
+    openpyxl = pytest.importorskip("openpyxl")
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Orden"
+    sheet["A1"] = "Patente"
+    source = io.BytesIO()
+    workbook.save(source)
+
+    suggestions, warning = suggest_fields(source.getvalue(), ".xlsx")
+    assert warning is None
+    assert suggestions[0]["name"] == "patente"
+    generated, fields = generate_fields(source.getvalue(), ".xlsx", suggestions)
+    result = openpyxl.load_workbook(io.BytesIO(generated))
+    assert fields == ["patente"]
+    assert result["Orden"]["B1"].value == "{{patente}}"
+
+
+def test_pdf_generation_creates_fillable_copy():
+    reportlab = pytest.importorskip("reportlab.pdfgen.canvas")
+    source = io.BytesIO()
+    canvas = reportlab.Canvas(source)
+    canvas.drawString(50, 740, "Formulario")
+    canvas.showPage()
+    canvas.save()
+
+    generated, fields = convert_pdf_to_fillable(source.getvalue(), [{"name": "vin", "page": 0, "x": 50, "y": 700, "width": 160, "height": 20}])
+    assert fields == ["vin"]
+    assert detect_fields(generated, ".pdf") == ["vin"]

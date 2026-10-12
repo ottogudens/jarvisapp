@@ -22,6 +22,7 @@ import httpx
 import logging
 import time
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Type, List, Optional
 from contextlib import asynccontextmanager
@@ -601,6 +602,10 @@ class TemplateContentUpdate(BaseModel):
     contenido: str = Field(min_length=1, max_length=15 * 1024 * 1024)
 
 
+class TemplateGeneratedFieldsRequest(BaseModel):
+    fields: list[dict] = Field(min_length=1, max_length=80)
+
+
 class CustomProfileDraftRequest(BaseModel):
     nombre: str = Field(min_length=2, max_length=100)
     personalidad: str = Field(min_length=3, max_length=255)
@@ -887,6 +892,39 @@ def _obtener_plantilla_activa(template_id: str, usuario: dict, db: Session) -> D
     if not template:
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     return template
+
+
+@app.post("/v1/templates/{template_id}/field-suggestions")
+async def sugerir_campos_plantilla(template_id: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Analiza etiquetas sin alterar la plantilla ni enviar su contenido a terceros."""
+    from backend.template_service import suggest_fields
+    template = _obtener_plantilla_activa(template_id, usuario, db)
+    try:
+        suggestions, warning = suggest_fields(base64.b64decode(template.contenido_base64), template.extension)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"suggestions": suggestions, "warning": warning, "extension": template.extension}
+
+
+@app.post("/v1/templates/{template_id}/generate-fields")
+async def generar_campos_plantilla(template_id: str, body: TemplateGeneratedFieldsRequest, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Genera una nueva plantilla rellenable y conserva inalterada la fuente."""
+    from backend.template_service import generate_fields, detect_fields
+    template = _obtener_plantilla_activa(template_id, usuario, db)
+    try:
+        source = base64.b64decode(template.contenido_base64)
+        generated, names = generate_fields(source, template.extension, body.fields)
+        detected = detect_fields(generated, template.extension if template.extension not in {".dotx", ".xltx"} else (".docx" if template.extension == ".dotx" else ".xlsx"))
+    except (ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    extension = ".docx" if template.extension == ".dotx" else ".xlsx" if template.extension == ".xltx" else template.extension
+    filename = f"{Path(template.nombre).stem}_rellenable{extension}"
+    generated_template = DocumentTemplate(
+        id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=filename,
+        extension=extension, contenido_base64=base64.b64encode(generated).decode(), campos=detected or names,
+    )
+    db.add(generated_template); db.commit(); db.refresh(generated_template)
+    return {"id_template": generated_template.id_template, "nombre": generated_template.nombre, "campos": generated_template.campos, "message": "Se creó una nueva plantilla rellenable; la original se conservó sin cambios."}
 
 
 EDITABLE_TEMPLATE_SUFFIXES = {".html", ".htm", ".md", ".txt"}
