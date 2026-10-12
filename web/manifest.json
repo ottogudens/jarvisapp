@@ -1,11 +1,11 @@
 {
     "name": "Bonso | SKALE IA",
     "short_name": "Bonso",
-    "start_url": ".",
+    "start_url": "./?source=pwa",
     "display": "standalone",
     "background_color": "#061E22",
     "theme_color": "#061E22",
-    "description": "Asistente virtual inteligente desarrollado por SKALE IA.",
+    "description": "Bonso conecta el conocimiento, documentos, canales e integraciones de tu negocio en un asistente de IA.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'screens/landing_screen.dart';
+import 'screens/login_screen.dart';
 import 'brand.dart';
+import 'platform/pwa_launch.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +44,9 @@ void main() {
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: const LandingScreen(),
+      // La portada es para visitantes web. Una instalación PWA debe abrir el
+      // acceso de la aplicación (y LoginScreen restaurará la sesión existente).
+      home: launchedAsInstalledPwa ? const LoginScreen() : const LandingScreen(),
       debugShowCheckedModeBanner: false,
     ),
   );

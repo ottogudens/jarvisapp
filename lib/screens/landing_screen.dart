@@ -85,9 +85,9 @@ class _LandingScreenState extends State<LandingScreen> {
         final message = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const _Eyebrow('✳  IA QUE TRABAJA CON TU NEGOCIO'),
           const SizedBox(height: 22),
-          Text('Tu asistente,\nlisto para\nescalar.', style: TextStyle(fontSize: desktop ? 68 : 48, height: .97, letterSpacing: -2.4, color: BonsoBrand.text, fontWeight: FontWeight.w800)),
+          Text('Tu operación,\ncon una IA que\nsí conoce el contexto.', style: TextStyle(fontSize: desktop ? 62 : 44, height: .98, letterSpacing: -2.2, color: BonsoBrand.text, fontWeight: FontWeight.w800)),
           const SizedBox(height: 24),
-          ConstrainedBox(constraints: const BoxConstraints(maxWidth: 570), child: const Text('Bonso reúne tus conocimientos, canales y procesos en un asistente de IA personalizado para atender, crear y avanzar todos los días.', style: TextStyle(color: Colors.white70, fontSize: 18, height: 1.5))),
+          ConstrainedBox(constraints: const BoxConstraints(maxWidth: 570), child: const Text('Bonso convierte documentos, plantillas, imágenes, páginas web y conversaciones en conocimiento útil. Tu equipo responde, crea y automatiza desde un asistente personalizado.', style: TextStyle(color: Colors.white70, fontSize: 18, height: 1.5))),
           const SizedBox(height: 30),
           Wrap(spacing: 12, runSpacing: 12, children: [
             ElevatedButton.icon(onPressed: () => _access(register: true), icon: const Icon(Icons.arrow_forward), label: const Text('Crear cuenta gratis'), style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.lime, foregroundColor: BonsoBrand.ink, minimumSize: const Size(0, 52), padding: const EdgeInsets.symmetric(horizontal: 20))),
@@ -104,11 +104,11 @@ class _LandingScreenState extends State<LandingScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('BONSO / EN ACCIÓN', style: TextStyle(color: BonsoBrand.aqua, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
             const SizedBox(height: 22),
-            _chatBubble('¿Puedes resumir este informe y proponer los próximos pasos?', false),
+            _chatBubble('Analiza este informe, el VIN y los datos del scanner.', false),
             const SizedBox(height: 14),
-            _chatBubble('Claro. Detecté 3 prioridades y preparé un resumen para tu equipo.', true),
+            _chatBubble('Listo. Encontré los códigos relevantes, posibles causas y el siguiente diagnóstico.', true),
             const SizedBox(height: 20),
-            Row(children: const [Icon(Icons.bolt, color: BonsoBrand.lime, size: 18), SizedBox(width: 8), Text('Conocimiento + canales + automatización', style: TextStyle(color: Colors.white70, fontSize: 12))]),
+            Row(children: const [Icon(Icons.bolt, color: BonsoBrand.lime, size: 18), SizedBox(width: 8), Text('Conocimiento + documentos + integraciones', style: TextStyle(color: Colors.white70, fontSize: 12))]),
           ]),
         );
         return desktop ? Row(crossAxisAlignment: CrossAxisAlignment.center, children: [Expanded(child: message), const SizedBox(width: 48), visual]) : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [message, visual]);
@@ -133,7 +133,7 @@ class _LandingScreenState extends State<LandingScreen> {
   Widget _introText() => const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Text('Una IA que entiende\ntu forma de trabajar.', style: TextStyle(color: BonsoBrand.text, fontSize: 34, fontWeight: FontWeight.w700, height: 1.08)),
     SizedBox(height: 14),
-    Text('No es un chat genérico. Configuras su nombre, personalidad, conocimiento y canales; Bonso responde según el contexto de tu operación.', style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.5)),
+    Text('No es un chat genérico. Cada asistente combina su perfil, instrucciones, documentos, fuentes web y herramientas para responder según el contexto real de tu operación.', style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.5)),
   ]);
 
   Widget _solutions() => _Section(child: Padding(padding: const EdgeInsets.symmetric(vertical: 80), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -141,17 +141,20 @@ class _LandingScreenState extends State<LandingScreen> {
     const SizedBox(height: 16),
     const Text('Todo conectado.\nTodo bajo control.', style: TextStyle(color: BonsoBrand.text, fontSize: 42, height: 1.05, fontWeight: FontWeight.w700)),
     const SizedBox(height: 16),
-    const Text('Construye un asistente que se adapta a tu negocio, no al revés.', style: TextStyle(color: Colors.white70, fontSize: 16)),
+    const Text('Una base organizada para que tu asistente trabaje con información útil, segura y actualizable.', style: TextStyle(color: Colors.white70, fontSize: 16)),
     const SizedBox(height: 30),
     LayoutBuilder(builder: (context, constraints) { final columns = constraints.maxWidth > 900 ? 3 : constraints.maxWidth > 560 ? 2 : 1; final width = (constraints.maxWidth - ((columns - 1) * 14)) / columns; return Wrap(spacing: 14, runSpacing: 14, children: [
-      _solutionCard(width, '01 / CONOCIMIENTO', 'Asistentes que saben de tu negocio', 'Sube documentos, imágenes, plantillas y páginas web para que las respuestas estén basadas en tu información.', Icons.menu_book_outlined),
-      _solutionCard(width, '02 / CONVERSACIONES', 'Atención desde cada canal', 'Centraliza web, Telegram y futuras conexiones de WhatsApp y redes sociales con trazabilidad.', Icons.forum_outlined),
-      _solutionCard(width, '03 / CONTROL', 'Operación medible y segura', 'Controla perfiles, consumo de tokens, permisos, facturación y actividad desde un solo lugar.', Icons.insights_outlined),
+      _solutionCard(width, '01 / MEMORIA', 'Conocimiento que se consulta', 'Sube PDF, Word, Excel, CSV e imágenes. Bonso los indexa para responder con citas y contexto.', Icons.menu_book_outlined),
+      _solutionCard(width, '02 / DOCUMENTOS', 'Proyectos ordenados y accionables', 'Organiza carpetas, archivos, plantillas y páginas web. Edita, reutiliza, mueve o recupera contenido desde la papelera.', Icons.folder_copy_outlined),
+      _solutionCard(width, '03 / ASISTENTES', 'Perfiles listos para cada trabajo', 'Crea asistentes con instrucciones y capacidades propias: soporte, ventas, operaciones o diagnóstico automotriz.', Icons.psychology_alt_outlined),
+      _solutionCard(width, '04 / CANALES', 'La misma memoria, donde te escriban', 'Atiende desde la aplicación y Telegram con el mismo conocimiento. Conecta WhatsApp y redes sociales según tu plan.', Icons.forum_outlined),
+      _solutionCard(width, '05 / INTEGRACIONES', 'Herramientas conectadas a tu flujo', 'Centraliza Gmail, Calendar, Meta, TikTok, MikroTik, Home Assistant y MQTT con guías de conexión por servicio.', Icons.extension_outlined),
+      _solutionCard(width, '06 / CONTROL', 'Seguridad y operación medible', 'Gestiona perfiles, permisos, tokens, límites de documentos, planes, facturación y actividad desde un solo lugar.', Icons.insights_outlined),
     ]); }),
   ])));
 
   Widget _proof() => Container(color: BonsoBrand.surfaceRaised, child: _Section(child: Padding(padding: const EdgeInsets.symmetric(vertical: 42), child: Wrap(alignment: WrapAlignment.spaceAround, runSpacing: 24, children: const [
-    _Stat('7 días', 'para probar sin costo'), _Stat('5.000', 'tokens diarios incluidos'), _Stat('1 lugar', 'para canales y conocimiento'), _Stat('SKALE IA', 'tecnología aplicada'),
+    _Stat('PDF · Word · Excel', 'conocimiento desde tus archivos'), _Stat('OCR', 'contenido legible desde imágenes'), _Stat('9 integraciones', 'canales y herramientas conectables'), _Stat('SKALE IA', 'tecnología aplicada'),
   ]))));
 
   Widget _howItWorks() => _Section(child: Padding(padding: const EdgeInsets.symmetric(vertical: 80), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -160,10 +163,10 @@ class _LandingScreenState extends State<LandingScreen> {
     const Text('De tu necesidad\na un asistente útil.', style: TextStyle(color: BonsoBrand.text, fontSize: 42, height: 1.05, fontWeight: FontWeight.w700)),
     const SizedBox(height: 36),
     LayoutBuilder(builder: (context, constraints) { final wide = constraints.maxWidth > 760; final steps = [
-      _step('01', 'Cuéntanos', 'Crea tu organización y define lo que necesitas resolver.'),
-      _step('02', 'Personaliza', 'Configura el perfil, personalidad y conocimientos de Bonso.'),
-      _step('03', 'Conecta', 'Activa los canales y herramientas que tu equipo ya utiliza.'),
-      _step('04', 'Acompaña', 'Mide el uso, mejora instrucciones y escala cuando lo necesites.'),
+      _step('01', 'Configura', 'Crea tu organización y elige o diseña el perfil de asistente que necesitas.'),
+      _step('02', 'Entrega contexto', 'Carga documentos, imágenes, plantillas y fuentes web; ordénalos por proyecto o carpeta.'),
+      _step('03', 'Conecta', 'Activa Telegram, correo, calendario, redes o equipos según las integraciones de tu plan.'),
+      _step('04', 'Trabaja y mejora', 'Consulta, crea documentos, revisa el uso y ajusta las instrucciones cuando tu operación cambie.'),
     ]; return wide ? Row(children: steps.map((step) => Expanded(child: step)).toList()) : Column(children: steps); }),
   ])));
 
