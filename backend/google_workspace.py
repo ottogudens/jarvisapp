@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from backend.auth import obtener_usuario_actual
 from backend.crypto_utils import encrypt_secret
 from backend.database import get_db
-from backend.models import ChannelConnection
+from backend.models import ChannelConnection, Tenant
 
 router = APIRouter(prefix="/v1/google-workspace", tags=["Google Workspace"])
 
@@ -21,6 +21,17 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/calendar.events",
 ]
+
+
+def _check_integration_quota(db: Session, tenant_id: int) -> None:
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == tenant_id).first()
+    limit = tenant.plan.max_integraciones if tenant and tenant.plan else 0
+    if limit <= 0:
+        return
+    existing = db.query(ChannelConnection).filter(ChannelConnection.id_tenant == tenant_id, ChannelConnection.provider == "google_workspace", ChannelConnection.status.in_(("connected", "oauth_pending", "pending_verification"))).first()
+    used = db.query(ChannelConnection.provider).filter(ChannelConnection.id_tenant == tenant_id, ChannelConnection.status.in_(("connected", "oauth_pending", "pending_verification"))).distinct().count()
+    if not existing and used >= limit:
+        raise HTTPException(status_code=403, detail=f"Tu plan permite un máximo de {limit} integraciones. Desconecta una integración o mejora tu plan.")
 
 
 def _config() -> tuple[str, str, str]:
@@ -45,6 +56,7 @@ async def status_google_workspace(usuario: dict = Depends(obtener_usuario_actual
 
 @router.post("/start")
 async def iniciar_google_workspace(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    _check_integration_quota(db, usuario["id_tenant"])
     client_id, _, redirect_url = _config()
     state = secrets.token_urlsafe(32)
     row = ChannelConnection(

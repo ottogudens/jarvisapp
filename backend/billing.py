@@ -52,7 +52,7 @@ async def billing_status(usuario: dict = Depends(obtener_usuario_actual), db: Se
 async def billing_plans(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
     catalog = ("Bonso Inicial", "Bonso Profesional", "Bonso Empresa")
     plans = db.query(SaaSPlan).filter(SaaSPlan.nombre_plan.in_(catalog)).order_by(SaaSPlan.precio_mensual).all()
-    return [{"id_plan": p.id_plan, "nombre": p.nombre_plan, "precio_mensual": p.precio_mensual, "moneda": p.moneda, "tokens_mensuales": p.tokens_mensuales, "max_documentos": p.max_documentos, "integraciones": [name for name, enabled in {"Telegram": p.permite_telegram, "WhatsApp": p.permite_whatsapp, "Google Workspace": p.permite_google_workspace, "Facebook": p.permite_facebook, "Instagram": p.permite_instagram, "TikTok": p.permite_tiktok, "IoT": p.permite_iot, "MikroTik": p.permite_mikrotik}.items() if enabled]} for p in plans]
+    return [{"id_plan": p.id_plan, "nombre": p.nombre_plan, "precio_mensual": p.precio_mensual, "moneda": p.moneda, "tokens_mensuales": p.tokens_mensuales, "max_documentos": p.max_documentos, "max_integraciones": p.max_integraciones, "integraciones": [name for name, enabled in {"Telegram": p.permite_telegram, "WhatsApp": p.permite_whatsapp, "Google Workspace": p.permite_google_workspace, "Facebook": p.permite_facebook, "Instagram": p.permite_instagram, "TikTok": p.permite_tiktok, "IoT": p.permite_iot, "MikroTik": p.permite_mikrotik}.items() if enabled]} for p in plans]
 
 
 @router.post("/checkout/{plan_id}")

@@ -26,9 +26,9 @@ def seed_db():
         # 1. Catálogo comercial. Se actualizan solo estos planes de sistema;
         # los planes personalizados creados por administración no se tocan.
         catalog = {
-            "Bonso Inicial": dict(precio_mensual=29990, tokens_mensuales=100000, max_documentos=100, almacenamiento_bytes=2 * 1024**3, max_upload_bytes=15 * 1024**2, permite_telegram=True),
-            "Bonso Profesional": dict(precio_mensual=79990, tokens_mensuales=500000, max_documentos=1000, almacenamiento_bytes=10 * 1024**3, max_upload_bytes=30 * 1024**2, permite_telegram=True, permite_whatsapp=True, permite_google_workspace=True, permite_facebook=True, permite_instagram=True),
-            "Bonso Empresa": dict(precio_mensual=149990, tokens_mensuales=2000000, max_documentos=5000, almacenamiento_bytes=50 * 1024**3, max_upload_bytes=100 * 1024**2, permite_telegram=True, permite_whatsapp=True, permite_google_workspace=True, permite_facebook=True, permite_instagram=True, permite_tiktok=True, permite_iot=True, permite_mikrotik=True),
+            "Bonso Inicial": dict(precio_mensual=29990, tokens_mensuales=100000, max_documentos=100, almacenamiento_bytes=2 * 1024**3, max_upload_bytes=15 * 1024**2, max_integraciones=2),
+            "Bonso Profesional": dict(precio_mensual=79990, tokens_mensuales=500000, max_documentos=1000, almacenamiento_bytes=10 * 1024**3, max_upload_bytes=30 * 1024**2, max_integraciones=5),
+            "Bonso Empresa": dict(precio_mensual=149990, tokens_mensuales=2000000, max_documentos=5000, almacenamiento_bytes=50 * 1024**3, max_upload_bytes=100 * 1024**2, max_integraciones=9, permite_iot=True, permite_mikrotik=True),
         }
         plans = {}
         for name, values in catalog.items():

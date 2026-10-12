@@ -471,7 +471,7 @@ def get_profile(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import Tenant, TenantProfile, CustomAssistantProfile
+    from backend.models import Tenant, TenantProfile, CustomAssistantProfile, ChannelConnection
     user = db.query(Usuario).filter(Usuario.id_usuario == usuario['id_usuario']).first()
     if not user:
         raise HTTPException(status_code=404, detail='Usuario no encontrado')
@@ -479,6 +479,8 @@ def get_profile(
     tenant = db.query(Tenant).filter(Tenant.id_tenant == user.id_tenant).first()
     from backend.models import SaaSPlan
     plan = db.query(SaaSPlan).filter(SaaSPlan.id_plan == tenant.id_plan).first() if tenant else None
+    integrations_used = db.query(ChannelConnection.provider).filter(ChannelConnection.id_tenant == user.id_tenant, ChannelConnection.status.in_(("connected", "oauth_pending", "pending_verification"))).distinct().count()
+    quota_plan = bool(plan and plan.max_integraciones > 0)
 
     tp_list = db.query(TenantProfile).filter(TenantProfile.id_tenant == user.id_tenant).all()
     perfiles = [{"id_perfil": tp.perfil.id_perfil, "nombre": tp.perfil.nombre, "instrucciones_extra": tp.instrucciones_extra} for tp in tp_list]
@@ -501,13 +503,15 @@ def get_profile(
         'active_custom_profile': {"id_profile": custom_profile.id_profile, "nombre": custom_profile.nombre} if custom_profile else None,
         'perfiles': perfiles,
         'plan_features': {
-            'telegram': plan.permite_telegram if plan else False,
-            'whatsapp': plan.permite_whatsapp if plan else False,
-            'google_workspace': plan.permite_google_workspace if plan else False,
-            'facebook': plan.permite_facebook if plan else False,
-            'instagram': plan.permite_instagram if plan else False,
-            'tiktok': plan.permite_tiktok if plan else False,
+            'telegram': (plan.permite_telegram or quota_plan) if plan else False,
+            'whatsapp': (plan.permite_whatsapp or quota_plan) if plan else False,
+            'google_workspace': (plan.permite_google_workspace or quota_plan) if plan else False,
+            'facebook': (plan.permite_facebook or quota_plan) if plan else False,
+            'instagram': (plan.permite_instagram or quota_plan) if plan else False,
+            'tiktok': (plan.permite_tiktok or quota_plan) if plan else False,
             'iot': plan.permite_iot if plan else False,
             'mikrotik': plan.permite_mikrotik if plan else False,
+            'max_integraciones': plan.max_integraciones if plan else 0,
+            'integraciones_usadas': integrations_used,
         }
     }

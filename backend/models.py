@@ -41,6 +41,7 @@ class SaaSPlan(Base):
     permite_facebook = Column(Boolean, default=False)
     permite_instagram = Column(Boolean, default=False)
     permite_tiktok = Column(Boolean, default=False)
+    max_integraciones = Column(Integer, default=0, nullable=False)
     tokens_mensuales = Column(Integer, default=100000, nullable=False)
     max_documentos = Column(Integer, default=100, nullable=False)
     almacenamiento_bytes = Column(BigInteger, default=1073741824, nullable=False)

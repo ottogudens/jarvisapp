@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from backend.auth import obtener_usuario_actual
 from backend.crypto_utils import encrypt_secret, decrypt_secret
 from backend.database import get_db
-from backend.models import ChannelConnection, OmniConversation, OmniMessage, MarketingContent
+from backend.models import ChannelConnection, OmniConversation, OmniMessage, MarketingContent, Tenant
 
 router = APIRouter(prefix="/v1/marketing", tags=["Marketing y canales"])
 
@@ -39,6 +39,18 @@ class ReplyPayload(BaseModel):
     content: str = Field(min_length=1, max_length=4096)
     send_now: bool = False
 
+
+def _check_integration_quota(db: Session, tenant_id: int, provider: str) -> None:
+    """Aplica el cupo solo a planes por cantidad; conserva planes legados."""
+    tenant = db.query(Tenant).filter(Tenant.id_tenant == tenant_id).first()
+    limit = tenant.plan.max_integraciones if tenant and tenant.plan else 0
+    if limit <= 0:
+        return
+    existing = db.query(ChannelConnection.provider).filter(ChannelConnection.id_tenant == tenant_id, ChannelConnection.provider == provider, ChannelConnection.status.in_(("connected", "oauth_pending", "pending_verification"))).first()
+    used = db.query(ChannelConnection.provider).filter(ChannelConnection.id_tenant == tenant_id, ChannelConnection.status.in_(("connected", "oauth_pending", "pending_verification"))).distinct().count()
+    if not existing and used >= limit:
+        raise HTTPException(status_code=403, detail=f"Tu plan permite un máximo de {limit} integraciones. Desconecta una integración o mejora tu plan.")
+
 @router.get("/whatsapp-guide")
 async def whatsapp_guide(usuario: dict = Depends(obtener_usuario_actual)):
     return {"title": "Conecta WhatsApp Business con Meta", "steps": WHATSAPP_GUIDE, "required_env": ["META_APP_ID", "META_APP_SECRET", "META_WEBHOOK_VERIFY_TOKEN"]}
@@ -51,6 +63,7 @@ async def connections(usuario: dict = Depends(obtener_usuario_actual), db: Sessi
 @router.post("/connections")
 async def save_connection(body: ConnectionPayload, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
     # El token se cifra; el cliente solo recibe el estado de conexión, jamás el secreto.
+    _check_integration_quota(db, usuario["id_tenant"], body.provider)
     row = ChannelConnection(id_tenant=usuario["id_tenant"], provider=body.provider, account_name=body.account_name, external_account_id=body.external_account_id, phone_number_id=body.phone_number_id, credential_encrypted=encrypt_secret(body.access_token) if body.access_token else None, scopes=body.scopes, status="pending_verification")
     db.add(row); db.commit(); db.refresh(row)
     return {"id_connection": row.id_connection, "status": row.status}
@@ -59,6 +72,7 @@ async def save_connection(body: ConnectionPayload, usuario: dict = Depends(obten
 @router.post("/connections/meta/start/{provider}")
 async def meta_oauth_start(provider: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
     if provider not in {"facebook", "instagram", "messenger", "facebook_ads"}: raise HTTPException(status_code=422, detail="Canal Meta no soportado")
+    _check_integration_quota(db, usuario["id_tenant"], provider)
     app_id = os.getenv("META_APP_ID", ""); redirect = os.getenv("META_OAUTH_REDIRECT_URL", "")
     if not app_id or not redirect: raise HTTPException(status_code=503, detail="OAuth de Meta aún no está configurado.")
     state = secrets.token_urlsafe(32)
@@ -70,6 +84,7 @@ async def meta_oauth_start(provider: str, usuario: dict = Depends(obtener_usuari
 
 @router.post("/connections/tiktok/start")
 async def tiktok_oauth_start(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    _check_integration_quota(db, usuario["id_tenant"], "tiktok")
     client_key = os.getenv("TIKTOK_CLIENT_KEY", "")
     redirect = os.getenv("TIKTOK_OAUTH_REDIRECT_URL", "")
     if not client_key or not redirect:

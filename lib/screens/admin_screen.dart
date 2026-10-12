@@ -146,10 +146,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     final documentsCtrl = TextEditingController(text: '${planToEdit?['max_documentos'] ?? 100}');
     final storageMbCtrl = TextEditingController(text: '${((planToEdit?['almacenamiento_bytes'] as num? ?? 1073741824) / 1048576).round()}');
     final uploadMbCtrl = TextEditingController(text: '${((planToEdit?['max_upload_bytes'] as num? ?? 15728640) / 1048576).round()}');
-    bool pIot = planToEdit?['permite_iot'] ?? false;
-    bool pMk = planToEdit?['permite_mikrotik'] ?? false;
-    bool pTele = planToEdit?['permite_telegram'] ?? false;
-    bool pWts = planToEdit?['permite_whatsapp'] ?? false;
+    final integrationsCtrl = TextEditingController(text: '${planToEdit?['max_integraciones'] ?? 2}');
 
     showDialog(context: context, builder: (ctx) {
       return StatefulBuilder(builder: (ctx, setDialogState) {
@@ -170,10 +167,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 TextField(controller: documentsCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Documentos activos incluidos', labelStyle: TextStyle(color: BonsoBrand.aqua))),
                 TextField(controller: storageMbCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Almacenamiento incluido (MB)', labelStyle: TextStyle(color: BonsoBrand.aqua))),
                 TextField(controller: uploadMbCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Tamaño máximo por archivo (MB)', labelStyle: TextStyle(color: BonsoBrand.aqua))),
-                SwitchListTile(title: const Text('IoT', style: TextStyle(color: Colors.white)), value: pIot, onChanged: (val) => setDialogState(() => pIot = val)),
-                SwitchListTile(title: const Text('MikroTik', style: TextStyle(color: Colors.white)), value: pMk, onChanged: (val) => setDialogState(() => pMk = val)),
-                SwitchListTile(title: const Text('Telegram', style: TextStyle(color: Colors.white)), value: pTele, onChanged: (val) => setDialogState(() => pTele = val)),
-                SwitchListTile(title: const Text('WhatsApp', style: TextStyle(color: Colors.white)), value: pWts, onChanged: (val) => setDialogState(() => pWts = val)),
+                TextField(controller: integrationsCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Máximo de integraciones conectadas', helperText: 'El cliente elige cuáles conectar dentro de este cupo.', labelStyle: TextStyle(color: BonsoBrand.aqua))),
               ],
             ),
           ),
@@ -184,10 +178,11 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 final token = await _getToken();
                 final body = jsonEncode({
                   'nombre_plan': nameCtrl.text,
-                  'permite_iot': pIot,
-                  'permite_mikrotik': pMk,
-                  'permite_telegram': pTele,
-                  'permite_whatsapp': pWts,
+                  'permite_iot': false,
+                  'permite_mikrotik': false,
+                  'permite_telegram': false,
+                  'permite_whatsapp': false,
+                  'max_integraciones': int.tryParse(integrationsCtrl.text) ?? 0,
                   'precio_mensual': int.tryParse(priceCtrl.text) ?? 0,
                   'tokens_mensuales': int.tryParse(tokensCtrl.text) ?? 100000,
                   'max_documentos': int.tryParse(documentsCtrl.text) ?? 100,

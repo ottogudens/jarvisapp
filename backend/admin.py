@@ -33,6 +33,7 @@ class SaaSPlanSchema(BaseModel):
     permite_facebook: bool = False
     permite_instagram: bool = False
     permite_tiktok: bool = False
+    max_integraciones: int = Field(default=0, ge=0, le=100)
     tokens_mensuales: int = 100000
     max_documentos: int = Field(default=100, ge=1, le=1_000_000)
     almacenamiento_bytes: int = Field(default=1073741824, ge=1_048_576)
@@ -379,6 +380,7 @@ def create_plan(
         permite_whatsapp=plan.permite_whatsapp, tokens_mensuales=plan.tokens_mensuales,
         permite_google_workspace=plan.permite_google_workspace, permite_facebook=plan.permite_facebook,
         permite_instagram=plan.permite_instagram, permite_tiktok=plan.permite_tiktok,
+        max_integraciones=plan.max_integraciones,
         max_documentos=plan.max_documentos, almacenamiento_bytes=plan.almacenamiento_bytes, max_upload_bytes=plan.max_upload_bytes,
         precio_mensual=plan.precio_mensual, moneda=plan.moneda,
     )
@@ -407,6 +409,7 @@ def update_plan(
     db_plan.permite_facebook = plan.permite_facebook
     db_plan.permite_instagram = plan.permite_instagram
     db_plan.permite_tiktok = plan.permite_tiktok
+    db_plan.max_integraciones = plan.max_integraciones
     db_plan.tokens_mensuales = plan.tokens_mensuales
     db_plan.max_documentos = plan.max_documentos
     db_plan.almacenamiento_bytes = plan.almacenamiento_bytes
