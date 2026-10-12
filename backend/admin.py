@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
@@ -37,7 +38,10 @@ class SaaSPlanSchema(BaseModel):
     tokens_mensuales: int = 100000
     max_documentos: int = Field(default=100, ge=1, le=1_000_000)
     almacenamiento_bytes: int = Field(default=1073741824, ge=1_048_576)
-    max_upload_bytes: int = Field(default=15728640, ge=1_024, le=15_728_640)
+    # El catálogo incluye planes de hasta 100 MB por archivo. Este límite debe
+    # coincidir con la política del dominio para que el listado administrativo
+    # no falle al serializar planes válidos.
+    max_upload_bytes: int = Field(default=15728640, ge=1_024, le=104_857_600)
     precio_mensual: int = 0
     moneda: str = "CLP"
 
@@ -372,8 +376,15 @@ def create_plan(
     usuario: dict = Depends(requiere_staff),
     db: Session = Depends(get_db)
 ):
+    nombre_plan = plan.nombre_plan.strip()
+    if not nombre_plan:
+        raise HTTPException(status_code=422, detail="El nombre del plan es obligatorio.")
+    existing = db.query(SaaSPlan).filter(func.lower(SaaSPlan.nombre_plan) == nombre_plan.lower()).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Ya existe un plan con ese nombre. Edítalo o usa otro nombre.")
+
     db_plan = SaaSPlan(
-        nombre_plan=plan.nombre_plan,
+        nombre_plan=nombre_plan,
         permite_iot=plan.permite_iot,
         permite_mikrotik=plan.permite_mikrotik,
         permite_telegram=plan.permite_telegram,
@@ -385,7 +396,11 @@ def create_plan(
         precio_mensual=plan.precio_mensual, moneda=plan.moneda,
     )
     db.add(db_plan)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe un plan con ese nombre. Edítalo o usa otro nombre.") from None
     db.refresh(db_plan)
     return db_plan
 
@@ -399,8 +414,18 @@ def update_plan(
     db_plan = db.query(SaaSPlan).filter(SaaSPlan.id_plan == id_plan).first()
     if not db_plan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
-    
-    db_plan.nombre_plan = plan.nombre_plan
+
+    nombre_plan = plan.nombre_plan.strip()
+    if not nombre_plan:
+        raise HTTPException(status_code=422, detail="El nombre del plan es obligatorio.")
+    existing = db.query(SaaSPlan).filter(
+        func.lower(SaaSPlan.nombre_plan) == nombre_plan.lower(),
+        SaaSPlan.id_plan != id_plan,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Ya existe un plan con ese nombre. Edítalo o usa otro nombre.")
+
+    db_plan.nombre_plan = nombre_plan
     db_plan.permite_iot = plan.permite_iot
     db_plan.permite_mikrotik = plan.permite_mikrotik
     db_plan.permite_telegram = plan.permite_telegram
@@ -417,7 +442,11 @@ def update_plan(
     db_plan.precio_mensual = plan.precio_mensual
     db_plan.moneda = plan.moneda
     
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe un plan con ese nombre. Edítalo o usa otro nombre.") from None
     db.refresh(db_plan)
     return db_plan
 
