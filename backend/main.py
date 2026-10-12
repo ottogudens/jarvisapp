@@ -828,7 +828,11 @@ async def subir_plantilla(file: UploadFile = File(...), usuario: dict = Depends(
     extension = Path(file.filename or "").suffix.lower()
     if extension not in TEMPLATE_SUFFIXES or not content or len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="Plantilla inválida o mayor a 15 MB.")
-    template = DocumentTemplate(id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=Path(file.filename).name, extension=extension, contenido_base64=base64.b64encode(content).decode(), campos=detect_fields(content, extension))
+    try:
+        fields = detect_fields(content, extension)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    template = DocumentTemplate(id_tenant=usuario["id_tenant"], id_usuario=usuario["id_usuario"], nombre=Path(file.filename).name, extension=extension, contenido_base64=base64.b64encode(content).decode(), campos=fields)
     db.add(template); db.commit(); db.refresh(template)
     return {"id_template": template.id_template, "nombre": template.nombre, "campos": template.campos}
 
@@ -914,7 +918,10 @@ async def actualizar_contenido_plantilla(template_id: str, data: TemplateContent
     if data.nombre:
         template.nombre = data.nombre.strip()
     template.contenido_base64 = base64.b64encode(content).decode()
-    template.campos = detect_fields(content, template.extension)
+    try:
+        template.campos = detect_fields(content, template.extension)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     return {"id_template": template.id_template, "nombre": template.nombre, "campos": template.campos}
 
@@ -930,12 +937,38 @@ async def reemplazar_archivo_plantilla(template_id: str, file: UploadFile = File
     extension = Path(filename).suffix.lower()
     if extension not in TEMPLATE_SUFFIXES or not content or len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="Plantilla inválida o mayor a 15 MB.")
+    try:
+        fields = detect_fields(content, extension)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     template.nombre = filename
     template.extension = extension
     template.contenido_base64 = base64.b64encode(content).decode()
-    template.campos = detect_fields(content, extension)
+    template.campos = fields
     db.commit()
     return {"id_template": template.id_template, "nombre": template.nombre, "extension": template.extension, "campos": template.campos}
+
+
+@app.post("/v1/templates/{template_id}/reprocess")
+async def reprocesar_plantilla(template_id: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Vuelve a detectar campos sin reemplazar ni modificar el archivo original."""
+    from backend.template_service import detect_fields
+    template = _obtener_plantilla_activa(template_id, usuario, db)
+    previous = set(template.campos or [])
+    try:
+        detected = detect_fields(base64.b64decode(template.contenido_base64), template.extension)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    current = set(detected)
+    template.campos = detected
+    db.commit()
+    return {
+        "id_template": template.id_template,
+        "campos": detected,
+        "added_fields": sorted(current - previous),
+        "removed_fields": sorted(previous - current),
+        "message": "Campos actualizados" if current != previous else "No se detectaron cambios en los campos.",
+    }
 
 
 @app.delete("/v1/templates/{template_id}")

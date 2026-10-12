@@ -58,7 +58,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
   }
 
   Future<void> _upload({Map<String, dynamic>? replacing}) async {
-    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['docx', 'html', 'htm', 'md', 'txt', 'pdf'], withData: true);
+    final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['docx', 'dotx', 'xlsx', 'xltx', 'csv', 'html', 'htm', 'md', 'txt', 'pdf'], withData: true);
     if (picked == null || picked.files.isEmpty) return;
     final file = picked.files.single;
     if (file.bytes == null) {
@@ -125,6 +125,33 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     }
   }
 
+  Future<void> _reprocess(Map<String, dynamic> item) async {
+    try {
+      final response = await http.post(Uri.parse('$kApiBaseUrl/v1/templates/${item['id_template']}/reprocess'), headers: await _headers);
+      if (response.statusCode != 200) throw Exception(_detail(response));
+      final result = Map<String, dynamic>.from(jsonDecode(response.body));
+      final fields = List<String>.from(result['campos'] ?? []);
+      final added = List<String>.from(result['added_fields'] ?? []);
+      final removed = List<String>.from(result['removed_fields'] ?? []);
+      if (!mounted) return;
+      await showDialog<void>(context: context, builder: (context) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: const Text('Resultado del reprocesamiento', style: TextStyle(color: Colors.white)),
+        content: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text('${fields.length} ${fields.length == 1 ? 'campo detectado' : 'campos detectados'}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          Text(fields.isEmpty ? 'No se encontraron campos. Usa marcadores como {{cliente}} o campos rellenables en un PDF.' : fields.map((field) => '{{${field}}}').join(', '), style: const TextStyle(color: Colors.white70)),
+          if (added.isNotEmpty) ...[const SizedBox(height: 12), Text('Nuevos: ${added.join(', ')}', style: const TextStyle(color: Colors.greenAccent))],
+          if (removed.isNotEmpty) ...[const SizedBox(height: 8), Text('Eliminados: ${removed.join(', ')}', style: const TextStyle(color: Colors.orangeAccent))],
+        ]),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))],
+      ));
+      await _load();
+    } catch (error) {
+      _message('No se pudo reprocesar la plantilla: $error', error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: BonsoBrand.ink,
@@ -134,7 +161,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
       final item = _items[index];
       final extension = '${item['extension'] ?? ''}'.toLowerCase();
       final fields = List.from(item['campos'] ?? []);
-      return Card(color: BonsoBrand.surface, child: ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), leading: const Icon(Icons.description_outlined, color: BonsoBrand.aqua), title: Text('${item['nombre']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)), subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text('$extension · ${fields.length} ${fields.length == 1 ? 'campo' : 'campos'}', style: const TextStyle(color: Colors.white54))), trailing: PopupMenuButton<String>(color: BonsoBrand.surfaceRaised, icon: const Icon(Icons.more_vert, color: Colors.white70), onSelected: (value) { if (value == 'rename') _rename(item); if (value == 'edit') _editContent(item); if (value == 'replace') _upload(replacing: item); if (value == 'delete') _delete(item); }, itemBuilder: (_) => [const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.drive_file_rename_outline), title: Text('Renombrar'))), if (_editableExtensions.contains(extension)) const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Editar contenido'))), const PopupMenuItem(value: 'replace', child: ListTile(leading: Icon(Icons.upload_file_outlined), title: Text('Reemplazar archivo'))), const PopupMenuDivider(), const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, color: Colors.redAccent), title: Text('Enviar a papelera', style: TextStyle(color: Colors.redAccent))))])));
+      return Card(color: BonsoBrand.surface, child: ListTile(contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), leading: const Icon(Icons.description_outlined, color: BonsoBrand.aqua), title: Text('${item['nombre']}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)), subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text('$extension · ${fields.length} ${fields.length == 1 ? 'campo' : 'campos'}', style: const TextStyle(color: Colors.white54))), trailing: PopupMenuButton<String>(color: BonsoBrand.surfaceRaised, icon: const Icon(Icons.more_vert, color: Colors.white70), onSelected: (value) { if (value == 'rename') _rename(item); if (value == 'edit') _editContent(item); if (value == 'reprocess') _reprocess(item); if (value == 'replace') _upload(replacing: item); if (value == 'delete') _delete(item); }, itemBuilder: (_) => [const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.drive_file_rename_outline), title: Text('Renombrar'))), if (_editableExtensions.contains(extension)) const PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Editar contenido'))), const PopupMenuItem(value: 'reprocess', child: ListTile(leading: Icon(Icons.find_replace_outlined), title: Text('Reprocesar campos'))), const PopupMenuItem(value: 'replace', child: ListTile(leading: Icon(Icons.upload_file_outlined), title: Text('Reemplazar archivo'))), const PopupMenuDivider(), const PopupMenuItem(value: 'delete', child: ListTile(leading: Icon(Icons.delete_outline, color: Colors.redAccent), title: Text('Enviar a papelera', style: TextStyle(color: Colors.redAccent))))])));
     })),
   );
 }

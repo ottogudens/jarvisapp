@@ -184,7 +184,7 @@ class _HubScreenState extends State<HubScreen> {
   }
 
   Future<void> _uploadTemplate() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['docx', 'html', 'htm', 'md', 'txt', 'pdf']);
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['docx', 'dotx', 'xlsx', 'xltx', 'csv', 'html', 'htm', 'md', 'txt', 'pdf']);
     if (result == null || result.files.isEmpty || _token == null) return;
     final file = result.files.first;
     try {

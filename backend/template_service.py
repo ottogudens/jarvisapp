@@ -1,25 +1,94 @@
-"""Procesamiento determinista de plantillas. Solo reemplaza campos {{nombre}}."""
-import base64
+"""Procesamiento determinista de plantillas y sus marcadores ``{{campo}}``."""
 import io
 import re
 import zipfile
 from pathlib import Path
 
-FIELD_RE = re.compile(r"\{\{\s*([a-zA-Z][a-zA-Z0-9_.-]{0,99})\s*\}\}")
+# Permite nombres legibles en español (por ejemplo ``{{razón_social}}``), sin
+# aceptar espacios ni expresiones ejecutables dentro de los marcadores.
+FIELD_RE = re.compile(r"\{\{\s*([^\W\d][\w.-]{0,99})\s*\}\}", re.UNICODE)
+
+
+def _fields_from_text(text: str) -> list[str]:
+    return sorted(set(FIELD_RE.findall(text)))
+
+
+def _iter_table_paragraphs(table):
+    """Itera tablas anidadas de python-docx sin omitir celdas."""
+    for row in table.rows:
+        for cell in row.cells:
+            yield from cell.paragraphs
+            for nested in cell.tables:
+                yield from _iter_table_paragraphs(nested)
+
+
+def _docx_paragraphs(document):
+    yield from document.paragraphs
+    for table in document.tables:
+        yield from _iter_table_paragraphs(table)
+    for section in document.sections:
+        for part in (section.header, section.footer, section.first_page_header,
+                     section.first_page_footer, section.even_page_header,
+                     section.even_page_footer):
+            yield from part.paragraphs
+            for table in part.tables:
+                yield from _iter_table_paragraphs(table)
 
 
 def detect_fields(content: bytes, extension: str) -> list[str]:
-    # La deteccion de OOXML se realiza sobre su XML interno; otros formatos son texto.
-    if extension in {".docx", ".dotx", ".xlsx", ".xltx"}:
-        with zipfile.ZipFile(io.BytesIO(content)) as archive:
-            text = "\n".join(archive.read(name).decode("utf-8", errors="ignore") for name in archive.namelist() if name.endswith(".xml"))
-    else:
-        text = content.decode("utf-8", errors="ignore")
-    return sorted(set(FIELD_RE.findall(text)))
+    """Detecta campos según la semántica real de cada formato.
+
+    No se inspecciona XML OOXML crudo: Word divide frecuentemente un marcador
+    entre varios ``runs`` y eso hacía que ``{{cliente}}`` se perdiera.
+    """
+    extension = extension.lower()
+    try:
+        if extension in {".docx", ".dotx"}:
+            from docx import Document
+            document = Document(io.BytesIO(content))
+            return _fields_from_text("\n".join(paragraph.text for paragraph in _docx_paragraphs(document)))
+        if extension in {".xlsx", ".xltx"}:
+            from openpyxl import load_workbook
+            workbook = load_workbook(io.BytesIO(content), data_only=False, read_only=True)
+            values = (
+                str(cell.value) for sheet in workbook.worksheets
+                for row in sheet.iter_rows() for cell in row if isinstance(cell.value, str)
+            )
+            return _fields_from_text("\n".join(values))
+        if extension == ".pdf":
+            from pypdf import PdfReader
+            fields = PdfReader(io.BytesIO(content)).get_fields() or {}
+            return sorted(str(name) for name in fields)
+        return _fields_from_text(content.decode("utf-8-sig", errors="replace"))
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+        raise ValueError(f"No fue posible analizar la plantilla {extension or 'sin extensión'}.") from exc
 
 
 def _replace_text(value: str, fields: dict) -> str:
     return FIELD_RE.sub(lambda m: str(fields.get(m.group(1), m.group(0))), value)
+
+
+def _replace_docx_paragraph(paragraph, fields: dict) -> None:
+    """Reemplaza incluso un marcador dividido entre runs de Word.
+
+    Los marcadores contenidos en un run conservan completamente su formato. Si
+    Word los dividió, se recompone el párrafo para que el documento sea útil;
+    el formato de los runs involucrados queda con el estilo del primer run.
+    """
+    original = "".join(run.text for run in paragraph.runs)
+    replacement = _replace_text(original, fields)
+    if replacement == original:
+        return
+    for run in paragraph.runs:
+        if FIELD_RE.search(run.text):
+            run.text = _replace_text(run.text, fields)
+            return
+    if paragraph.runs:
+        paragraph.runs[0].text = replacement
+        for run in paragraph.runs[1:]:
+            run.text = ""
+    else:
+        paragraph.add_run(replacement)
 
 
 def render_template(content: bytes, filename: str, fields: dict) -> tuple[bytes, str, str]:
@@ -30,9 +99,8 @@ def render_template(content: bytes, filename: str, fields: dict) -> tuple[bytes,
     if extension in {".docx", ".dotx"}:
         from docx import Document
         doc = Document(io.BytesIO(content))
-        for paragraph in list(doc.paragraphs) + [p for table in doc.tables for row in table.rows for cell in row.cells for p in cell.paragraphs]:
-            for run in paragraph.runs:
-                run.text = _replace_text(run.text, fields)
+        for paragraph in _docx_paragraphs(doc):
+            _replace_docx_paragraph(paragraph, fields)
         out = io.BytesIO(); doc.save(out)
         return out.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename.rsplit('.', 1)[0] + '.docx'
     if extension in {".xlsx", ".xltx"}:
