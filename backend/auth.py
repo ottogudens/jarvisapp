@@ -364,6 +364,11 @@ def requiere_plan(feature_requerido: str):
         "iot": "permite_iot",
         "mikrotik": "permite_mikrotik",
         "telegram": "permite_telegram",
+        "whatsapp": "permite_whatsapp",
+        "google_workspace": "permite_google_workspace",
+        "facebook": "permite_facebook",
+        "instagram": "permite_instagram",
+        "tiktok": "permite_tiktok",
     }
     if feature_requerido not in feature_columns:
         raise ValueError(f"Feature de plan desconocida: {feature_requerido}")
@@ -498,6 +503,10 @@ def get_profile(
         'plan_features': {
             'telegram': plan.permite_telegram if plan else False,
             'whatsapp': plan.permite_whatsapp if plan else False,
+            'google_workspace': plan.permite_google_workspace if plan else False,
+            'facebook': plan.permite_facebook if plan else False,
+            'instagram': plan.permite_instagram if plan else False,
+            'tiktok': plan.permite_tiktok if plan else False,
             'iot': plan.permite_iot if plan else False,
             'mikrotik': plan.permite_mikrotik if plan else False,
         }

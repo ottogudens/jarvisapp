@@ -23,16 +23,24 @@ def seed_db():
     db: Session = next(get_db())
     
     try:
-        # 1. Crear SaaS Plan Base
-        plan = db.query(SaaSPlan).filter_by(nombre_plan="Plan Starter").first()
-        if not plan:
-            plan = SaaSPlan(nombre_plan="Plan Starter")
-            db.add(plan)
-            db.commit()
-            db.refresh(plan)
-            print(f"Creado SaaSPlan: {plan.nombre_plan}")
-        else:
-            print("SaaSPlan 'Plan Starter' ya existe.")
+        # 1. Catálogo comercial. Se actualizan solo estos planes de sistema;
+        # los planes personalizados creados por administración no se tocan.
+        catalog = {
+            "Bonso Inicial": dict(precio_mensual=29990, tokens_mensuales=100000, max_documentos=100, almacenamiento_bytes=2 * 1024**3, max_upload_bytes=15 * 1024**2, permite_telegram=True),
+            "Bonso Profesional": dict(precio_mensual=79990, tokens_mensuales=500000, max_documentos=1000, almacenamiento_bytes=10 * 1024**3, max_upload_bytes=30 * 1024**2, permite_telegram=True, permite_whatsapp=True, permite_google_workspace=True, permite_facebook=True, permite_instagram=True),
+            "Bonso Empresa": dict(precio_mensual=149990, tokens_mensuales=2000000, max_documentos=5000, almacenamiento_bytes=50 * 1024**3, max_upload_bytes=100 * 1024**2, permite_telegram=True, permite_whatsapp=True, permite_google_workspace=True, permite_facebook=True, permite_instagram=True, permite_tiktok=True, permite_iot=True, permite_mikrotik=True),
+        }
+        plans = {}
+        for name, values in catalog.items():
+            plan = db.query(SaaSPlan).filter_by(nombre_plan=name).first()
+            if not plan:
+                plan = SaaSPlan(nombre_plan=name, moneda="CLP")
+                db.add(plan)
+            for key, value in values.items(): setattr(plan, key, value)
+            plans[name] = plan
+        db.commit()
+        plan = plans["Bonso Empresa"]
+        print("Catálogo Bonso Inicial, Profesional y Empresa disponible.")
 
         # 2. Crear Tenant Base para el sistema
         tenant = db.query(Tenant).filter_by(nombre_organizacion="Skale IA").first()

@@ -171,11 +171,11 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
         content: SizedBox(width: 520, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Revisa los campos antes de crear una copia rellenable. El original no se modifica.', style: TextStyle(color: Colors.white70)),
           const SizedBox(height: 12),
-          Flexible(child: ListView.builder(shrinkWrap: true, itemCount: suggestions.length, itemBuilder: (_, index) => CheckboxListTile(
+          SizedBox(height: 320, child: ListView.builder(itemCount: suggestions.length, itemBuilder: (_, index) => CheckboxListTile(
             value: selected[index], activeColor: BonsoBrand.aqua, onChanged: (value) => setDialogState(() => selected[index] = value ?? false),
             title: Text('${suggestions[index]['label']}', style: const TextStyle(color: Colors.white)),
             subtitle: TextField(controller: names[index], enabled: selected[index], style: const TextStyle(color: Colors.white70), decoration: const InputDecoration(labelText: 'Nombre del campo', labelStyle: TextStyle(color: Colors.white54))),
-          )),
+          ))),
         ])),
         actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Crear copia rellenable'))],
       )));

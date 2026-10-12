@@ -29,6 +29,10 @@ class SaaSPlanSchema(BaseModel):
     permite_mikrotik: bool
     permite_telegram: bool = False
     permite_whatsapp: bool = False
+    permite_google_workspace: bool = False
+    permite_facebook: bool = False
+    permite_instagram: bool = False
+    permite_tiktok: bool = False
     tokens_mensuales: int = 100000
     max_documentos: int = Field(default=100, ge=1, le=1_000_000)
     almacenamiento_bytes: int = Field(default=1073741824, ge=1_048_576)
@@ -373,6 +377,8 @@ def create_plan(
         permite_mikrotik=plan.permite_mikrotik,
         permite_telegram=plan.permite_telegram,
         permite_whatsapp=plan.permite_whatsapp, tokens_mensuales=plan.tokens_mensuales,
+        permite_google_workspace=plan.permite_google_workspace, permite_facebook=plan.permite_facebook,
+        permite_instagram=plan.permite_instagram, permite_tiktok=plan.permite_tiktok,
         max_documentos=plan.max_documentos, almacenamiento_bytes=plan.almacenamiento_bytes, max_upload_bytes=plan.max_upload_bytes,
         precio_mensual=plan.precio_mensual, moneda=plan.moneda,
     )
@@ -397,6 +403,10 @@ def update_plan(
     db_plan.permite_mikrotik = plan.permite_mikrotik
     db_plan.permite_telegram = plan.permite_telegram
     db_plan.permite_whatsapp = plan.permite_whatsapp
+    db_plan.permite_google_workspace = plan.permite_google_workspace
+    db_plan.permite_facebook = plan.permite_facebook
+    db_plan.permite_instagram = plan.permite_instagram
+    db_plan.permite_tiktok = plan.permite_tiktok
     db_plan.tokens_mensuales = plan.tokens_mensuales
     db_plan.max_documentos = plan.max_documentos
     db_plan.almacenamiento_bytes = plan.almacenamiento_bytes

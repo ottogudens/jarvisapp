@@ -54,7 +54,7 @@ class _BillingScreenState extends State<BillingScreen> {
               children: _plans.map((plan) => ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text('${plan['nombre']}', style: const TextStyle(color: Colors.white)),
-                subtitle: Text('${plan['precio_mensual']} ${plan['moneda']} · ${plan['tokens_mensuales']} tokens', style: const TextStyle(color: Colors.white70)),
+                subtitle: Text('${plan['precio_mensual']} ${plan['moneda']} · ${plan['tokens_mensuales']} tokens\n${(plan['integraciones'] as List? ?? []).join(' · ')}', style: const TextStyle(color: Colors.white70, height: 1.4)),
                 onTap: () => Navigator.pop(context, plan),
               )).toList(),
             ),

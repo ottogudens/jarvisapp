@@ -23,6 +23,10 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
   int _routerCount = 0;
   bool _telegramEnabled = false;
   bool _whatsappEnabled = false;
+  bool _googleEnabled = false;
+  bool _facebookEnabled = false;
+  bool _instagramEnabled = false;
+  bool _tiktokEnabled = false;
   bool _iotEnabled = false;
   bool _mikrotikEnabled = false;
   bool _whatsappConnected = false;
@@ -60,6 +64,10 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
       setState(() {
         _telegramEnabled = features['telegram'] == true;
         _whatsappEnabled = features['whatsapp'] == true;
+        _googleEnabled = features['google_workspace'] == true;
+        _facebookEnabled = features['facebook'] == true;
+        _instagramEnabled = features['instagram'] == true;
+        _tiktokEnabled = features['tiktok'] == true;
         _iotEnabled = features['iot'] == true;
         _mikrotikEnabled = features['mikrotik'] == true;
         _telegramConnected = telegram['linked'] == true || telegram['connected'] == true || telegram['configured'] == true;
@@ -181,10 +189,10 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
                   const SizedBox(height: 20),
                   _integrationCard(title: 'Telegram', description: 'Atiende clientes y recibe archivos desde tu bot.', icon: Icons.send_outlined, color: Colors.lightBlueAccent, section: 'telegram', status: _telegramConnected ? 'CONECTADO' : (_telegramEnabled ? 'SIN CONFIGURAR' : 'PLAN SUPERIOR'), enabled: _telegramEnabled),
                   _integrationCard(title: 'WhatsApp Business', description: 'Centraliza conversaciones de clientes mediante Meta Cloud API.', icon: Icons.chat_outlined, color: Colors.greenAccent, section: 'whatsapp', status: _whatsappConnected ? 'CONECTADO' : (_whatsappEnabled ? 'CONFIGURAR' : 'PLAN SUPERIOR'), enabled: _whatsappEnabled, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketingScreen())).then((_) => _loadStatus())),
-                  _integrationCard(title: 'Facebook', description: 'Conecta páginas y contenido de Facebook mediante Meta.', icon: Icons.facebook_outlined, color: Colors.blueAccent, section: 'facebook', status: _facebookConnected ? 'CONECTADO' : 'CONECTAR FACEBOOK', onTap: () => _connectMeta('facebook')),
-                  _integrationCard(title: 'Instagram', description: 'Vincula una cuenta profesional de Instagram.', icon: Icons.photo_camera_outlined, color: Colors.pinkAccent, section: 'instagram', status: _instagramConnected ? 'CONECTADO' : 'CONECTAR INSTAGRAM', onTap: () => _connectMeta('instagram')),
-                  _integrationCard(title: 'TikTok', description: 'Autoriza la cuenta y sus videos permitidos mediante TikTok OAuth.', icon: Icons.music_note_outlined, color: Colors.cyanAccent, section: 'tiktok', status: _tiktokConnected ? 'CONECTADO' : 'CONECTAR TIKTOK', onTap: _connectTikTok),
-                  _integrationCard(title: 'Gmail y Google Calendar', description: 'Permite a Bonso consultar correo y gestionar eventos autorizados.', icon: Icons.calendar_month_outlined, color: Colors.redAccent, section: 'google', status: _googleConnected ? (_googleAccount ?? 'CONECTADO').toUpperCase() : 'CONECTAR GOOGLE', onTap: _connectGoogle),
+                  _integrationCard(title: 'Facebook', description: 'Conecta páginas y contenido de Facebook mediante Meta.', icon: Icons.facebook_outlined, color: Colors.blueAccent, section: 'facebook', status: _facebookConnected ? 'CONECTADO' : (_facebookEnabled ? 'CONECTAR FACEBOOK' : 'PLAN SUPERIOR'), enabled: _facebookEnabled, onTap: _facebookEnabled ? () => _connectMeta('facebook') : null),
+                  _integrationCard(title: 'Instagram', description: 'Vincula una cuenta profesional de Instagram.', icon: Icons.photo_camera_outlined, color: Colors.pinkAccent, section: 'instagram', status: _instagramConnected ? 'CONECTADO' : (_instagramEnabled ? 'CONECTAR INSTAGRAM' : 'PLAN SUPERIOR'), enabled: _instagramEnabled, onTap: _instagramEnabled ? () => _connectMeta('instagram') : null),
+                  _integrationCard(title: 'TikTok', description: 'Autoriza la cuenta y sus videos permitidos mediante TikTok OAuth.', icon: Icons.music_note_outlined, color: Colors.cyanAccent, section: 'tiktok', status: _tiktokConnected ? 'CONECTADO' : (_tiktokEnabled ? 'CONECTAR TIKTOK' : 'PLAN SUPERIOR'), enabled: _tiktokEnabled, onTap: _tiktokEnabled ? _connectTikTok : null),
+                  _integrationCard(title: 'Gmail y Google Calendar', description: 'Permite a Bonso consultar correo y gestionar eventos autorizados.', icon: Icons.calendar_month_outlined, color: Colors.redAccent, section: 'google', status: _googleConnected ? (_googleAccount ?? 'CONECTADO').toUpperCase() : (_googleEnabled ? 'CONECTAR GOOGLE' : 'PLAN SUPERIOR'), enabled: _googleEnabled, onTap: _googleEnabled ? _connectGoogle : null),
                   _integrationCard(title: 'Home Assistant', description: 'Consulta y controla dispositivos de tu instalación.', icon: Icons.home_work_outlined, color: Colors.tealAccent, section: 'iot', status: _iotEnabled ? 'CONFIGURAR' : 'PLAN SUPERIOR', enabled: _iotEnabled),
                   _integrationCard(title: 'MQTT Broker', description: 'Recibe telemetría y automatiza acciones IoT.', icon: Icons.hub_outlined, color: Colors.amberAccent, section: 'iot', status: _iotEnabled ? 'CONFIGURAR' : 'PLAN SUPERIOR', enabled: _iotEnabled),
                   _integrationCard(title: 'MikroTik', description: 'Monitorea y consulta tus routers de red.', icon: Icons.router_outlined, color: Colors.deepPurpleAccent, section: 'mikrotik', status: _mikrotikEnabled ? (_routerCount > 0 ? '$_routerCount ${_routerCount == 1 ? 'ROUTER' : 'ROUTERS'}' : 'SIN ROUTERS') : 'PLAN SUPERIOR', enabled: _mikrotikEnabled),
