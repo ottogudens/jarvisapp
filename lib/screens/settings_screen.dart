@@ -211,6 +211,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  bool _showIntegrationInSettings(String integration, bool connected) =>
+      connected || widget.initialIntegration == integration;
+
   Future<void> _loadTelegramStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
@@ -900,6 +903,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
                 
                 // INTEGRACIÓN TELEGRAM
+                if (_showIntegrationInSettings('telegram', _telegramConnected)) ...[
                 const SizedBox(height: 32),
                 Container(key: _telegramSectionKey, child: _buildSectionTitle('Integración Bot de Telegram')),
                 const SizedBox(height: 14),
@@ -1073,6 +1077,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 )),
                 _permiteTelegram,
                 ),
+                ],
                 
                 if (_perfiles.isNotEmpty) ...[
                   const SizedBox(height: 32),
@@ -1239,6 +1244,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
 
                 // INTEGRACIÓN IOT (DOMÓTICA)
+                if (_showIntegrationInSettings('iot', _haConnected == true || _mqttConnected == true)) ...[
                 const SizedBox(height: 32),
                 Container(key: _iotSectionKey, child: _buildSectionTitle('Integración IoT (Domótica)')),
                 const SizedBox(height: 14),
@@ -1389,9 +1395,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 _permiteIOT,
                 ),
+                ],
 
 
                 // INTEGRACIÓN MIKROTIK
+                if (_showIntegrationInSettings('mikrotik', _mikrotikRouters.isNotEmpty)) ...[
                 const SizedBox(height: 32),
                 Container(key: _mikrotikSectionKey, child: _buildSectionTitle('Integración de Red (MikroTik)')),
                 const SizedBox(height: 14),
@@ -1482,6 +1490,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               _permiteMikrotik,
             ),
+            ],
             const SizedBox(height: 48),
             SizedBox(
                   height: 52,

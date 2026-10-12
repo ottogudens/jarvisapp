@@ -118,7 +118,7 @@ class _MarketingScreenState extends State<MarketingScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: BonsoBrand.ink,
-    appBar: AppBar(title: const Text('Marketing Hub'), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh), tooltip: 'Actualizar')], bottom: TabBar(controller: _tabs, isScrollable: true, tabs: const [Tab(text: 'Canales'), Tab(text: 'Bandeja'), Tab(text: 'Contenido')])),
+    appBar: AppBar(title: const Text('Canales y contenido'), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh), tooltip: 'Actualizar')], bottom: TabBar(controller: _tabs, isScrollable: true, tabs: const [Tab(text: 'Canales'), Tab(text: 'Bandeja'), Tab(text: 'Contenido')])),
     body: _loading ? const Center(child: CircularProgressIndicator()) : TabBarView(controller: _tabs, children: [_channels(), _inboxView(), _contentView()]),
   );
 

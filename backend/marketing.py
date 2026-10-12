@@ -23,7 +23,7 @@ WHATSAPP_GUIDE = [
 ]
 
 class ConnectionPayload(BaseModel):
-    provider: str = Field(pattern="^(whatsapp|instagram|messenger|facebook_ads)$")
+    provider: str = Field(pattern="^(whatsapp|facebook|instagram|messenger|facebook_ads|tiktok)$")
     account_name: str = Field(min_length=2, max_length=255)
     external_account_id: Optional[str] = None
     phone_number_id: Optional[str] = None
@@ -58,7 +58,7 @@ async def save_connection(body: ConnectionPayload, usuario: dict = Depends(obten
 
 @router.post("/connections/meta/start/{provider}")
 async def meta_oauth_start(provider: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
-    if provider not in {"instagram", "messenger", "facebook_ads"}: raise HTTPException(status_code=422, detail="Canal Meta no soportado")
+    if provider not in {"facebook", "instagram", "messenger", "facebook_ads"}: raise HTTPException(status_code=422, detail="Canal Meta no soportado")
     app_id = os.getenv("META_APP_ID", ""); redirect = os.getenv("META_OAUTH_REDIRECT_URL", "")
     if not app_id or not redirect: raise HTTPException(status_code=503, detail="OAuth de Meta aún no está configurado.")
     state = secrets.token_urlsafe(32)
@@ -66,6 +66,41 @@ async def meta_oauth_start(provider: str, usuario: dict = Depends(obtener_usuari
     row = ChannelConnection(id_tenant=usuario["id_tenant"], provider=provider, account_name=f"{provider} pendiente", status="oauth_pending", scopes=scopes, metadata_json={"oauth_state": state})
     db.add(row); db.commit()
     return {"authorization_url": "https://www.facebook.com/v21.0/dialog/oauth?" + urlencode({"client_id": app_id, "redirect_uri": redirect, "state": state, "scope": ",".join(scopes)})}
+
+
+@router.post("/connections/tiktok/start")
+async def tiktok_oauth_start(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    client_key = os.getenv("TIKTOK_CLIENT_KEY", "")
+    redirect = os.getenv("TIKTOK_OAUTH_REDIRECT_URL", "")
+    if not client_key or not redirect:
+        raise HTTPException(status_code=503, detail="TikTok aún no está configurado. Falta configurar OAuth en el servidor.")
+    state = secrets.token_urlsafe(32)
+    scopes = ["user.info.basic", "video.list"]
+    row = ChannelConnection(id_tenant=usuario["id_tenant"], provider="tiktok", account_name="TikTok pendiente", status="oauth_pending", scopes=scopes, metadata_json={"oauth_state": state})
+    db.add(row); db.commit()
+    return {"authorization_url": "https://www.tiktok.com/v2/auth/authorize/?" + urlencode({"client_key": client_key, "redirect_uri": redirect, "response_type": "code", "scope": ",".join(scopes), "state": state})}
+
+
+@router.get("/connections/tiktok/callback")
+async def tiktok_oauth_callback(code: str, state: str, db: Session = Depends(get_db)):
+    client_key = os.getenv("TIKTOK_CLIENT_KEY", "")
+    client_secret = os.getenv("TIKTOK_CLIENT_SECRET", "")
+    redirect = os.getenv("TIKTOK_OAUTH_REDIRECT_URL", "")
+    row = next((item for item in db.query(ChannelConnection).filter(ChannelConnection.provider == "tiktok", ChannelConnection.status == "oauth_pending").all() if (item.metadata_json or {}).get("oauth_state") == state), None)
+    if not row or not client_key or not client_secret or not redirect:
+        raise HTTPException(status_code=400, detail="Autorización inválida o expirada.")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post("https://open.tiktokapis.com/v2/oauth/token/", data={"client_key": client_key, "client_secret": client_secret, "code": code, "grant_type": "authorization_code", "redirect_uri": redirect})
+        if response.status_code >= 400:
+            raise HTTPException(status_code=502, detail="TikTok rechazó la autorización.")
+        token_data = response.json()
+        profile_response = await client.get("https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name", headers={"Authorization": f"Bearer {token_data.get('access_token', '')}"})
+    profile = (profile_response.json().get("data") or {}).get("user") if profile_response.status_code < 400 else {}
+    row.account_name = profile.get("display_name") or "Cuenta TikTok conectada"
+    row.external_account_id = profile.get("open_id")
+    row.credential_encrypted = encrypt_secret(json.dumps({"access_token": token_data.get("access_token"), "refresh_token": token_data.get("refresh_token"), "expires_in": token_data.get("expires_in")}))
+    row.status = "connected"; row.metadata_json = {"connected_at": datetime.now(timezone.utc).isoformat()}; db.commit()
+    return {"status": "connected", "message": "Cuenta TikTok conectada. Puedes volver a Bonso."}
 
 
 @router.get("/connections/meta/callback")
