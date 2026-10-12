@@ -58,6 +58,32 @@ class _MarketingScreenState extends State<MarketingScreen> with SingleTickerProv
     );
   }
 
+  Future<void> _configureWhatsApp() async {
+    final account = TextEditingController();
+    final phoneId = TextEditingController();
+    final accessToken = TextEditingController();
+    final save = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      backgroundColor: BonsoBrand.surface,
+      title: const Text('Conectar WhatsApp Business', style: TextStyle(color: Colors.white)),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('Usa un token permanente de Meta Cloud API. Bonso lo cifra antes de almacenarlo.', style: TextStyle(color: Colors.white70)),
+        TextField(controller: account, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Nombre de la cuenta')),
+        TextField(controller: phoneId, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Phone Number ID')),
+        TextField(controller: accessToken, obscureText: true, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: 'Token de acceso permanente')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Guardar conexión'))],
+    ));
+    if (save != true || account.text.trim().isEmpty || phoneId.text.trim().isEmpty || accessToken.text.trim().isEmpty) return;
+    final response = await http.post(Uri.parse('$kApiBaseUrl/v1/marketing/connections'), headers: {'Authorization': 'Bearer ${await _token()}', 'Content-Type': 'application/json'}, body: jsonEncode({'provider': 'whatsapp', 'account_name': account.text.trim(), 'phone_number_id': phoneId.text.trim(), 'access_token': accessToken.text.trim(), 'scopes': ['whatsapp_business_messaging']}));
+    if (!mounted) return;
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('WhatsApp quedó configurado. Falta verificar el webhook para activar mensajería.'), backgroundColor: Colors.green));
+      _load();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo guardar: ${response.body}'), backgroundColor: Colors.redAccent));
+    }
+  }
+
   Future<void> _connectMeta(String provider) async {
     final response = await http.post(Uri.parse('$kApiBaseUrl/v1/marketing/connections/meta/start/$provider'), headers: {'Authorization': 'Bearer ${await _token()}'});
     if (response.statusCode != 200) {
@@ -97,8 +123,9 @@ class _MarketingScreenState extends State<MarketingScreen> with SingleTickerProv
   );
 
   Widget _channels() => ListView(padding: const EdgeInsets.all(16), children: [
-    SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _whatsappGuide, icon: const Icon(Icons.chat), label: const Text('Conectar WhatsApp Business'), style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.lime, foregroundColor: Colors.black, minimumSize: const Size(0, 48)))),
+    SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: _configureWhatsApp, icon: const Icon(Icons.chat), label: const Text('Conectar WhatsApp Business'), style: ElevatedButton.styleFrom(backgroundColor: BonsoBrand.lime, foregroundColor: Colors.black, minimumSize: const Size(0, 48)))),
     const SizedBox(height: 12),
+    TextButton.icon(onPressed: _whatsappGuide, icon: const Icon(Icons.help_outline), label: const Text('Ver requisitos de Meta y WhatsApp')),
     Wrap(spacing: 8, runSpacing: 8, children: [
       OutlinedButton.icon(onPressed: () => _connectMeta('instagram'), icon: const Icon(Icons.photo_camera), label: const Text('Instagram')),
       OutlinedButton.icon(onPressed: () => _connectMeta('messenger'), icon: const Icon(Icons.forum), label: const Text('Messenger')),

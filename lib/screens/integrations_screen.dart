@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../brand.dart';
 import 'login_screen.dart';
 import 'settings_screen.dart';
+import 'marketing_screen.dart';
 
 class IntegrationsScreen extends StatefulWidget {
   const IntegrationsScreen({super.key});
@@ -20,8 +22,12 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
   bool _telegramConnected = false;
   int _routerCount = 0;
   bool _telegramEnabled = false;
+  bool _whatsappEnabled = false;
   bool _iotEnabled = false;
   bool _mikrotikEnabled = false;
+  bool _whatsappConnected = false;
+  bool _googleConnected = false;
+  String? _googleAccount;
 
   @override
   void initState() {
@@ -38,18 +44,26 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
         http.get(Uri.parse('$kApiBaseUrl/v1/auth/profile'), headers: headers),
         http.get(Uri.parse('$kApiBaseUrl/v1/telegram/status'), headers: headers),
         http.get(Uri.parse('$kApiBaseUrl/v1/mikrotik/routers'), headers: headers),
+        http.get(Uri.parse('$kApiBaseUrl/v1/marketing/connections'), headers: headers),
+        http.get(Uri.parse('$kApiBaseUrl/v1/google-workspace/status'), headers: headers),
       ]);
       if (!mounted) return;
       final profile = responses[0].statusCode == 200 ? jsonDecode(responses[0].body) : <String, dynamic>{};
       final telegram = responses[1].statusCode == 200 ? jsonDecode(responses[1].body) : <String, dynamic>{};
       final routers = responses[2].statusCode == 200 ? jsonDecode(responses[2].body) as List : <dynamic>[];
+      final connections = responses[3].statusCode == 200 ? jsonDecode(responses[3].body) as List : <dynamic>[];
+      final google = responses[4].statusCode == 200 ? jsonDecode(responses[4].body) as Map<String, dynamic> : <String, dynamic>{};
       final features = profile['plan_features'] as Map? ?? {};
       setState(() {
         _telegramEnabled = features['telegram'] == true;
+        _whatsappEnabled = features['whatsapp'] == true;
         _iotEnabled = features['iot'] == true;
         _mikrotikEnabled = features['mikrotik'] == true;
         _telegramConnected = telegram['linked'] == true || telegram['connected'] == true || telegram['configured'] == true;
         _routerCount = routers.length;
+        _whatsappConnected = connections.any((connection) => connection['provider'] == 'whatsapp' && connection['status'] == 'connected');
+        _googleConnected = google['connected'] == true;
+        _googleAccount = google['account_name']?.toString();
       });
     } catch (_) {
       // La pantalla sigue siendo utilizable aunque una consulta de estado falle.
@@ -62,13 +76,24 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => SettingsScreen(initialIntegration: section))).then((_) => _loadStatus());
   }
 
-  Widget _integrationCard({required String title, required String description, required IconData icon, required Color color, required String section, required String status, bool enabled = true}) {
+  Future<void> _connectGoogle() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final response = await http.post(Uri.parse('$kApiBaseUrl/v1/google-workspace/start'), headers: {'Authorization': 'Bearer ${prefs.getString('jwt_token') ?? ''}'});
+      if (response.statusCode != 200) throw Exception(jsonDecode(response.body)['detail'] ?? 'No disponible');
+      await launchUrl(Uri.parse(jsonDecode(response.body)['authorization_url']), mode: LaunchMode.externalApplication);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo iniciar la conexión con Google: $error'), backgroundColor: Colors.redAccent));
+    }
+  }
+
+  Widget _integrationCard({required String title, required String description, required IconData icon, required Color color, required String section, required String status, bool enabled = true, VoidCallback? onTap}) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       color: BonsoBrand.surface,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () => _open(section),
+        onTap: onTap ?? () => _open(section),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(children: [
@@ -109,6 +134,8 @@ class _IntegrationsScreenState extends State<IntegrationsScreen> {
                   const Text('Conecta Bonso con las herramientas que utiliza tu negocio.', style: TextStyle(color: Colors.white70, fontSize: 15, height: 1.35)),
                   const SizedBox(height: 20),
                   _integrationCard(title: 'Telegram', description: 'Atiende clientes y recibe archivos desde tu bot.', icon: Icons.send_outlined, color: Colors.lightBlueAccent, section: 'telegram', status: _telegramConnected ? 'CONECTADO' : (_telegramEnabled ? 'SIN CONFIGURAR' : 'PLAN SUPERIOR'), enabled: _telegramEnabled),
+                  _integrationCard(title: 'WhatsApp Business', description: 'Centraliza conversaciones de clientes mediante Meta Cloud API.', icon: Icons.chat_outlined, color: Colors.greenAccent, section: 'whatsapp', status: _whatsappConnected ? 'CONECTADO' : (_whatsappEnabled ? 'CONFIGURAR' : 'PLAN SUPERIOR'), enabled: _whatsappEnabled, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketingScreen())).then((_) => _loadStatus())),
+                  _integrationCard(title: 'Gmail y Google Calendar', description: 'Permite a Bonso consultar correo y gestionar eventos autorizados.', icon: Icons.calendar_month_outlined, color: Colors.redAccent, section: 'google', status: _googleConnected ? (_googleAccount ?? 'CONECTADO').toUpperCase() : 'CONECTAR GOOGLE', onTap: _connectGoogle),
                   _integrationCard(title: 'Home Assistant', description: 'Consulta y controla dispositivos de tu instalación.', icon: Icons.home_work_outlined, color: Colors.tealAccent, section: 'iot', status: _iotEnabled ? 'CONFIGURAR' : 'PLAN SUPERIOR', enabled: _iotEnabled),
                   _integrationCard(title: 'MQTT Broker', description: 'Recibe telemetría y automatiza acciones IoT.', icon: Icons.hub_outlined, color: Colors.amberAccent, section: 'iot', status: _iotEnabled ? 'CONFIGURAR' : 'PLAN SUPERIOR', enabled: _iotEnabled),
                   _integrationCard(title: 'MikroTik', description: 'Monitorea y consulta tus routers de red.', icon: Icons.router_outlined, color: Colors.deepPurpleAccent, section: 'mikrotik', status: _mikrotikEnabled ? (_routerCount > 0 ? '$_routerCount ${_routerCount == 1 ? 'ROUTER' : 'ROUTERS'}' : 'SIN ROUTERS') : 'PLAN SUPERIOR', enabled: _mikrotikEnabled),
