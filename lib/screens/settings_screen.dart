@@ -7,13 +7,19 @@ import 'login_screen.dart'; // Contiene kApiBaseUrl
 import 'admin_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  final String? initialIntegration;
+
+  const SettingsScreen({Key? key, this.initialIntegration}) : super(key: key);
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _telegramSectionKey = GlobalKey();
+  final GlobalKey _iotSectionKey = GlobalKey();
+  final GlobalKey _mikrotikSectionKey = GlobalKey();
   final _voiceIdController = TextEditingController();
   final _promptController = TextEditingController();
   String _sarcasmLevel = 'Medio';
@@ -189,6 +195,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (mounted) {
       setState(() => _isLoading = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToInitialIntegration());
+    }
+  }
+
+  void _scrollToInitialIntegration() {
+    final key = switch (widget.initialIntegration) {
+      'telegram' => _telegramSectionKey,
+      'iot' => _iotSectionKey,
+      'mikrotik' => _mikrotikSectionKey,
+      _ => null,
+    };
+    if (key?.currentContext != null) {
+      Scrollable.ensureVisible(key!.currentContext!, duration: const Duration(milliseconds: 350), curve: Curves.easeOut, alignment: .06);
     }
   }
 
@@ -828,6 +847,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _mqttPortController.dispose();
     _mqttUserController.dispose();
     _mqttPasswordController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -843,6 +863,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: BonsoBrand.aqua))
           : ListView(
+              controller: _scrollController,
               padding: const EdgeInsets.all(24.0),
               children: [
 
@@ -880,7 +901,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 
                 // INTEGRACIÓN TELEGRAM
                 const SizedBox(height: 32),
-                _buildSectionTitle('Integración Bot de Telegram'),
+                Container(key: _telegramSectionKey, child: _buildSectionTitle('Integración Bot de Telegram')),
                 const SizedBox(height: 14),
                 _premiumBlock(Card(
                   color: BonsoBrand.surface,
@@ -1219,7 +1240,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // INTEGRACIÓN IOT (DOMÓTICA)
                 const SizedBox(height: 32),
-                _buildSectionTitle('Integración IoT (Domótica)'),
+                Container(key: _iotSectionKey, child: _buildSectionTitle('Integración IoT (Domótica)')),
                 const SizedBox(height: 14),
                 _premiumBlock(
                   Column(
@@ -1372,7 +1393,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // INTEGRACIÓN MIKROTIK
                 const SizedBox(height: 32),
-                _buildSectionTitle('Integración de Red (MikroTik)'),
+                Container(key: _mikrotikSectionKey, child: _buildSectionTitle('Integración de Red (MikroTik)')),
                 const SizedBox(height: 14),
                 _premiumBlock(
                   Column(

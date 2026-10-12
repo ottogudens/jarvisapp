@@ -14,6 +14,7 @@ import 'custom_profile_screen.dart';
 import 'billing_screen.dart';
 import 'marketing_screen.dart';
 import 'templates_screen.dart';
+import 'integrations_screen.dart';
 import '../brand.dart';
 
 class HubScreen extends StatefulWidget {
@@ -631,6 +632,7 @@ class _HubScreenState extends State<HubScreen> {
       (Icons.add_comment_outlined, 'Nueva consulta', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatListScreen())).then((_) => _loadProfileAndData())),
       (Icons.upload_file_outlined, 'Subir plantilla', _uploadTemplate),
       (Icons.folder_open_outlined, 'Documentos', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DocumentsScreen()))),
+      (Icons.extension_outlined, 'Integraciones', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const IntegrationsScreen())).then((_) => _loadProfileAndData())),
       (Icons.tune_outlined, 'Configuración', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())).then((_) => _loadProfileAndData())),
       (Icons.person_add_alt_1_outlined, 'Crear asistente', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomProfileScreen())).then((_) => _loadProfileAndData())),
       (Icons.receipt_long_outlined, 'Plan y facturación', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BillingScreen()))),
