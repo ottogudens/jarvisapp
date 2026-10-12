@@ -450,6 +450,36 @@ def update_plan(
     db.refresh(db_plan)
     return db_plan
 
+
+@router.delete("/plans/{id_plan}")
+def delete_plan(
+    id_plan: int,
+    usuario: dict = Depends(requiere_staff),
+    db: Session = Depends(get_db),
+):
+    """Elimina un plan sin afectar clientes ni el historial de facturación."""
+    db_plan = db.query(SaaSPlan).filter(SaaSPlan.id_plan == id_plan).first()
+    if not db_plan:
+        raise HTTPException(status_code=404, detail="Plan no encontrado.")
+
+    tenants_count = db.query(Tenant).filter(Tenant.id_plan == id_plan).count()
+    subscriptions_count = db.query(BillingSubscription).filter(BillingSubscription.id_plan == id_plan).count()
+    if tenants_count or subscriptions_count:
+        references = []
+        if tenants_count:
+            references.append(f"{tenants_count} cliente(s)")
+        if subscriptions_count:
+            references.append(f"{subscriptions_count} suscripción(es) de facturación")
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se puede eliminar este plan porque está asociado a {' y '.join(references)}. Reasigna los clientes y conserva el historial de cobros antes de eliminarlo.",
+        )
+
+    name = db_plan.nombre_plan
+    db.delete(db_plan)
+    db.commit()
+    return {"message": f"Plan '{name}' eliminado correctamente."}
+
 # ============================================================
 # Endpoints Perfiles JARVIS
 # ============================================================

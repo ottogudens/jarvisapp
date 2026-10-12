@@ -114,7 +114,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         'Authorization': 'Bearer $token'
       });
       if (res.statusCode == 200) {
-        _plans = jsonDecode(res.body);
+        if (mounted) setState(() => _plans = jsonDecode(res.body));
       }
     } catch (e) {
       debugPrint("Error plans: $e");
@@ -205,6 +205,49 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         );
       });
     });
+  }
+
+  Future<void> _deletePlan(Map<String, dynamic> plan) async {
+    final name = plan['nombre_plan']?.toString() ?? 'este plan';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: const Text('Eliminar plan', style: TextStyle(color: Colors.white)),
+        content: Text(
+          '¿Eliminar “$name”? Solo se podrá eliminar si no tiene clientes ni suscripciones asociadas.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final token = await _getToken();
+    if (token == null) return;
+    try {
+      final response = await http.delete(
+        Uri.parse('$kApiBaseUrl/v1/admin/plans/${plan['id_plan']}'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      final data = response.body.isNotEmpty ? jsonDecode(response.body) : <String, dynamic>{};
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['message'] ?? 'Plan eliminado.')));
+        await _loadPlans();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(data['detail'] ?? 'No fue posible eliminar el plan.')));
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No fue posible conectar con el servidor.')));
+    }
   }
 
   // ─── Tenant/Client Editor ───────────────────────────────────
@@ -748,10 +791,24 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: ListTile(
                   title: Text(p['nombre_plan'], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  subtitle: Text("IoT: ${p['permite_iot']} | MikroTik: ${p['permite_mikrotik']} | Telegram: ${p['permite_telegram']} | WhatsApp: ${p['permite_whatsapp']}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.edit, color: BonsoBrand.aqua),
-                    onPressed: () => _showPlanEditor(planToEdit: p),
+                  subtitle: Text(
+                    'Hasta ${p['max_integraciones'] ?? 0} integraciones a elección · ${p['tokens_mensuales'] ?? 0} tokens/mes',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Editar plan',
+                        icon: const Icon(Icons.edit, color: BonsoBrand.aqua),
+                        onPressed: () => _showPlanEditor(planToEdit: p),
+                      ),
+                      IconButton(
+                        tooltip: 'Eliminar plan',
+                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                        onPressed: () => _deletePlan(Map<String, dynamic>.from(p)),
+                      ),
+                    ],
                   ),
                 ),
               );
