@@ -143,7 +143,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
           Text(fields.isEmpty ? 'No se encontraron campos. Usa marcadores como {{cliente}} o campos rellenables en un PDF.' : fields.map((field) => '{{${field}}}').join(', '), style: const TextStyle(color: Colors.white70)),
           if (added.isNotEmpty) ...[const SizedBox(height: 12), Text('Nuevos: ${added.join(', ')}', style: const TextStyle(color: Colors.greenAccent))],
           if (removed.isNotEmpty) ...[const SizedBox(height: 8), Text('Eliminados: ${removed.join(', ')}', style: const TextStyle(color: Colors.orangeAccent))],
-        ]),
+        ])),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))],
       ));
       await _load();
