@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from backend.database import SessionLocal
 from backend.models import IoTConfig, MQTTSubscription, MQTTMessageCache
 from backend.crypto_utils import decrypt_secret
+from backend.notification_service import parse_mqtt_payload, process_event_sync
 
 class MQTTDaemon:
     _instance = None
@@ -52,8 +53,17 @@ class MQTTDaemon:
                 )
                 db.add(new_cache)
             db.commit()
+            # El callback de Paho es síncrono: el adaptador conserva el motor
+            # de reglas asíncrono sin bloquear el loop principal de FastAPI.
+            process_event_sync(
+                db,
+                user_id=id_usuario,
+                source="mqtt",
+                event_key=topic,
+                payload=parse_mqtt_payload(payload),
+            )
         except Exception as e:
-            print(f"[MQTT Daemon] Error guardando cache MQTT: {e}")
+            print(f"[MQTT Daemon] Error procesando MQTT: {e}")
         finally:
             db.close()
 

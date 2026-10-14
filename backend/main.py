@@ -24,7 +24,7 @@ import time
 import uuid
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import Type, List, Optional
+from typing import Type, List, Optional, Literal
 from contextlib import asynccontextmanager
 
 from fastapi import (
@@ -2314,6 +2314,84 @@ import paho.mqtt.client as mqtt
 
 class MQTTSubscriptionRequest(BaseModel):
     topic: str
+
+
+class NotificationRuleRequest(BaseModel):
+    nombre: str = Field(min_length=1, max_length=120)
+    source: Literal["mqtt"] = "mqtt"
+    topic: Optional[str] = Field(default=None, max_length=255)
+    json_path: Optional[str] = Field(default=None, max_length=255)
+    operator: Literal["equals", "not_equals", "contains", "greater_than", "less_than"] = "equals"
+    expected_value: Optional[str] = Field(default=None, max_length=1000)
+    message_template: Optional[str] = Field(default=None, max_length=2000)
+    cooldown_minutes: int = Field(default=15, ge=1, le=1440)
+    enabled: bool = True
+
+
+def _notification_rule_payload(rule):
+    return {
+        "id": rule.id_rule, "nombre": rule.nombre, "source": rule.source,
+        "topic": rule.topic, "json_path": rule.json_path, "operator": rule.operator,
+        "expected_value": rule.expected_value, "message_template": rule.message_template,
+        "cooldown_minutes": rule.cooldown_minutes, "enabled": rule.enabled,
+        "last_triggered_at": rule.last_triggered_at.isoformat() if rule.last_triggered_at else None,
+    }
+
+
+@app.get("/v1/notifications/rules")
+async def list_notification_rules(
+    usuario: dict = Depends(requiere_plan("iot")), db: Session = Depends(get_db),
+):
+    from backend.models import NotificationRule
+    rules = db.query(NotificationRule).filter_by(id_usuario=usuario["id_usuario"]).order_by(NotificationRule.created_at.desc()).all()
+    return [_notification_rule_payload(rule) for rule in rules]
+
+
+@app.post("/v1/notifications/rules", status_code=201)
+async def create_notification_rule(
+    body: NotificationRuleRequest, usuario: dict = Depends(requiere_plan("iot")), db: Session = Depends(get_db),
+):
+    from backend.models import MQTTSubscription, NotificationRule
+    if body.source == "mqtt" and not body.topic:
+        raise HTTPException(status_code=422, detail="Una alerta MQTT requiere un tópico.")
+    rule = NotificationRule(id_usuario=usuario["id_usuario"], **body.model_dump())
+    db.add(rule)
+    subscription_created = False
+    if body.topic and not db.query(MQTTSubscription).filter_by(id_usuario=usuario["id_usuario"], topic=body.topic).first():
+        db.add(MQTTSubscription(id_usuario=usuario["id_usuario"], topic=body.topic))
+        subscription_created = True
+    db.commit()
+    db.refresh(rule)
+    if subscription_created:
+        from backend.mqtt_daemon import MQTTDaemon
+        MQTTDaemon.get_instance().trigger_hot_reload(usuario["id_usuario"])
+    return _notification_rule_payload(rule)
+
+
+@app.patch("/v1/notifications/rules/{rule_id}")
+async def update_notification_rule(
+    rule_id: str, body: NotificationRuleRequest, usuario: dict = Depends(requiere_plan("iot")), db: Session = Depends(get_db),
+):
+    from backend.models import NotificationRule
+    rule = db.query(NotificationRule).filter_by(id_rule=rule_id, id_usuario=usuario["id_usuario"]).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Regla no encontrada.")
+    for key, value in body.model_dump().items():
+        setattr(rule, key, value)
+    db.commit()
+    db.refresh(rule)
+    return _notification_rule_payload(rule)
+
+
+@app.delete("/v1/notifications/rules/{rule_id}", status_code=204)
+async def delete_notification_rule(
+    rule_id: str, usuario: dict = Depends(requiere_plan("iot")), db: Session = Depends(get_db),
+):
+    from backend.models import NotificationRule
+    deleted = db.query(NotificationRule).filter_by(id_rule=rule_id, id_usuario=usuario["id_usuario"]).delete()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Regla no encontrada.")
+    db.commit()
 
 @app.post("/v1/iot/mqtt/connect")
 async def toggle_mqtt_connection(

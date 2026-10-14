@@ -563,3 +563,38 @@ class MQTTMessageCache(Base):
     topic = Column(String(255), index=True, nullable=False)
     payload = Column(Text, nullable=False)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# Reglas de alerta independientes de la fuente.  Hoy MQTT las alimenta, pero
+# el mismo contrato permite añadir MikroTik, Home Assistant o un monitor de
+# conectividad sin duplicar la entrega de notificaciones.
+class NotificationRule(Base):
+    __tablename__ = 'notification_rules'
+
+    id_rule = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='CASCADE'), index=True, nullable=False)
+    nombre = Column(String(120), nullable=False)
+    source = Column(String(30), nullable=False, default='mqtt')
+    topic = Column(String(255), nullable=True)
+    json_path = Column(String(255), nullable=True)
+    operator = Column(String(20), nullable=False, default='equals')
+    expected_value = Column(Text, nullable=True)
+    message_template = Column(Text, nullable=True)
+    cooldown_minutes = Column(Integer, nullable=False, default=15)
+    enabled = Column(Boolean, nullable=False, default=True)
+    last_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class NotificationDelivery(Base):
+    __tablename__ = 'notification_deliveries'
+
+    id_delivery = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id_rule = Column(String(36), ForeignKey('notification_rules.id_rule', ondelete='SET NULL'), index=True, nullable=True)
+    id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='SET NULL'), index=True, nullable=True)
+    source = Column(String(30), nullable=False)
+    event_key = Column(String(255), nullable=False)
+    status = Column(String(20), nullable=False, default='pending')
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

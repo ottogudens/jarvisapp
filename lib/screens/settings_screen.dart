@@ -63,6 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _mqttAutoConnect = false;
   String? _mqttStatusMessage;
   List<dynamic> _mqttSubscriptions = [];
+  List<dynamic> _notificationRules = [];
   final _mqttTopicController = TextEditingController();
   final _mqttPublishTopicController = TextEditingController();
   final _mqttPublishPayloadController = TextEditingController();
@@ -120,6 +121,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadSettings();
     _loadIoTConfig();
+    _fetchMQTTConfig();
+    _fetchNotificationRules();
     _loadMikrotikRouters();
     _loadTelegramStatus();
   }
@@ -471,6 +474,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } catch (e) {}
+  }
+
+  Future<void> _fetchNotificationRules() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/v1/notifications/rules'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200 && mounted) {
+        setState(() => _notificationRules = jsonDecode(res.body) as List<dynamic>);
+      }
+    } catch (e) {
+      debugPrint('Error cargando reglas MQTT: $e');
+    }
+  }
+
+  Future<void> _deleteNotificationRule(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token');
+    if (token == null) return;
+    try {
+      final res = await http.delete(
+        Uri.parse('$kApiBaseUrl/v1/notifications/rules/$id'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 204) _fetchNotificationRules();
+    } catch (e) {
+      debugPrint('Error eliminando regla MQTT: $e');
+    }
+  }
+
+  Future<void> _showNotificationRuleDialog() async {
+    final name = TextEditingController();
+    final topic = TextEditingController();
+    final jsonPath = TextEditingController(text: 'state');
+    final expected = TextEditingController(text: 'offline');
+    final cooldown = TextEditingController(text: '30');
+    var operator = 'equals';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: BonsoBrand.surface,
+          title: const Text('Nueva alerta MQTT', style: TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _buildTextField(name, 'Nombre de la alerta', Icons.notifications_active),
+            const SizedBox(height: 10),
+            _buildTextField(topic, 'Tópico (ej. devices/sala/status)', Icons.topic),
+            const SizedBox(height: 10),
+            _buildTextField(jsonPath, 'Campo JSON (ej. state)', Icons.data_object),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              value: operator,
+              dropdownColor: BonsoBrand.surface,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: 'Condición', labelStyle: TextStyle(color: Colors.white70)),
+              items: const [
+                DropdownMenuItem(value: 'equals', child: Text('Es igual a')),
+                DropdownMenuItem(value: 'not_equals', child: Text('Es distinto de')),
+                DropdownMenuItem(value: 'contains', child: Text('Contiene')),
+                DropdownMenuItem(value: 'greater_than', child: Text('Es mayor que')),
+                DropdownMenuItem(value: 'less_than', child: Text('Es menor que')),
+              ],
+              onChanged: (value) => setDialogState(() => operator = value!),
+            ),
+            const SizedBox(height: 10),
+            _buildTextField(expected, 'Valor esperado (ej. offline)', Icons.compare),
+            const SizedBox(height: 10),
+            _buildTextField(cooldown, 'Silencio entre avisos (minutos)', Icons.timer, TextInputType.number),
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancelar')),
+            FilledButton(
+              onPressed: () async {
+                if (name.text.trim().isEmpty || topic.text.trim().isEmpty) return;
+                final prefs = await SharedPreferences.getInstance();
+                final token = prefs.getString('jwt_token');
+                if (token == null) return;
+                final res = await http.post(
+                  Uri.parse('$kApiBaseUrl/v1/notifications/rules'),
+                  headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+                  body: jsonEncode({
+                    'nombre': name.text.trim(), 'topic': topic.text.trim(),
+                    'json_path': jsonPath.text.trim(), 'operator': operator,
+                    'expected_value': expected.text.trim(),
+                    'cooldown_minutes': int.tryParse(cooldown.text) ?? 30,
+                  }),
+                );
+                if (!dialogContext.mounted) return;
+                if (res.statusCode == 201) {
+                  Navigator.pop(dialogContext);
+                  _fetchNotificationRules();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo crear la alerta'), backgroundColor: Colors.redAccent));
+                }
+              },
+              child: const Text('Crear alerta'),
+            ),
+          ],
+        ),
+      ),
+    );
+    name.dispose(); topic.dispose(); jsonPath.dispose(); expected.dispose(); cooldown.dispose();
   }
 
   Future<void> _toggleMQTTConnect(bool connect) async {
@@ -1388,6 +1497,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onPressed: () => _deleteMQTTSub(s['topic']),
                             ),
                           )).toList(),
+                      const SizedBox(height: 20),
+                      const Divider(color: Colors.white24, thickness: 1),
+                      Row(children: [
+                        const Expanded(child: Text('Alertas y notificaciones', style: TextStyle(color: BonsoBrand.aqua, fontWeight: FontWeight.bold))),
+                        TextButton.icon(
+                          onPressed: _showNotificationRuleDialog,
+                          icon: const Icon(Icons.add_alert, size: 18),
+                          label: const Text('Nueva alerta'),
+                        ),
+                      ]),
+                      const SizedBox(height: 4),
+                      const Text('Envía un aviso por Telegram cuando un mensaje MQTT cumpla la condición.', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      if (_notificationRules.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Text('Aún no hay alertas configuradas.', style: TextStyle(color: Colors.white54)),
+                        ),
+                      ..._notificationRules.map((rule) => ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.notifications_active_outlined, color: Colors.amberAccent, size: 20),
+                        title: Text(rule['nombre'] ?? 'Alerta MQTT', style: const TextStyle(color: Colors.white)),
+                        subtitle: Text(
+                          '${rule['topic'] ?? 'Cualquier tópico'} · ${rule['json_path'] ?? 'mensaje'} ${rule['operator'] ?? 'equals'} ${rule['expected_value'] ?? ''}',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing: IconButton(
+                          tooltip: 'Eliminar alerta',
+                          icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                          onPressed: () => _deleteNotificationRule(rule['id']),
+                        ),
+                      )).toList(),
                     ],
                   ),
                 ),
