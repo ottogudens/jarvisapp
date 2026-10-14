@@ -1,14 +1,17 @@
 """notification rules and delivery audit
 
 Revision ID: a8b1c2d3e4f5
-Revises: e3f4a5b6c7d8
+Revises: a6b7c8d9e0f1, e3f4a5b6c7d8
 Create Date: 2026-10-13 00:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "a8b1c2d3e4f5"
-down_revision = "e3f4a5b6c7d8"
+# Une las dos ramas que ya existían (planes e historial documental). Esto
+# mantiene un único `head`, necesario porque Railway arranca con
+# `alembic upgrade head`.
+down_revision = ("a6b7c8d9e0f1", "e3f4a5b6c7d8")
 branch_labels = None
 depends_on = None
 
