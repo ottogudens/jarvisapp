@@ -2192,6 +2192,13 @@ async def enviar_mensaje_chat(
     msg_jarvis = ChatMessage(id_session=session_id, rol="jarvis", contenido=respuesta_jarvis, file_urls=generated_urls)
     db.add(msg_jarvis)
 
+    # Algunas herramientas del asistente usan rollback al fallar. Si eso ocurre
+    # después de haber hecho flush del mensaje del usuario, SQLAlchemy separa
+    # esa instancia de la sesión y db.refresh(msg_user) terminaba en un 500.
+    # merge la reincorpora (o la inserta de nuevo con su UUID) antes del commit
+    # final del turno.
+    msg_user = db.merge(msg_user)
+
     texto_titulo = transcripcion_audio if transcripcion_audio else mensaje
     if (sesion.titulo == "Nueva Conversación" or not sesion.titulo) and texto_titulo:
         sesion.titulo = texto_titulo[:35] + ("..." if len(texto_titulo) > 35 else "")
