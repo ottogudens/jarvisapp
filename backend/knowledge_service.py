@@ -10,7 +10,9 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
+import requests
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -137,19 +139,30 @@ def _upload_original(*, tenant_id: int, document_id: str, filename: str, content
     url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not (url and key):
         return None
-    from supabase import create_client
     path = f"tenant/{tenant_id}/knowledge/{document_id}/{filename}"
     bucket = os.getenv("SUPABASE_KNOWLEDGE_BUCKET", "knowledge-originals")
     content_type = knowledge_mime_type(filename, mime_type)
     try:
-        create_client(url, key).storage.from_(bucket).upload(
-            path, content, {"content-type": content_type, "upsert": "false"},
+        # La API REST de Storage evita diferencias de compatibilidad entre las
+        # versiones del SDK y conserva el mismo acceso privilegiado del backend.
+        response = requests.post(
+            f"{url.rstrip('/')}/storage/v1/object/{quote(bucket, safe='')}/{quote(path, safe='/')}",
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "content-type": content_type,
+                "x-upsert": "false",
+            },
+            data=content,
+            timeout=30,
         )
+        response.raise_for_status()
     except Exception as exc:
         # Nunca registrar el path, nombre, bytes ni credenciales: pueden contener datos del cliente.
         logger.warning(
-            "Fallo al guardar original de conocimiento en Storage (bucket=%s, tipo=%s, error=%s)",
+            "Fallo al guardar original de conocimiento en Storage (bucket=%s, tipo=%s, error=%s, estado=%s)",
             bucket, content_type, type(exc).__name__,
+            getattr(getattr(exc, "response", None), "status_code", None),
         )
         raise HTTPException(status_code=502, detail="No fue posible conservar el archivo original de forma segura.") from exc
     return path
