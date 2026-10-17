@@ -480,6 +480,63 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     }
   }
 
+  bool _isDescendantFolder(Map<String, dynamic> folder, String ancestorId) {
+    String? parentId = folder['parent_id']?.toString();
+    final visited = <String>{};
+    while (parentId != null && visited.add(parentId)) {
+      if (parentId == ancestorId) return true;
+      Map<String, dynamic>? parent;
+      for (final item in _carpetas) {
+        if (item['id_folder']?.toString() == parentId) {
+          parent = item;
+          break;
+        }
+      }
+      parentId = parent?['parent_id']?.toString();
+    }
+    return false;
+  }
+
+  Future<void> _moverCarpeta(String idFolder) async {
+    final destinations = _carpetas.where((folder) =>
+        folder['id_folder']?.toString() != idFolder && !_isDescendantFolder(folder, idFolder)).toList();
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: BonsoBrand.surface,
+        title: const Text('Mover carpeta a...', style: TextStyle(color: Colors.white)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(shrinkWrap: true, children: [
+            ListTile(
+              leading: const Icon(Icons.home, color: BonsoBrand.aqua),
+              title: const Text('Carpeta principal', style: TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(context, 'ROOT'),
+            ),
+            ...destinations.map((folder) => ListTile(
+              leading: const Icon(Icons.folder, color: BonsoBrand.aqua),
+              title: Text(folder['nombre'] ?? 'Carpeta', style: const TextStyle(color: Colors.white)),
+              onTap: () => Navigator.pop(context, folder['id_folder']),
+            )),
+          ]),
+        ),
+      ),
+    );
+    if (result == null) return;
+    try {
+      final response = await http.put(
+        Uri.parse('$kApiBaseUrl/v1/knowledge/folders/$idFolder/move'),
+        headers: {'Authorization': 'Bearer ${await _token()}', 'Content-Type': 'application/json'},
+        body: jsonEncode({'parent_id': result == 'ROOT' ? null : result}),
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) throw Exception(response.body);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Carpeta movida.')));
+      await _cargarConocimiento();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo mover la carpeta: $e'), backgroundColor: Colors.redAccent));
+    }
+  }
+
   Future<void> _batchAction(String action) async {
     if (_selectedKnowledgeIds.isEmpty) return;
     String? folderId;
@@ -873,9 +930,10 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                         subtitle: const Text('Carpeta', style: TextStyle(color: Colors.white54, fontSize: 12)),
                         onTap: () => setState(() => _currentFolderId = c['id_folder']),
                         trailing: PopupMenuButton<String>(color: BonsoBrand.surfaceRaised, onSelected: (value) {
+                          if (value == 'move') _moverCarpeta(c['id_folder']);
                           if (value == 'rename') _renombrarRecurso(title: 'Renombrar carpeta', currentName: c['nombre'], uri: Uri.parse('$kApiBaseUrl/v1/knowledge/folders/${c['id_folder']}'), body: {'parent_id': c['parent_id']});
                           if (value == 'delete') _eliminarCarpeta(c['id_folder']);
-                        }, itemBuilder: (_) => const [PopupMenuItem(value: 'rename', child: Text('Renombrar', style: TextStyle(color: Colors.white))), PopupMenuItem(value: 'delete', child: Text('Enviar a papelera', style: TextStyle(color: Colors.redAccent)))]),
+                        }, itemBuilder: (_) => const [PopupMenuItem(value: 'move', child: Text('Mover', style: TextStyle(color: Colors.white))), PopupMenuItem(value: 'rename', child: Text('Renombrar', style: TextStyle(color: Colors.white))), PopupMenuItem(value: 'delete', child: Text('Enviar a papelera', style: TextStyle(color: Colors.redAccent)))]),
                       ),
                     )),
                   ...itemsToShow.map((doc) => Card(

@@ -1080,6 +1080,10 @@ class FolderCreate(BaseModel):
     parent_id: Optional[str] = None
 
 
+class FolderMove(BaseModel):
+    parent_id: Optional[str] = None
+
+
 def _folder_subtree_ids(db: Session, tenant_id: int, root_id: str) -> list[str]:
     """Obtiene una carpeta y sus descendientes dentro de un único tenant."""
     from backend.models import KnowledgeFolder
@@ -1213,6 +1217,39 @@ async def editar_knowledge_folder(
     carpeta.nombre, carpeta.parent_id = data.nombre.strip(), parent_id
     db.commit()
     return {"status": "success", "message": "Carpeta actualizada"}
+
+
+@app.put("/v1/knowledge/folders/{id_folder}/move")
+async def mover_knowledge_folder(
+    id_folder: str,
+    data: FolderMove,
+    usuario: dict = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    from backend.models import KnowledgeFolder
+
+    folder = db.query(KnowledgeFolder).filter(
+        KnowledgeFolder.id_folder == id_folder,
+        KnowledgeFolder.id_tenant == usuario["id_tenant"],
+        KnowledgeFolder.deleted_at.is_(None),
+    ).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Carpeta no encontrada")
+    parent_id = data.parent_id or None
+    descendants = _folder_subtree_ids(db, usuario["id_tenant"], folder.id_folder)
+    if parent_id in descendants:
+        raise HTTPException(status_code=400, detail="No puedes mover una carpeta dentro de sí misma o de una subcarpeta")
+    if parent_id:
+        parent = db.query(KnowledgeFolder).filter(
+            KnowledgeFolder.id_folder == parent_id,
+            KnowledgeFolder.id_tenant == usuario["id_tenant"],
+            KnowledgeFolder.deleted_at.is_(None),
+        ).first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Carpeta de destino no encontrada")
+    folder.parent_id = parent_id
+    db.commit()
+    return {"message": "Carpeta movida", "parent_id": parent_id}
 
 @app.delete("/v1/knowledge/folders/{id_folder}")
 async def eliminar_knowledge_folder(
