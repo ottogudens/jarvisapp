@@ -141,7 +141,11 @@ def _upload_original(*, tenant_id: int, document_id: str, filename: str, content
     url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not (url and key):
         return None
-    path = f"tenant/{tenant_id}/knowledge/{document_id}/{filename}"
+    # El nombre visible se conserva en la base de datos. La clave de Storage es
+    # deliberadamente opaca para evitar caracteres no admitidos por S3/Storage
+    # en nombres aportados por clientes (acentos, símbolos o rutas).
+    suffix = Path(filename).suffix.lower()
+    path = f"tenant/{tenant_id}/knowledge/{document_id}/original{suffix}"
     bucket = os.getenv("SUPABASE_KNOWLEDGE_BUCKET", "knowledge-originals")
     content_type = knowledge_mime_type(filename, mime_type)
     try:

@@ -14,15 +14,15 @@ def test_upload_original_uses_private_storage_rest_api(mock_post, monkeypatch):
     storage_path = _upload_original(
         tenant_id=7,
         document_id="doc-id",
-        filename="Informe final.pdf",
+        filename="Informe: revisión #1.pdf",
         content=b"%PDF-1.7",
         mime_type="application/pdf",
     )
 
-    assert storage_path == "tenant/7/knowledge/doc-id/Informe final.pdf"
+    assert storage_path == "tenant/7/knowledge/doc-id/original.pdf"
     response.raise_for_status.assert_called_once()
     mock_post.assert_called_once_with(
-        "https://project.supabase.co/storage/v1/object/knowledge-originals/tenant/7/knowledge/doc-id/Informe%20final.pdf",
+        "https://project.supabase.co/storage/v1/object/knowledge-originals/tenant/7/knowledge/doc-id/original.pdf",
         headers={
             "apikey": "service-key",
             "Authorization": "Bearer service-key",
