@@ -105,10 +105,12 @@ def document_quota_snapshot(db: Session, tenant_id: int) -> dict[str, int]:
         raise HTTPException(status_code=404, detail="No se encontró el plan de la organización.")
     active_documents = db.query(func.count(KnowledgeDocument.id_document)).filter(
         KnowledgeDocument.id_tenant == tenant_id,
+        KnowledgeDocument.deleted_at.is_(None),
         KnowledgeDocument.status != "superseded",
     ).scalar() or 0
     storage_used = db.query(func.coalesce(func.sum(KnowledgeDocument.byte_size), 0)).filter(
         KnowledgeDocument.id_tenant == tenant_id,
+        KnowledgeDocument.deleted_at.is_(None),
         KnowledgeDocument.storage_path.isnot(None),
     ).scalar() or 0
     return {

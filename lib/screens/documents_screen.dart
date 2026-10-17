@@ -359,12 +359,13 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
   }
 
   Future<void> _crearCarpeta() async {
+    final isSubfolder = _currentFolderId != null;
     final TextEditingController nameController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: BonsoBrand.surface,
-        title: const Text('Nueva Carpeta', style: TextStyle(color: Colors.white)),
+        title: Text(isSubfolder ? 'Nueva Subcarpeta' : 'Nueva Carpeta', style: const TextStyle(color: Colors.white)),
         content: TextField(
           controller: nameController,
           style: const TextStyle(color: Colors.white),
@@ -384,7 +385,8 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
       ),
     );
 
-    if (result != null && result.isNotEmpty) {
+    final name = result?.trim() ?? '';
+    if (name.isNotEmpty) {
       setState(() => _isLoading = true);
       try {
         final prefs = await SharedPreferences.getInstance();
@@ -392,10 +394,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
         final resp = await http.post(
           Uri.parse('$kApiBaseUrl/v1/knowledge/folders'),
           headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-          body: jsonEncode({'nombre': result, 'parent_id': _currentFolderId}),
+          body: jsonEncode({'nombre': name, 'parent_id': _currentFolderId}),
         );
-        if (resp.statusCode == 200) {
-          _cargarConocimiento();
+        if (resp.statusCode >= 200 && resp.statusCode < 300) {
+          await _cargarConocimiento();
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isSubfolder ? 'Subcarpeta creada.' : 'Carpeta creada.')));
+        } else {
+          String detail = 'No se pudo crear la carpeta.';
+          try { detail = jsonDecode(resp.body)['detail']?.toString() ?? detail; } catch (_) {}
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(detail), backgroundColor: Colors.redAccent));
         }
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -753,12 +760,11 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
                   child: Text('${_quota['documents_used'] ?? 0}/${_quota['documents_limit'] ?? '—'} documentos', style: const TextStyle(color: Colors.white54, fontSize: 12)),
                 ),
               const Spacer(),
-              if (_currentFolderId == null)
-                TextButton.icon(
-                  onPressed: _crearCarpeta,
-                  icon: const Icon(Icons.create_new_folder, color: BonsoBrand.aqua),
-                  label: const Text('Nueva Carpeta', style: TextStyle(color: BonsoBrand.aqua)),
-                ),
+              TextButton.icon(
+                onPressed: _crearCarpeta,
+                icon: const Icon(Icons.create_new_folder, color: BonsoBrand.aqua),
+                label: Text(_currentFolderId == null ? 'Nueva Carpeta' : 'Nueva Subcarpeta', style: const TextStyle(color: BonsoBrand.aqua)),
+              ),
             ],
           ),
         ),

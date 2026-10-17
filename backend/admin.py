@@ -12,6 +12,7 @@ from backend.database import get_db
 from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, BillingSubscription, KnowledgeDocument, KnowledgeIngestionJob, KnowledgeRetrievalAudit, TelegramWebhookEvent, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
 from backend.auth import obtener_usuario_actual, hash_password, invalidar_sesiones, requiere_staff, requiere_superadmin
 from backend.crypto_utils import encrypt_secret
+from backend.usage_service import tenant_token_usage, token_usage_by_tenant
 
 router = APIRouter(prefix="/v1/admin", tags=["Administrador"])
 
@@ -133,7 +134,7 @@ def _knowledge_overview(db: Session) -> dict:
     """Métricas sin contenido de documentos, aptas para operación SaaS."""
     now = datetime.now(timezone.utc)
     stale_before = now - timedelta(minutes=15)
-    documents = db.query(KnowledgeDocument).all()
+    documents = db.query(KnowledgeDocument).filter(KnowledgeDocument.deleted_at.is_(None)).all()
     jobs = db.query(KnowledgeIngestionJob).all()
     tenants = {tenant.id_tenant: tenant.nombre_organizacion for tenant in db.query(Tenant).all()}
     status_counts = {status: 0 for status in ("queued", "processing", "ready", "failed", "superseded")}
@@ -206,7 +207,7 @@ def get_dashboard(
 ):
     total_clientes = db.query(Tenant).count()
     total_agentes = db.query(Usuario).count()
-    tokens = db.query(func.sum(Usuario.tokens_consumidos)).scalar() or 0
+    tokens = sum(token_usage_by_tenant(db).values())
 
     return DashboardStats(
         total_clientes=total_clientes,
@@ -239,10 +240,11 @@ def operations_overview(usuario: dict = Depends(requiere_staff), db: Session = D
         "sender_name": setting_value("INVOICE_SENDER_NAME", "Bonso"),
         "reply_to": setting_value("INVOICE_REPLY_TO", "") or None,
     }
+    usage_by_tenant = token_usage_by_tenant(db)
     customer_rows = []
     for tenant in tenants:
         primary_user = db.query(Usuario).filter(Usuario.id_tenant == tenant.id_tenant).order_by(Usuario.id_usuario).first()
-        usage = db.query(func.coalesce(func.sum(Usuario.tokens_consumidos), 0)).filter(Usuario.id_tenant == tenant.id_tenant).scalar() or 0
+        usage = usage_by_tenant.get(tenant.id_tenant, 0)
         last_usage = db.query(func.max(AIUsageStats.fecha_registro)).filter(AIUsageStats.id_tenant == tenant.id_tenant).scalar()
         subscription = latest_by_tenant.get(tenant.id_tenant)
         customer_rows.append({
@@ -263,7 +265,7 @@ def operations_overview(usuario: dict = Depends(requiere_staff), db: Session = D
             "clientes_suspendidos": sum(1 for tenant in tenants if not tenant.is_active),
             "pruebas_activas": sum(1 for tenant in tenants if tenant.is_trial and tenant.trial_ends_at and tenant.trial_ends_at > datetime.now(timezone.utc)),
             "suscripciones_activas": len(active_subscriptions), "cobros_pendientes": sum(1 for sub in current_subscriptions if sub.status == "pending"),
-            "mrr": sum(sub.amount or 0 for sub in active_subscriptions), "tokens": db.query(func.sum(Usuario.tokens_consumidos)).scalar() or 0,
+            "mrr": sum(sub.amount or 0 for sub in active_subscriptions), "tokens": sum(usage_by_tenant.values()),
         },
         "subscriptions": [{"id_tenant": sub.id_tenant, "organizacion": tenant_by_id.get(sub.id_tenant).nombre_organizacion if tenant_by_id.get(sub.id_tenant) else "Organización", "plan_id": sub.id_plan, "status": sub.status, "amount": sub.amount, "currency": sub.currency, "updated_at": sub.updated_at.isoformat() if sub.updated_at else None} for sub in subscriptions[:100]],
         "customers": customer_rows,
@@ -612,10 +614,7 @@ def get_tenants(
         # Buscar el primer usuario del tenant como "admin" del tenant
         user = db.query(Usuario).filter(Usuario.id_tenant == t.id_tenant).first()
         plan = db.query(SaaSPlan).filter(SaaSPlan.id_plan == t.id_plan).first()
-        # Sumar tokens de todos los usuarios del tenant
-        total_tokens = db.query(func.sum(Usuario.tokens_consumidos)).filter(
-            Usuario.id_tenant == t.id_tenant
-        ).scalar() or 0
+        total_tokens = tenant_token_usage(db, t.id_tenant)
         
         # Obtener perfiles asignados
         tp_list = db.query(TenantProfile).filter(TenantProfile.id_tenant == t.id_tenant).all()

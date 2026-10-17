@@ -45,6 +45,7 @@ from backend.mikrotik import router as mikrotik_router
 from backend.admin import router as admin_router
 from backend.models import OrdenTrabajo, ChatSession, ChatMessage, DocumentChunk, Usuario, DocumentTemplate
 from backend.file_security import MAX_UPLOAD_FILES, MAX_UPLOAD_BYTES, TEMPLATE_SUFFIXES, validate_upload
+from backend.usage_service import tenant_token_usage
 from supabase import create_client, Client
 
 
@@ -527,7 +528,6 @@ async def resumen_dashboard(
     """Resumen compacto y seguro para el inicio del cliente."""
     from backend.models import AIUsageStats, Tenant
 
-    user = db.query(Usuario).filter(Usuario.id_usuario == usuario["id_usuario"]).first()
     session_count = db.query(ChatSession).filter(ChatSession.id_usuario == usuario["id_usuario"]).count()
     template_count = db.query(DocumentTemplate).filter(DocumentTemplate.id_tenant == usuario["id_tenant"]).count()
     start_date = (datetime.now(timezone.utc).date() - timedelta(days=6))
@@ -546,7 +546,7 @@ async def resumen_dashboard(
 
     tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
     return {
-        "tokens_total": int(user.tokens_consumidos or 0) if user else 0,
+        "tokens_total": tenant_token_usage(db, usuario["id_tenant"]),
         "tokens_limit": int(tenant.plan.tokens_mensuales) if tenant and tenant.plan else 0,
         "sessions": session_count,
         "templates": template_count,
@@ -1149,18 +1149,22 @@ async def crear_knowledge_folder(
     usuario: dict = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
-    from backend.models import KnowledgeFolder, KnowledgeDocument
+    from backend.models import KnowledgeFolder
     parent_id = data.parent_id or None
+    name = data.nombre.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="El nombre de la carpeta no puede estar vacío")
     if parent_id:
         parent = db.query(KnowledgeFolder).filter(
             KnowledgeFolder.id_folder == parent_id,
             KnowledgeFolder.id_tenant == usuario["id_tenant"],
+            KnowledgeFolder.deleted_at.is_(None),
         ).first()
         if not parent:
             raise HTTPException(status_code=404, detail="Carpeta padre no encontrada")
     nueva_carpeta = KnowledgeFolder(
         id_tenant=usuario["id_tenant"],
-        nombre=data.nombre.strip(), parent_id=parent_id,
+        nombre=name, parent_id=parent_id,
     )
     db.add(nueva_carpeta)
     db.commit()
