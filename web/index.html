@@ -38,8 +38,42 @@
 
   <title>Bonso | SKALE IA</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    #bonso-update-notice {
+      display: none;
+      position: fixed;
+      z-index: 2147483647;
+      right: max(16px, env(safe-area-inset-right));
+      bottom: max(16px, env(safe-area-inset-bottom));
+      max-width: min(390px, calc(100vw - 32px));
+      padding: 16px;
+      border: 1px solid rgba(54, 215, 194, .55);
+      border-radius: 16px;
+      background: #0b3033;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .35);
+      color: #fff;
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    #bonso-update-notice[data-visible="true"] { display: block; }
+    #bonso-update-notice p { margin: 0 0 12px; }
+    #bonso-update-action {
+      width: 100%;
+      min-height: 42px;
+      border: 0;
+      border-radius: 10px;
+      background: #36d7c2;
+      color: #062226;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+  </style>
 </head>
 <body>
+  <aside id="bonso-update-notice" role="status" aria-live="polite" aria-label="Actualización disponible">
+    <p>Hay una nueva versión de Bonso disponible.</p>
+    <button id="bonso-update-action" type="button">Actualizar ahora</button>
+  </aside>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
@@ -49,5 +83,71 @@
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
   <script src="flutter_bootstrap.js" async></script>
+  <script>
+    // Flutter registra el service worker durante el arranque. Este aviso no
+    // fuerza una recarga: deja que la persona confirme, evitando perder texto
+    // que estuviera escribiendo, y sólo entonces activa la versión nueva.
+    (() => {
+      if (!('serviceWorker' in navigator)) return;
+
+      const notice = document.getElementById('bonso-update-notice');
+      const action = document.getElementById('bonso-update-action');
+      let waitingWorker = null;
+      let reloadWhenControllerChanges = false;
+      // Evita mostrar un aviso en la instalación inicial, que también cambia
+      // el controlador pero todavía no corresponde a una actualización.
+      const hadControllerAtStartup = Boolean(navigator.serviceWorker.controller);
+
+      const showUpdate = (worker) => {
+        if (!navigator.serviceWorker.controller || !worker) return;
+        waitingWorker = worker;
+        notice.dataset.visible = 'true';
+      };
+
+      const watchRegistration = (registration) => {
+        if (registration.waiting) showUpdate(registration.waiting);
+        registration.addEventListener('updatefound', () => {
+          const installing = registration.installing;
+          if (!installing) return;
+          installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed') showUpdate(installing);
+          });
+        });
+      };
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloadWhenControllerChanges) {
+          window.location.reload();
+          return;
+        }
+        if (hadControllerAtStartup) {
+          waitingWorker = null;
+          notice.dataset.visible = 'true';
+        }
+      });
+
+      action.addEventListener('click', () => {
+        action.disabled = true;
+        action.textContent = 'Actualizando…';
+        // Flutter puede activar el worker inmediatamente. En ese caso no hay
+        // worker esperando, pero sus cachés ya están preparados: basta recargar.
+        if (!waitingWorker) {
+          window.location.reload();
+          return;
+        }
+        reloadWhenControllerChanges = true;
+        waitingWorker.postMessage({ action: 'skipWaiting' });
+      });
+
+      navigator.serviceWorker.ready.then((registration) => {
+        watchRegistration(registration);
+        // Comprueba una nueva publicación al abrir y al volver a la app.
+        registration.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) registration.update().catch(() => {});
+        });
+      }).catch(() => {});
+    })();
+  </script>
 </body>
 </html>
