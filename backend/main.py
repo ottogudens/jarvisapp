@@ -156,19 +156,31 @@ app.include_router(google_workspace_router)
 # las API keys no están configuradas (ej: durante tests o imports).
 _client_gemini = None
 _client_elevenlabs = None
+_client_gemini_key = None
+_client_elevenlabs_key = None
 
 
 def get_gemini_client() -> genai.Client:
-    global _client_gemini
-    if _client_gemini is None:
-        _client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
+    """Devuelve un cliente válido incluso si la clave se cargó después del arranque."""
+    global _client_gemini, _client_gemini_key
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY no está configurada.")
+    if _client_gemini is None or _client_gemini_key != api_key:
+        _client_gemini = genai.Client(api_key=api_key)
+        _client_gemini_key = api_key
     return _client_gemini
 
 
 def get_elevenlabs_client() -> ElevenLabsClient:
-    global _client_elevenlabs
-    if _client_elevenlabs is None:
-        _client_elevenlabs = ElevenLabsClient(api_key=os.getenv("ELEVENLABS_API_KEY", ""))
+    """No conserva un cliente creado con una clave vacía o ya reemplazada."""
+    global _client_elevenlabs, _client_elevenlabs_key
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ELEVENLABS_API_KEY no está configurada.")
+    if _client_elevenlabs is None or _client_elevenlabs_key != api_key:
+        _client_elevenlabs = ElevenLabsClient(api_key=api_key)
+        _client_elevenlabs_key = api_key
     return _client_elevenlabs
 
 
@@ -1953,7 +1965,15 @@ async def enviar_mensaje_chat(
             gemini_parts.append(types.Part.from_bytes(data=file_bytes, mime_type=file_type))
 
         elif file_type.startswith("audio/") or file.filename.lower().endswith((".m4a", ".mp3", ".ogg", ".wav", ".webm")):
-            safe_mime = file_type if file_type.startswith("audio/") else "audio/mp4"
+            # Multipart web puede llegar como application/octet-stream. Inferir
+            # desde una extensión que nosotros mismos validamos evita declarar
+            # bytes WebM/Opus como M4A/MP4 ante Gemini.
+            audio_mime_by_suffix = {
+                ".m4a": "audio/mp4", ".mp3": "audio/mpeg",
+                ".ogg": "audio/ogg", ".wav": "audio/wav", ".webm": "audio/webm",
+            }
+            suffix = os.path.splitext(file.filename.lower())[1]
+            safe_mime = file_type if file_type.startswith("audio/") else audio_mime_by_suffix.get(suffix, "audio/webm")
             audio_parts.append(types.Part.from_bytes(data=file_bytes, mime_type=safe_mime))
 
         elif (file_type in ("application/pdf",) or file_type.startswith("text/")
@@ -1982,6 +2002,10 @@ async def enviar_mensaje_chat(
     # FIX #1 – Transcribir audio con Gemini
     if audio_parts:
         try:
+            # La clave puede estar cifrada en SystemSettings, no sólo en el
+            # entorno de Railway. Cargarla antes evita crear Gemini sin clave.
+            from backend.ai_service import load_ai_keys
+            load_ai_keys(db)
             _gc = get_gemini_client()
             tr = _gc.models.generate_content(
                 model="gemini-1.5-flash",
@@ -2332,6 +2356,8 @@ async def enviar_mensaje_chat(
 
     audio_b64 = ""
     try:
+        from backend.ai_service import load_ai_keys
+        load_ai_keys(db)
         vid = x_voice_id if x_voice_id else os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obbfDQGcgMyIGb")
         ar = get_elevenlabs_client().generate(text=respuesta_jarvis, voice=vid, model="eleven_multilingual_v2", voice_settings=VoiceSettings(stability=0.30, similarity_boost=0.75, style=0.0, use_speaker_boost=True))
         audio_b64 = base64.b64encode(b"".join(ar)).decode("utf-8")

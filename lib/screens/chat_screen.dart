@@ -325,10 +325,12 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
     setState(() => _isRecording = true);
     _pulseController.repeat(reverse: true);
 
-    await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc, sampleRate: 16000),
-      path: path,
-    );
+    // Safari/iOS admite AAC, pero los navegadores web graban de forma nativa
+    // WebM/Opus. Pedir AAC en web deja grabaciones inválidas o sin audio.
+    final recordConfig = kIsWeb
+        ? const RecordConfig(encoder: AudioEncoder.opus, sampleRate: 16000)
+        : const RecordConfig(encoder: AudioEncoder.aacLc, sampleRate: 16000);
+    await _recorder.start(recordConfig, path: path);
 
     // Monitoreo de amplitud para detectar silencio por más de 3 segundos
     try {
@@ -545,7 +547,8 @@ class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateM
         if (kIsWeb) {
           final blobResponse = await http.get(Uri.parse(audioPath));
           request.files.add(
-            http.MultipartFile.fromBytes('files', blobResponse.bodyBytes, filename: 'audio.m4a'),
+            // El blob web contiene Opus/WebM; no debe etiquetarse como M4A.
+            http.MultipartFile.fromBytes('files', blobResponse.bodyBytes, filename: 'audio.webm'),
           );
         } else {
           request.files.add(
