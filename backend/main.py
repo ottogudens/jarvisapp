@@ -1080,6 +1080,21 @@ class FolderCreate(BaseModel):
     parent_id: Optional[str] = None
 
 
+def _folder_subtree_ids(db: Session, tenant_id: int, root_id: str) -> list[str]:
+    """Obtiene una carpeta y sus descendientes dentro de un único tenant."""
+    from backend.models import KnowledgeFolder
+
+    result, frontier = [root_id], [root_id]
+    while frontier:
+        children = db.query(KnowledgeFolder.id_folder).filter(
+            KnowledgeFolder.id_tenant == tenant_id,
+            KnowledgeFolder.parent_id.in_(frontier),
+        ).all()
+        frontier = [folder_id for (folder_id,) in children if folder_id not in result]
+        result.extend(frontier)
+    return result
+
+
 class KnowledgeReprocessRequest(BaseModel):
     observaciones: str = Field(min_length=3, max_length=4000)
 
@@ -1213,14 +1228,68 @@ async def eliminar_knowledge_folder(
     if not carpeta:
         raise HTTPException(status_code=404, detail="Carpeta no encontrada")
     
-    carpeta.deleted_at = datetime.now(timezone.utc)
-    # Mantener contenido recuperable y ocultarlo junto a la carpeta.
+    deleted_at = datetime.now(timezone.utc)
+    folder_ids = _folder_subtree_ids(db, usuario["id_tenant"], carpeta.id_folder)
+    # Mantener carpeta, subcarpetas y contenido recuperables como una unidad.
+    db.query(KnowledgeFolder).filter(
+        KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.id_folder.in_(folder_ids),
+    ).update({"deleted_at": deleted_at}, synchronize_session=False)
     db.query(KnowledgeDocument).filter(
-        KnowledgeDocument.id_folder == carpeta.id_folder,
+        KnowledgeDocument.id_folder.in_(folder_ids),
         KnowledgeDocument.id_tenant == usuario["id_tenant"],
-    ).update({"deleted_at": carpeta.deleted_at, "status": "deleted"}, synchronize_session=False)
+    ).update({"deleted_at": deleted_at, "status": "deleted"}, synchronize_session=False)
     db.commit()
     return {"message": "Carpeta enviada a la papelera"}
+
+
+@app.post("/v1/knowledge/folders/{id_folder}/restore")
+async def restaurar_knowledge_folder(id_folder: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import KnowledgeFolder, KnowledgeDocument, KnowledgeIngestionJob
+    folder = db.query(KnowledgeFolder).filter(
+        KnowledgeFolder.id_folder == id_folder, KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.deleted_at.isnot(None),
+    ).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Carpeta no encontrada en la papelera")
+    folder_ids = _folder_subtree_ids(db, usuario["id_tenant"], folder.id_folder)
+    db.query(KnowledgeFolder).filter(KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.id_folder.in_(folder_ids)).update({"deleted_at": None}, synchronize_session=False)
+    documents = db.query(KnowledgeDocument).filter(
+        KnowledgeDocument.id_tenant == usuario["id_tenant"], KnowledgeDocument.id_folder.in_(folder_ids),
+    ).all()
+    for document in documents:
+        document.deleted_at = None
+        document.status = "ready" if document.chunk_count else "queued"
+        if document.status == "queued":
+            job = db.query(KnowledgeIngestionJob).filter_by(id_document=document.id_document).first()
+            if job:
+                job.status, job.stage, job.finished_at, job.error_message = "queued", "queued", None, None
+            else:
+                db.add(KnowledgeIngestionJob(id_document=document.id_document, status="queued"))
+    db.commit()
+    return {"message": "Carpeta y contenido restaurados"}
+
+
+@app.delete("/v1/knowledge/folders/{id_folder}/permanent")
+async def eliminar_knowledge_folder_definitivamente(id_folder: str, usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    from backend.models import KnowledgeFolder, KnowledgeDocument
+    folder = db.query(KnowledgeFolder).filter(
+        KnowledgeFolder.id_folder == id_folder, KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.deleted_at.isnot(None),
+    ).first()
+    if not folder:
+        raise HTTPException(status_code=404, detail="Carpeta no está en la papelera")
+    folder_ids = _folder_subtree_ids(db, usuario["id_tenant"], folder.id_folder)
+    documents = db.query(KnowledgeDocument).filter(KnowledgeDocument.id_tenant == usuario["id_tenant"], KnowledgeDocument.id_folder.in_(folder_ids)).all()
+    try:
+        from backend.knowledge_service import delete_original
+        for document in documents:
+            if document.storage_path:
+                delete_original(document.storage_path)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail="No fue posible eliminar todos los originales de la carpeta.") from exc
+    db.query(KnowledgeDocument).filter(KnowledgeDocument.id_tenant == usuario["id_tenant"], KnowledgeDocument.id_folder.in_(folder_ids)).delete(synchronize_session=False)
+    db.query(KnowledgeFolder).filter(KnowledgeFolder.id_tenant == usuario["id_tenant"], KnowledgeFolder.id_folder.in_(folder_ids)).delete(synchronize_session=False)
+    db.commit()
+    return {"message": "Carpeta eliminada definitivamente"}
 
 @app.put("/v1/knowledge/{id_document}/move")
 async def mover_knowledge_document(

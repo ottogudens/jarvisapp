@@ -9,7 +9,7 @@ import os
 import bcrypt
 
 from backend.database import get_db
-from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, BillingSubscription, KnowledgeDocument, KnowledgeIngestionJob, KnowledgeRetrievalAudit, TelegramWebhookEvent, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
+from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, BillingSubscription, KnowledgeDocument, KnowledgeFolder, KnowledgeIngestionJob, KnowledgeRetrievalAudit, TelegramWebhookEvent, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
 from backend.auth import obtener_usuario_actual, hash_password, invalidar_sesiones, requiere_staff, requiere_superadmin
 from backend.crypto_utils import encrypt_secret
 from backend.usage_service import tenant_token_usage, token_usage_by_tenant
@@ -135,6 +135,7 @@ def _knowledge_overview(db: Session) -> dict:
     now = datetime.now(timezone.utc)
     stale_before = now - timedelta(minutes=15)
     documents = db.query(KnowledgeDocument).filter(KnowledgeDocument.deleted_at.is_(None)).all()
+    folders = db.query(KnowledgeFolder).filter(KnowledgeFolder.deleted_at.is_(None)).all()
     jobs = db.query(KnowledgeIngestionJob).all()
     tenants = {tenant.id_tenant: tenant.nombre_organizacion for tenant in db.query(Tenant).all()}
     status_counts = {status: 0 for status in ("queued", "processing", "ready", "failed", "superseded")}
@@ -146,6 +147,11 @@ def _knowledge_overview(db: Session) -> dict:
         row["bytes"] += document.byte_size or 0
         if document.status in row:
             row[document.status] += 1
+    for folder in folders:
+        row = per_tenant.setdefault(folder.id_tenant, {"documents": 0, "folders": 0, "ready": 0, "failed": 0, "queued": 0, "bytes": 0})
+        row["folders"] = row.get("folders", 0) + 1
+    for row in per_tenant.values():
+        row.setdefault("folders", 0)
     stale_jobs = [job for job in jobs if job.status == "processing" and job.started_at and job.started_at < stale_before]
     failed_jobs = [job for job in jobs if job.status == "failed"]
     heartbeat_setting = db.query(SystemSettings).filter(SystemSettings.key == "KNOWLEDGE_WORKER_HEARTBEAT").first()
@@ -172,7 +178,7 @@ def _knowledge_overview(db: Session) -> dict:
     ]
     tenant_rows.sort(key=lambda item: (item["failed"] == 0, -item["queued"], -item["bytes"]))
     return {
-        "totals": {**status_counts, "documents": len(documents), "storage_bytes": sum(doc.byte_size or 0 for doc in documents), "retrievals": db.query(KnowledgeRetrievalAudit).count()},
+        "totals": {**status_counts, "documents": len(documents), "folders": len(folders), "storage_bytes": sum(doc.byte_size or 0 for doc in documents), "retrievals": db.query(KnowledgeRetrievalAudit).count()},
         "workers": {"queued_jobs": sum(job.status == "queued" for job in jobs), "processing_jobs": sum(job.status == "processing" for job in jobs), "failed_jobs": len(failed_jobs), "stalled_jobs": len(stale_jobs), "healthy": worker_healthy, "heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None},
         "alerts": alerts,
         "tenants": tenant_rows[:100],

@@ -210,6 +210,8 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
       const SizedBox(height: 10),
       Wrap(spacing: 12, runSpacing: 12, children: [
         _kpi('Documentos listos', '${knowledgeTotals['ready'] ?? 0}', Icons.library_books_outlined, Colors.greenAccent),
+        _kpi('Archivos cargados', '${knowledgeTotals['documents'] ?? 0}', Icons.upload_file_outlined, BonsoBrand.aqua),
+        _kpi('Carpetas creadas', '${knowledgeTotals['folders'] ?? 0}', Icons.folder_outlined, Colors.amberAccent),
         _kpi('En cola', '${knowledgeWorkers['queued_jobs'] ?? 0}', Icons.pending_actions_outlined, Colors.amberAccent),
         _kpi('Fallidos', '${knowledgeWorkers['failed_jobs'] ?? 0}', Icons.error_outline, Colors.redAccent),
         _kpi('Consultas RAG', '${knowledgeTotals['retrievals'] ?? 0}', Icons.manage_search, BonsoBrand.aqua),
@@ -221,7 +223,7 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
         const SizedBox(height: 12),
         const Text('Uso documental por cliente', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
-        ...knowledgeTenants.take(10).map((tenant) => Card(color: BonsoBrand.surface, child: ListTile(leading: const Icon(Icons.business, color: BonsoBrand.aqua), title: Text('${tenant['organization']}', style: const TextStyle(color: Colors.white)), subtitle: Text('${tenant['documents']} documentos · ${tenant['ready']} listos · ${tenant['queued']} en cola · ${tenant['failed']} fallidos', style: const TextStyle(color: Colors.white70))))),
+        ...knowledgeTenants.take(10).map((tenant) => Card(color: BonsoBrand.surface, child: ListTile(leading: const Icon(Icons.business, color: BonsoBrand.aqua), title: Text('${tenant['organization']}', style: const TextStyle(color: Colors.white)), subtitle: Text('${tenant['documents']} archivos · ${tenant['folders'] ?? 0} carpetas · ${tenant['ready']} listos · ${tenant['queued']} en cola · ${tenant['failed']} fallidos', style: const TextStyle(color: Colors.white70))))),
       ],
       const SizedBox(height: 28),
       const Text('Seguridad y retención', style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),

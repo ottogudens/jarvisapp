@@ -494,15 +494,81 @@ class _DocumentsScreenState extends State<DocumentsScreen> with SingleTickerProv
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo completar la operación: $e'))); }
   }
 
+  Future<void> _trashAction(String method, String path, String success) async {
+    final headers = {'Authorization': 'Bearer ${await _token()}'};
+    final uri = Uri.parse('$kApiBaseUrl$path');
+    final response = method == 'POST'
+        ? await http.post(uri, headers: headers)
+        : await http.delete(uri, headers: headers);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(response.body);
+    }
+    await _cargarConocimiento();
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
+  }
+
   Future<void> _openTrash() async {
     try {
       final response = await http.get(Uri.parse('$kApiBaseUrl/v1/knowledge/all?include_deleted=true'), headers: {'Authorization': 'Bearer ${await _token()}'});
       if (response.statusCode != 200) throw Exception(response.body);
       final data = Map<String, dynamic>.from(jsonDecode(response.body));
       final docs = List<Map<String, dynamic>>.from(data['documentos'] ?? []);
+      final folders = List<Map<String, dynamic>>.from(data['carpetas'] ?? []);
       if (!mounted) return;
-      await showModalBottomSheet<void>(context: context, backgroundColor: BonsoBrand.surface, isScrollControlled: true, builder: (_) => SafeArea(child: SizedBox(height: 500, child: Column(children: [const Padding(padding: EdgeInsets.all(16), child: Text('Papelera', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))), Expanded(child: docs.isEmpty ? const Center(child: Text('La papelera está vacía', style: TextStyle(color: Colors.white54))) : ListView(children: docs.map((doc) => ListTile(leading: const Icon(Icons.delete_outline, color: Colors.redAccent), title: Text(doc['nombre'] ?? 'Documento', style: const TextStyle(color: Colors.white)), subtitle: const Text('Eliminado de la memoria', style: TextStyle(color: Colors.white54)), trailing: Wrap(children: [IconButton(icon: const Icon(Icons.restore, color: BonsoBrand.aqua), onPressed: () async { await http.post(Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/restore'), headers: {'Authorization': 'Bearer ${await _token()}'}); if (mounted) Navigator.pop(context); await _cargarConocimiento(); }), IconButton(icon: const Icon(Icons.delete_forever, color: Colors.redAccent), onPressed: () async { await http.delete(Uri.parse('$kApiBaseUrl/v1/knowledge/${doc['id_document']}/permanent'), headers: {'Authorization': 'Bearer ${await _token()}'}); if (mounted) Navigator.pop(context); await _cargarConocimiento(); })]))).toList()))]))));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir papelera: $e'))); }
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: BonsoBrand.surface,
+        isScrollControlled: true,
+        builder: (_) => SafeArea(
+          child: SizedBox(
+            height: 500,
+            child: Column(children: [
+              const Padding(padding: EdgeInsets.all(16), child: Text('Papelera', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
+              Expanded(
+                child: docs.isEmpty && folders.isEmpty
+                    ? const Center(child: Text('La papelera está vacía', style: TextStyle(color: Colors.white54)))
+                    : ListView(children: [
+                        ...folders.map((folder) => _trashItem(
+                              icon: Icons.folder_off_outlined,
+                              title: folder['nombre'] ?? 'Carpeta',
+                              subtitle: 'Carpeta eliminada',
+                              onRestore: () => _trashAction('POST', '/v1/knowledge/folders/${folder['id_folder']}/restore', 'Carpeta restaurada.'),
+                              onDelete: () => _trashAction('DELETE', '/v1/knowledge/folders/${folder['id_folder']}/permanent', 'Carpeta eliminada definitivamente.'),
+                            )),
+                        ...docs.map((doc) => _trashItem(
+                              icon: Icons.delete_outline,
+                              title: doc['nombre'] ?? 'Documento',
+                              subtitle: 'Eliminado de la memoria',
+                              onRestore: () => _trashAction('POST', '/v1/knowledge/${doc['id_document']}/restore', 'Documento restaurado.'),
+                              onDelete: () => _trashAction('DELETE', '/v1/knowledge/${doc['id_document']}/permanent', 'Documento eliminado definitivamente.'),
+                            )),
+                      ]),
+              ),
+            ]),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo abrir papelera: $e')));
+    }
+  }
+
+  Widget _trashItem({required IconData icon, required String title, required String subtitle, required Future<void> Function() onRestore, required Future<void> Function() onDelete}) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.redAccent),
+      title: Text(title, style: const TextStyle(color: Colors.white)),
+      subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54)),
+      trailing: Wrap(children: [
+        IconButton(icon: const Icon(Icons.restore, color: BonsoBrand.aqua), tooltip: 'Restaurar', onPressed: () async {
+          try { await onRestore(); if (mounted) Navigator.pop(context); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo restaurar: $e'), backgroundColor: Colors.redAccent)); }
+        }),
+        IconButton(icon: const Icon(Icons.delete_forever, color: Colors.redAccent), tooltip: 'Eliminar definitivamente', onPressed: () async {
+          final confirmed = await showDialog<bool>(context: context, builder: (_) => AlertDialog(backgroundColor: BonsoBrand.surface, title: const Text('Eliminar definitivamente', style: TextStyle(color: Colors.white)), content: const Text('Esta acción no se puede deshacer.', style: TextStyle(color: Colors.white70)), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')), ElevatedButton(onPressed: () => Navigator.pop(context, true), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent), child: const Text('Eliminar'))]));
+          if (confirmed != true) return;
+          try { await onDelete(); if (mounted) Navigator.pop(context); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo eliminar: $e'), backgroundColor: Colors.redAccent)); }
+        }),
+      ]),
+    );
   }
 
   Future<void> _addWebSource() async {
