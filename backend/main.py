@@ -2221,9 +2221,11 @@ async def enviar_mensaje_chat(
     )
 
     from backend.models import MikrotikRouter
+    has_available_mikrotik_router = False
     if _menciona_red:
         routers = db.query(MikrotikRouter).filter(MikrotikRouter.id_tenant == usuario["id_tenant"]).all()
         if routers:
+            has_available_mikrotik_router = True
             sys_prompt += "\n\n[ROUTERS MIKROTIK DISPONIBLES PARA GESTIÓN]\n"
             sys_prompt += "Instrucción de Red: Eres proactivo. Si el usuario reporta lentitud, fallas de red, o pide revisar el internet, DEBES usar las herramientas de red pasándole el 'id_router' correspondiente (ej. revisar CPU, luego interfaces, luego DHCP) para diagnosticar de forma autónoma.\n"
             for r in routers:
@@ -2333,6 +2335,7 @@ async def enviar_mensaje_chat(
     respuesta_jarvis, t_tokens = call_llm_with_tools(
         db, user_db, sys_prompt, prompt_con_contexto, uploaded_urls, generated_urls,
         raw_documents, session_id=session_id,
+        enable_mikrotik_tools=has_available_mikrotik_router,
     )
     total_tokens += t_tokens
 

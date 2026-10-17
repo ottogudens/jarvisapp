@@ -50,3 +50,14 @@ def test_chat_uses_the_automatic_retrieval_path_without_a_legacy_second_search()
     assert '"name": "buscar_conocimiento"' not in service
     assert "Estas fuentes fueron recuperadas correctamente" in chat
     assert "Nunca afirmes que no puedes acceder al documento" in chat
+
+
+def test_mikrotik_tools_are_scoped_and_cannot_abort_a_document_query():
+    service = (ROOT / "backend" / "ai_service.py").read_text(encoding="utf-8")
+    chat = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+
+    assert "def tools_for_request(enable_mikrotik_tools: bool)" in service
+    assert "tools=available_tools" in service
+    assert '"required": ["comando", "id_router"]' in service
+    assert "Error: no fue posible ejecutar la herramienta {fn_name}." in service
+    assert "enable_mikrotik_tools=has_available_mikrotik_router" in chat

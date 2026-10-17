@@ -144,7 +144,7 @@ LITELLM_TOOLS = [
                         "description": "Solo true si el usuario ya aprobó explícitamente ejecutar este comando destructivo. Por defecto false."
                     }
                 },
-                "required": ["comando"]
+                "required": ["comando", "id_router"]
             }
         }
     },
@@ -227,6 +227,26 @@ LITELLM_TOOLS = [
     }
 ]
 
+# Estas herramientas pueden ejecutar llamadas a infraestructura. No deben quedar
+# visibles para una consulta general o documental: la presencia de una función en
+# el catálogo basta para que algunos modelos intenten invocarla.
+MIKROTIK_TOOL_NAMES = {
+    "obtener_estado_red_mikrotik",
+    "listar_interfaces_mikrotik",
+    "ver_clientes_dhcp_mikrotik",
+    "comando_mikrotik_avanzado",
+}
+
+
+def tools_for_request(enable_mikrotik_tools: bool) -> list[dict]:
+    """Devuelve sólo las herramientas apropiadas para el turno actual."""
+    if enable_mikrotik_tools:
+        return LITELLM_TOOLS
+    return [
+        tool for tool in LITELLM_TOOLS
+        if tool["function"]["name"] not in MIKROTIK_TOOL_NAMES
+    ]
+
 def load_ai_keys(db: Session):
     keys = db.query(SystemSettings).filter(SystemSettings.key.in_(
         [
@@ -247,6 +267,7 @@ def call_llm_with_tools(
     generated_urls: list,
     raw_documents: list = None,
     session_id: str | None = None,
+    enable_mikrotik_tools: bool = False,
 ):
     # Cargar keys
     load_ai_keys(db)
@@ -258,6 +279,13 @@ def call_llm_with_tools(
         ensure_ai_usage_allowed(db, tenant)
     ai_provider = tenant.ai_provider if tenant else "gemini"
     ai_model = tenant.ai_model if tenant else GEMINI_DEFAULT_CHAT_MODEL
+    mikrotik_tools_enabled = bool(
+        enable_mikrotik_tools
+        and tenant
+        and tenant.plan
+        and tenant.plan.permite_mikrotik
+    )
+    available_tools = tools_for_request(mikrotik_tools_enabled)
     
     # Adaptar prefijos de modelo para litellm
     model_name = ai_model
@@ -373,6 +401,8 @@ def call_llm_with_tools(
         elif fn_name == "comando_mikrotik_avanzado":
             if not tenant or not tenant.plan or not tenant.plan.permite_mikrotik:
                 return "Acceso a MikroTik no habilitado para este tenant."
+            if not args.get("id_router"):
+                return "Error: debes indicar el id_router para ejecutar un comando MikroTik."
             return comando_mikrotik_avanzado(**args, id_tenant=user_db.id_tenant)
         elif fn_name == "listar_carpetas_documentales":
             from backend.models import KnowledgeFolder
@@ -567,7 +597,7 @@ def call_llm_with_tools(
             response = litellm.completion(
                 model=model_name,
                 messages=messages,
-                tools=LITELLM_TOOLS,
+                tools=available_tools,
                 temperature=0.7,
                 max_tokens=1500,  # Fix #tokens-1: techo de costo por respuesta
             )
@@ -581,8 +611,20 @@ def call_llm_with_tools(
                 
                 for tool_call in message.tool_calls:
                     fn_name = tool_call.function.name
-                    args = json.loads(tool_call.function.arguments)
-                    res = ejecutar_herramienta(fn_name, args)
+                    try:
+                        args = json.loads(tool_call.function.arguments)
+                        if not isinstance(args, dict):
+                            raise ValueError("los argumentos deben ser un objeto JSON")
+                        if fn_name in MIKROTIK_TOOL_NAMES and not mikrotik_tools_enabled:
+                            res = "Error: la herramienta MikroTik no está disponible para esta consulta."
+                        else:
+                            res = ejecutar_herramienta(fn_name, args)
+                    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                        res = f"Error: argumentos inválidos para {fn_name}: {exc}"
+                    except Exception:
+                        # Una herramienta no puede abortar el chat completo: el
+                        # modelo recibe el error y puede continuar respondiendo.
+                        res = f"Error: no fue posible ejecutar la herramienta {fn_name}."
                     
                     messages.append({
                         "role": "tool",
