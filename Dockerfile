@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Dependencias del sistema necesarias para PostgreSQL.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libpq5 && \
+    apt-get install -y --no-install-recommends libpq5 tesseract-ocr tesseract-ocr-spa && \
     rm -rf /var/lib/apt/lists/*
 
 # Instalar dependencias Python

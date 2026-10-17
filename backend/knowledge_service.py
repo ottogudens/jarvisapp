@@ -24,6 +24,8 @@ EMBEDDING_BATCH_SIZE = max(1, min(int(os.getenv("KNOWLEDGE_EMBEDDING_BATCH_SIZE"
 RETRY_BASE_SECONDS = max(10, min(int(os.getenv("KNOWLEDGE_RETRY_BASE_SECONDS", "30")), 600))
 RETRY_MAX_SECONDS = max(RETRY_BASE_SECONDS, min(int(os.getenv("KNOWLEDGE_RETRY_MAX_SECONDS", "600")), 3600))
 STALE_JOB_SECONDS = max(300, min(int(os.getenv("KNOWLEDGE_STALE_JOB_SECONDS", "2700")), 86400))
+PDF_OCR_DPI = max(150, min(int(os.getenv("PDF_OCR_DPI", "200")), 300))
+PDF_OCR_LANGUAGE = os.getenv("PDF_OCR_LANGUAGE", "spa+eng").strip() or "spa+eng"
 KNOWLEDGE_SUFFIXES = {".pdf", ".txt", ".md", ".csv", ".docx", ".xlsx"}
 KNOWLEDGE_MIME_TYPES = {
     ".pdf": "application/pdf",
@@ -151,7 +153,9 @@ def _upload_original(*, tenant_id: int, document_id: str, filename: str, content
                 "apikey": key,
                 "Authorization": f"Bearer {key}",
                 "content-type": content_type,
-                "x-upsert": "false",
+                # Un reintento usa la misma ruta de documento: reemplazar ese
+                # mismo original evita un 400 de Storage por clave existente.
+                "x-upsert": "true",
             },
             data=content,
             timeout=30,
@@ -248,7 +252,7 @@ def extract_text(filename: str, content: bytes) -> tuple[str, list[dict[str, Any
     if suffix == ".pdf":
         import fitz
         pdf = fitz.open(stream=io.BytesIO(content), filetype="pdf")
-        pages = [{"page": index + 1, "text": page.get_text().strip()} for index, page in enumerate(pdf)]
+        pages = [{"page": index + 1, "text": _pdf_page_text(page, index + 1)} for index, page in enumerate(pdf)]
         pdf.close()
         return "\n\n".join(f"[Página {p['page']}]\n{p['text']}" for p in pages if p["text"]), [{"page": p["page"]} for p in pages]
     if suffix == ".docx":
@@ -285,6 +289,29 @@ def extract_text(filename: str, content: bytes) -> tuple[str, list[dict[str, Any
     return content.decode("utf-8-sig", errors="replace"), [{"section": "text"}]
 
 
+def _pdf_page_text(page: Any, page_number: int) -> str:
+    """Obtiene texto embebido y usa OCR local sólo para páginas escaneadas."""
+    text = page.get_text().strip()
+    if text or not page.get_images(full=True):
+        return text
+    try:
+        text_page = page.get_textpage_ocr(
+            language=PDF_OCR_LANGUAGE,
+            dpi=PDF_OCR_DPI,
+            full=True,
+        )
+        return page.get_text("text", textpage=text_page).strip()
+    except Exception as exc:
+        # El documento puede seguir indexándose por sus otras páginas; no se
+        # registra imagen ni contenido potencialmente confidencial.
+        logger.warning(
+            "OCR local no disponible para PDF (pagina=%s, error=%s)",
+            page_number,
+            type(exc).__name__,
+        )
+        return ""
+
+
 def chunks_with_provenance(filename: str, content: bytes) -> list[tuple[str, dict[str, Any]]]:
     """Genera fragmentos sin perder la página u hoja exacta que los originó."""
     suffix = Path(filename).suffix.lower()
@@ -293,7 +320,7 @@ def chunks_with_provenance(filename: str, content: bytes) -> list[tuple[str, dic
         pdf = fitz.open(stream=io.BytesIO(content), filetype="pdf")
         result = []
         for index, page in enumerate(pdf, start=1):
-            page_text = page.get_text().strip()
+            page_text = _pdf_page_text(page, index)
             result.extend((chunk, {"page": index}) for chunk in chunk_text(page_text) if chunk.strip())
         pdf.close()
         return result

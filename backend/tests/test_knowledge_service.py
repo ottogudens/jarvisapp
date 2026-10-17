@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from backend.knowledge_service import chunk_text, chunks_with_provenance, extract_text, knowledge_mime_type
+from backend.knowledge_service import _pdf_page_text, chunk_text, chunks_with_provenance, extract_text, knowledge_mime_type
 
 
 @pytest.mark.parametrize(
@@ -74,3 +74,35 @@ def test_chunks_keep_csv_provenance():
     chunks = chunks_with_provenance("stock.csv", b"sku;stock\nA-10;7\n")
     assert chunks[0][1] == {"section": "csv"}
     assert "A-10" in chunks[0][0]
+
+
+def test_pdf_page_uses_local_ocr_when_an_image_has_no_embedded_text():
+    class ScannedPage:
+        def __init__(self):
+            self.ocr_called = False
+
+        def get_text(self, option=None, textpage=None):
+            return "LECTURA OCR" if textpage else ""
+
+        def get_images(self, full=True):
+            return [(1,)]
+
+        def get_textpage_ocr(self, **kwargs):
+            self.ocr_called = True
+            assert kwargs["full"] is True
+            return object()
+
+    page = ScannedPage()
+    assert _pdf_page_text(page, 1) == "LECTURA OCR"
+    assert page.ocr_called is True
+
+
+def test_pdf_page_does_not_run_ocr_when_text_is_embedded():
+    class TextPage:
+        def get_text(self, *args, **kwargs):
+            return "Texto seleccionable"
+
+        def get_images(self, full=True):
+            raise AssertionError("No debe revisar imágenes cuando ya hay texto")
+
+    assert _pdf_page_text(TextPage(), 1) == "Texto seleccionable"

@@ -27,7 +27,7 @@ def test_upload_original_uses_private_storage_rest_api(mock_post, monkeypatch):
             "apikey": "service-key",
             "Authorization": "Bearer service-key",
             "content-type": "application/pdf",
-            "x-upsert": "false",
+            "x-upsert": "true",
         },
         data=b"%PDF-1.7",
         timeout=30,
