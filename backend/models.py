@@ -67,7 +67,7 @@ class Tenant(Base):
     telefono = Column(String(50), nullable=True)
     id_plan = Column(Integer, ForeignKey('saas_planes.id_plan'), nullable=False)
     ai_provider = Column(String(50), default="gemini", nullable=False)
-    ai_model = Column(String(50), default="gemini-1.5-flash", nullable=False)
+    ai_model = Column(String(50), default="gemini-3.5-flash-lite", nullable=False)
     telegram_bot_token = Column(String(200), unique=True, nullable=True)
     telegram_webhook_secret = Column(String(128), nullable=True)
     is_trial = Column(Boolean, default=False, nullable=False)

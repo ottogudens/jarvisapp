@@ -10,6 +10,7 @@ import bcrypt
 
 from backend.database import get_db
 from backend.models import Usuario, Tenant, SaaSPlan, SystemSettings, AIUsageStats, BillingSubscription, KnowledgeDocument, KnowledgeFolder, KnowledgeIngestionJob, KnowledgeRetrievalAudit, TelegramWebhookEvent, ROL_SUPERADMIN, ROL_ADMIN, ROL_CLIENTE, ROLS_STAFF
+from backend.ai_service import GEMINI_DEFAULT_CHAT_MODEL
 from backend.auth import obtener_usuario_actual, hash_password, invalidar_sesiones, requiere_staff, requiere_superadmin
 from backend.crypto_utils import encrypt_secret
 from backend.usage_service import tenant_token_usage, token_usage_by_tenant
@@ -81,7 +82,7 @@ class TenantCreateSchema(BaseModel):
     password: Optional[str] = None
     id_plan: int
     ai_provider: str = "gemini"
-    ai_model: str = "gemini-1.5-flash"
+    ai_model: str = GEMINI_DEFAULT_CHAT_MODEL
     perfiles_ids: List[int] = []
     primary_profile_id: Optional[int] = None
 
@@ -852,7 +853,28 @@ def test_ai_key(data: AIKeyTest, usuario: dict = Depends(requiere_superadmin)):
     elif provider == "anthropic" or provider == "claude":
         model = "anthropic/claude-3-haiku-20240307"
     elif provider == "gemini":
-        model = "gemini/gemini-1.5-flash"
+        # No asumir un modelo: la disponibilidad depende del proyecto y de la
+        # cuenta. Primero enumeramos los modelos concedidos a esta API key.
+        from google import genai
+        try:
+            client = genai.Client(api_key=data.api_key)
+            available = {
+                (item.name or "").removeprefix("models/")
+                for item in client.models.list()
+            }
+            preferred = (GEMINI_DEFAULT_CHAT_MODEL, "gemini-3.8-flash", "gemini-2.5-flash")
+            model = next((candidate for candidate in preferred if candidate in available), None)
+            if not model:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La clave es válida, pero no tiene un modelo Gemini Flash compatible habilitado.",
+                )
+            client.models.generate_content(model=model, contents="Responde únicamente: OK")
+            return {"status": "ok", "message": f"Key is valid ({model})"}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     elif provider == "deepseek":
         model = "deepseek/deepseek-chat"
     else:

@@ -73,7 +73,7 @@ def inicializar_base_de_datos_remota():
         
     try:
         with engine.connect() as conn:
-            conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN ai_model VARCHAR DEFAULT \'gemini-1.5-flash\''))
+            conn.execute(text('ALTER TABLE saas_tenants ADD COLUMN ai_model VARCHAR DEFAULT \'gemini-3.5-flash-lite\''))
             conn.commit()
     except Exception:
         pass

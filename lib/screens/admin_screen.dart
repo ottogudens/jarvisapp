@@ -279,10 +279,10 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     int? selectedPlanId = tenantToEdit?['id_plan'] ?? (_plans.isNotEmpty ? _plans[0]['id_plan'] : null);
     String aiProvider = tenantToEdit?['ai_provider'] ?? 'gemini';
     if (aiProvider == 'claude') aiProvider = 'anthropic';
-    String aiModel = tenantToEdit?['ai_model'] ?? 'gemini-1.5-flash';
+    String aiModel = tenantToEdit?['ai_model'] ?? 'gemini-3.5-flash-lite';
 
     final modelsByProvider = {
-      'gemini': ['gemini-1.5-flash', 'gemini-1.5-pro'],
+      'gemini': ['gemini-3.5-flash-lite', 'gemini-3.8-flash'],
       'openai': ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'],
       'anthropic': ['claude-3-haiku-20240307', 'claude-3-5-sonnet-20240620'],
       'deepseek': ['deepseek-chat', 'deepseek-coder'],

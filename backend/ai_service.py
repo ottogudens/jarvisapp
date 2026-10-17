@@ -10,6 +10,18 @@ from backend.iot_service import IoTService
 from backend.mikrotik_tools import obtener_estado_red_mikrotik, listar_interfaces_mikrotik, ver_clientes_dhcp_mikrotik, comando_mikrotik_avanzado
 from backend.crypto_utils import decrypt_secret
 
+
+# Los modelos 1.5 ya no están disponibles en Gemini API. Mantener esta
+# normalización permite que los tenants creados antes de la migración sigan
+# respondiendo hasta que el administrador los guarde con el modelo nuevo.
+GEMINI_DEFAULT_CHAT_MODEL = "gemini-3.5-flash-lite"
+GEMINI_LEGACY_CHAT_MODELS = {"gemini-1.5-flash", "gemini-1.5-pro"}
+
+
+def resolve_gemini_chat_model(model: str | None) -> str:
+    candidate = (model or "").removeprefix("gemini/").strip()
+    return GEMINI_DEFAULT_CHAT_MODEL if not candidate or candidate in GEMINI_LEGACY_CHAT_MODELS else candidate
+
 # Configurar herramientas para litellm
 LITELLM_TOOLS = [
     {
@@ -259,12 +271,14 @@ def call_llm_with_tools(
         from backend.trial_policy import ensure_ai_usage_allowed
         ensure_ai_usage_allowed(db, tenant)
     ai_provider = tenant.ai_provider if tenant else "gemini"
-    ai_model = tenant.ai_model if tenant else "gemini-1.5-flash"
+    ai_model = tenant.ai_model if tenant else GEMINI_DEFAULT_CHAT_MODEL
     
     # Adaptar prefijos de modelo para litellm
     model_name = ai_model
-    if ai_provider.lower() == "gemini" and not model_name.startswith("gemini/"):
-        model_name = f"gemini/{model_name}"
+    if ai_provider.lower() == "gemini":
+        model_name = resolve_gemini_chat_model(model_name)
+        if not model_name.startswith("gemini/"):
+            model_name = f"gemini/{model_name}"
     elif ai_provider.lower() == "deepseek" and not model_name.startswith("deepseek/"):
         model_name = f"deepseek/{model_name}"
     elif (ai_provider.lower() == "anthropic" or ai_provider.lower() == "claude") and not model_name.startswith("anthropic/"):

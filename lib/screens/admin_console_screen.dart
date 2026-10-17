@@ -90,9 +90,9 @@ class _AdminConsoleScreenState extends State<AdminConsoleScreen> with SingleTick
     final phone = TextEditingController(text: '${customer['phone'] ?? ''}');
     final email = TextEditingController(text: '${customer['email'] ?? ''}');
     String provider = '${customer['ai_provider'] ?? 'gemini'}';
-    String model = '${customer['ai_model'] ?? 'gemini-1.5-flash'}';
+    String model = '${customer['ai_model'] ?? 'gemini-3.5-flash-lite'}';
     const models = {
-      'gemini': ['gemini-1.5-flash', 'gemini-1.5-pro'],
+      'gemini': ['gemini-3.5-flash-lite', 'gemini-3.8-flash'],
       'openai': ['gpt-4o-mini', 'gpt-4o'],
       'anthropic': ['claude-3-haiku-20240307', 'claude-3-5-sonnet-20240620'],
       'deepseek': ['deepseek-chat', 'deepseek-coder'],

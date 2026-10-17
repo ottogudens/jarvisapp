@@ -105,7 +105,7 @@ def reset():
             telefono=SUPERADMIN["telefono"],
             id_plan=plan.id_plan,
             ai_provider="gemini",
-            ai_model="gemini-1.5-flash",
+            ai_model="gemini-3.5-flash-lite",
         )
         db.add(tenant)
         db.flush()

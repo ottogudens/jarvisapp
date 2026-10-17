@@ -257,7 +257,7 @@ async def _pipeline_ia(
             config_args["response_schema"] = response_format
 
         respuesta_gemini = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-3.5-flash-lite',
             contents=[audio_part, prompt_text],
             config=types.GenerateContentConfig(**config_args),
         )
@@ -738,9 +738,12 @@ async def generar_prompt_personalizado(profile_id: str, usuario: dict = Depends(
         from litellm import acompletion
         tenant = db.query(Tenant).filter(Tenant.id_tenant == usuario["id_tenant"]).first()
         load_ai_keys(db)
-        model = (tenant.ai_model if tenant else "gemini-1.5-flash")
-        if tenant and tenant.ai_provider.lower() == "gemini" and not model.startswith("gemini/"):
-            model = f"gemini/{model}"
+        from backend.ai_service import GEMINI_DEFAULT_CHAT_MODEL, resolve_gemini_chat_model
+        model = tenant.ai_model if tenant else GEMINI_DEFAULT_CHAT_MODEL
+        if tenant and tenant.ai_provider.lower() == "gemini":
+            model = resolve_gemini_chat_model(model)
+            if not model.startswith("gemini/"):
+                model = f"gemini/{model}"
         response = await acompletion(model=model, messages=[
             {"role": "system", "content": "Eres un diseñador de prompts empresariales. Devuelve solo un prompt maestro completo, seguro, accionable y en español."},
             {"role": "user", "content": f"Crea el prompt maestro con esta información:\n{json.dumps(data, ensure_ascii=False)}\n{source_note}"},
@@ -2008,7 +2011,7 @@ async def enviar_mensaje_chat(
             load_ai_keys(db)
             _gc = get_gemini_client()
             tr = _gc.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-3.5-flash-lite",
                 contents=audio_parts + [
                     "Transcribe EXACTAMENTE lo que se dice en el audio adjunto. "
                     "Responde SOLO con el texto transcrito, sin ninguna explicación."
