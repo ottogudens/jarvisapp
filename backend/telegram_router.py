@@ -366,6 +366,18 @@ async def telegram_webhook(
     file_url = None
     TELEGRAM_API_URL = f"https://api.telegram.org/bot{bot_token}"
 
+    # Telegram conserva una sesión propia por usuario para que el proyecto
+    # seleccionado persista entre mensajes, igual que en la aplicación web.
+    session = db.query(ChatSession).filter(
+        ChatSession.id_usuario == user.id_usuario,
+        ChatSession.titulo == "Telegram Chat"
+    ).first()
+    if not session:
+        session = ChatSession(id_usuario=user.id_usuario, titulo="Telegram Chat")
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
     async def download_telegram_file(file_id: str) -> Optional[bytes]:
         async with httpx.AsyncClient() as client:
             resp = await client.post(f"{TELEGRAM_API_URL}/getFile", json={"file_id": file_id})
@@ -435,7 +447,9 @@ async def telegram_webhook(
                     document = await submit_document(
                         db=db, tenant_id=user.id_tenant, user_id=user.id_usuario,
                         filename=safe_name, content=doc_bytes, mime_type=mime_type,
-                        source_channel="telegram", folder_name="Subidos por Telegram",
+                        source_channel="telegram",
+                        folder_name=None if session.active_knowledge_folder_id else "Subidos por Telegram",
+                        folder_id=session.active_knowledge_folder_id,
                     )
                     state = "está en cola y quedará disponible pronto" if document.status == "queued" else "ya está indexado"
                     text = (text + f"\n\n[El documento '{document.nombre}' {state} en la biblioteca compartida. "
@@ -448,18 +462,6 @@ async def telegram_webhook(
             
         else:
             await dict_client.post(f"{TELEGRAM_API_URL}/sendChatAction", json={"chat_id": chat_id, "action": "typing"})
-
-    # Inyeccion de sesion de chat local en base de datos
-    session = db.query(ChatSession).filter(
-        ChatSession.id_usuario == user.id_usuario,
-        ChatSession.titulo == "Telegram Chat"
-    ).first()
-
-    if not session:
-        session = ChatSession(id_usuario=user.id_usuario, titulo="Telegram Chat")
-        db.add(session)
-        db.commit()
-        db.refresh(session)
 
     perfil = "Mecanico"
     sys_prompt = SYSTEM_PROMPTS.get("Mecanico", "")
@@ -510,6 +512,22 @@ async def telegram_webhook(
                 estado = "Online" if r.is_connected else f"Offline (Error: {r.last_error})"
                 sys_prompt += f"- ID Router: {r.id_router} | Nombre: {r.nombre} | IP: {r.ip_address} | Estado: {estado}\n"
 
+    sys_prompt += (
+        "\n[BIBLIOTECA DOCUMENTAL]\n"
+        "Puedes listar carpetas y archivos del cliente. Si solicita elegir un proyecto o carpeta, "
+        "lista las opciones necesarias y usa seleccionar_carpeta_documental; las búsquedas y archivos "
+        "posteriores quedarán enfocados en esa carpeta y sus subcarpetas.\n"
+    )
+    if session.active_knowledge_folder_id:
+        from backend.models import KnowledgeFolder
+        active_folder = db.query(KnowledgeFolder).filter(
+            KnowledgeFolder.id_folder == session.active_knowledge_folder_id,
+            KnowledgeFolder.id_tenant == user.id_tenant,
+            KnowledgeFolder.deleted_at.is_(None),
+        ).first()
+        if active_folder:
+            sys_prompt += f"[CARPETA ACTIVA] {active_folder.nombre}. Limita las respuestas documentales a este proyecto.\n"
+
     # Obtener historial
     mensajes_previos = db.query(ChatMessage).filter(
         ChatMessage.id_session == session.id_session
@@ -528,7 +546,7 @@ async def telegram_webhook(
             from backend.knowledge_service import retrieve_knowledge
             retrieved = await retrieve_knowledge(
                 db, tenant_id=user.id_tenant, query=text, limit=4,
-                user_id=user.id_usuario, channel="telegram",
+                user_id=user.id_usuario, channel="telegram", folder_id=session.active_knowledge_folder_id,
             )
             if retrieved:
                 knowledge_context = "\n".join(
@@ -554,7 +572,8 @@ async def telegram_webhook(
             sys_prompt=sys_prompt,
             prompt_con_contexto=prompt_con_contexto,
             uploaded_urls=uploaded_urls,
-            generated_urls=generated_urls
+            generated_urls=generated_urls,
+            session_id=session.id_session,
         )
     except Exception as e:
         logger.error(f"Error procesando LLM en Webhook: {e}")

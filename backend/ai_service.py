@@ -175,6 +175,19 @@ LITELLM_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "listar_documentos_conocimiento",
+            "description": "Lista los archivos disponibles en la biblioteca documental del cliente, con su ID, carpeta y estado. Úsala cuando el usuario pida ver, elegir, mover o enfocar un archivo concreto.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder_id": {"type": "string", "description": "ID opcional de carpeta para listar sólo sus archivos."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "crear_carpeta_documental",
             "description": "Crea un proyecto o carpeta documental. Úsala solamente cuando el usuario lo haya pedido explícitamente o confirmado de forma inequívoca.",
             "parameters": {
@@ -362,12 +375,42 @@ def call_llm_with_tools(
             from backend.models import KnowledgeFolder
             folders = db.query(KnowledgeFolder).filter(
                 KnowledgeFolder.id_tenant == user_db.id_tenant,
+                KnowledgeFolder.deleted_at.is_(None),
             ).order_by(KnowledgeFolder.created_at.asc()).all()
             if not folders:
                 return "No hay proyectos ni carpetas documentales aún."
             return "\n".join(
                 f"- {folder.nombre} | id={folder.id_folder} | parent_id={folder.parent_id or 'raíz'}"
                 for folder in folders
+            )
+        elif fn_name == "listar_documentos_conocimiento":
+            from backend.models import KnowledgeDocument, KnowledgeFolder
+            folder_id = args.get("folder_id") or None
+            query = db.query(KnowledgeDocument).filter(
+                KnowledgeDocument.id_tenant == user_db.id_tenant,
+                KnowledgeDocument.deleted_at.is_(None),
+            )
+            if folder_id:
+                folder = db.query(KnowledgeFolder).filter(
+                    KnowledgeFolder.id_folder == folder_id,
+                    KnowledgeFolder.id_tenant == user_db.id_tenant,
+                    KnowledgeFolder.deleted_at.is_(None),
+                ).first()
+                if not folder:
+                    return "Error: la carpeta solicitada no existe o no pertenece a tu organización."
+                query = query.filter(KnowledgeDocument.id_folder == folder_id)
+            documents = query.order_by(KnowledgeDocument.created_at.desc()).limit(50).all()
+            if not documents:
+                return "No hay archivos disponibles en esa ubicación."
+            folder_names = {
+                folder.id_folder: folder.nombre for folder in db.query(KnowledgeFolder).filter(
+                    KnowledgeFolder.id_tenant == user_db.id_tenant,
+                    KnowledgeFolder.deleted_at.is_(None),
+                ).all()
+            }
+            return "\n".join(
+                f"- {document.nombre} | id={document.id_document} | carpeta={folder_names.get(document.id_folder, 'raíz')} | estado={document.status}"
+                for document in documents
             )
         elif fn_name == "crear_carpeta_documental":
             from backend.models import KnowledgeFolder
