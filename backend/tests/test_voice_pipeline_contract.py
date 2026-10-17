@@ -41,3 +41,12 @@ def test_gemini_configuration_uses_current_models_and_keeps_legacy_tenants_worki
     assert '"gemini-1.5-flash"' in service  # Sólo para normalizar tenants antiguos.
     assert "client.models.list()" in admin
     assert "gemini-3.5-flash-lite" in frontend
+
+
+def test_chat_uses_the_automatic_retrieval_path_without_a_legacy_second_search():
+    service = (ROOT / "backend" / "ai_service.py").read_text(encoding="utf-8")
+    chat = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+
+    assert '"name": "buscar_conocimiento"' not in service
+    assert "Estas fuentes fueron recuperadas correctamente" in chat
+    assert "Nunca afirmes que no puedes acceder al documento" in chat

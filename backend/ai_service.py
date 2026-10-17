@@ -165,20 +165,6 @@ LITELLM_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "buscar_conocimiento",
-            "description": "Busca fragmentos de información en la memoria de documentos previamente guardada por el cliente. Úsalo si el usuario pregunta sobre algo que no sabes, pero que pudo haber sido subido como documento o minuta en el pasado.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "consulta": {"type": "string", "description": "Pregunta detallada o palabras clave para buscar por similitud semántica en la base de documentos del cliente."}
-                },
-                "required": ["consulta"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "listar_carpetas_documentales",
             "description": "Lista los proyectos y carpetas documentales del cliente con sus IDs. Úsala antes de mover documentos, seleccionar un proyecto o crear una subcarpeta.",
             "parameters": {"type": "object", "properties": {}}
@@ -570,41 +556,6 @@ def call_llm_with_tools(
                 db.rollback()
                 return f"Error al almacenar el conocimiento: {str(e)}"
                 
-        elif fn_name == "buscar_conocimiento":
-            from backend.models import DocumentChunk, KnowledgeDocument
-            consulta = args.get("consulta", "")
-            if not consulta: return "Error: consulta vacía."
-            
-            from litellm import embedding
-            try:
-                emb_model = "text-embedding-3-small"
-                if ai_provider.lower() == "gemini":
-                    emb_model = "gemini/text-embedding-004"
-                emb_res = embedding(model=emb_model, input=[consulta])
-                vector_q = emb_res.data[0]['embedding']
-            except Exception as e:
-                return f"Error al generar embedding para la consulta: {str(e)}"
-                
-            try:
-                resultados = db.query(DocumentChunk, KnowledgeDocument.nombre).join(
-                    KnowledgeDocument, DocumentChunk.id_document == KnowledgeDocument.id_document
-                ).filter(
-                    KnowledgeDocument.id_tenant == user_db.id_tenant
-                ).order_by(
-                    DocumentChunk.embedding.cosine_distance(vector_q)
-                ).limit(5).all()
-                
-                if not resultados:
-                    return "No se encontraron documentos relevantes en la base de conocimiento."
-                
-                resp = "Resultados encontrados en la memoria de conocimiento:\n\n"
-                for i, (chunk, nombre_doc) in enumerate(resultados):
-                    resp += f"--- Extracto de: {nombre_doc} ---\n{chunk.texto}\n\n"
-                return resp
-            except Exception as e:
-                db.rollback()
-                return f"Error en la base de datos al buscar: {str(e)}"
-
         return "Herramienta desconocida"
 
     total_tokens = 0
