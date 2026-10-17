@@ -43,7 +43,7 @@ from backend.database import get_db, inicializar_base_de_datos_remota
 from backend.auth import router as auth_router, obtener_usuario_actual, requiere_feature, requiere_plan
 from backend.mikrotik import router as mikrotik_router
 from backend.admin import router as admin_router
-from backend.models import OrdenTrabajo, ChatSession, ChatMessage, DocumentChunk, Usuario, DocumentTemplate
+from backend.models import OrdenTrabajo, ChatSession, ChatMessage, DocumentChunk, Usuario, DocumentTemplate, KnowledgeDocument
 from backend.file_security import MAX_UPLOAD_FILES, MAX_UPLOAD_BYTES, TEMPLATE_SUFFIXES, validate_upload
 from backend.usage_service import tenant_token_usage
 from supabase import create_client, Client
@@ -514,8 +514,16 @@ async def listar_todos_archivos(
         elif role == 'jarvis':
             archivos_generados += int(file_count or 0)
                 
+    # Los archivos de "Mis Documentos" se guardan como KnowledgeDocument y no
+    # como adjuntos de una conversación. Sin este conteo el panel mostraba 0
+    # aunque la pestaña Subidos tuviera documentos disponibles para consultar.
+    documentos_memoria = db.query(func.count(KnowledgeDocument.id_document)).filter(
+        KnowledgeDocument.id_tenant == usuario["id_tenant"],
+        KnowledgeDocument.deleted_at.is_(None),
+    ).scalar() or 0
+
     return {
-        "archivos_subidos": archivos_subidos,
+        "archivos_subidos": archivos_subidos + int(documentos_memoria),
         "archivos_generados": archivos_generados
     }
 
