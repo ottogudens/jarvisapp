@@ -61,3 +61,10 @@ def test_mikrotik_tools_are_scoped_and_cannot_abort_a_document_query():
     assert '"required": ["comando", "id_router"]' in service
     assert "Error: no fue posible ejecutar la herramienta {fn_name}." in service
     assert "enable_mikrotik_tools=has_available_mikrotik_router" in chat
+
+
+def test_litellm_mcp_dependency_is_explicit_and_reproducible():
+    requirements = (ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
+
+    assert "litellm==1.106.1" in requirements
+    assert "mcp>=2.2.0,<3.0.0" in requirements

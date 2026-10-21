@@ -18,7 +18,10 @@ pymupdf>=1.24.0
 paho-mqtt>=2.0.0
 
 pgvector>=0.2.1
-litellm>=1.35.0
+# LiteLLM incluye rutas MCP opcionales; sin esta dependencia una respuesta con
+# herramientas puede interrumpirse antes de llegar al modelo.
+litellm==1.106.1
+mcp>=2.2.0,<3.0.0
 cryptography>=42.0.0,<43.0.0
 python-docx>=1.1.2,<2.0.0
 openpyxl>=3.1.5,<4.0.0
