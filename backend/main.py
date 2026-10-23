@@ -149,6 +149,8 @@ app.include_router(admin_router)
 app.include_router(telegram_router)
 app.include_router(billing_router)
 app.include_router(marketing_router)
+from backend.isp_support import router as isp_support_router
+app.include_router(isp_support_router)
 app.include_router(google_workspace_router)
 
 
