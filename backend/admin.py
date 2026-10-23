@@ -347,6 +347,7 @@ class AIKeysSchema(BaseModel):
     deepseek_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
     elevenlabs_api_key: Optional[str] = None
+    tavily_api_key: Optional[str] = None
 
 @router.get("/ai-keys", response_model=AIKeysSchema)
 def get_ai_keys(usuario: dict = Depends(requiere_staff), db: Session = Depends(get_db)):
@@ -369,6 +370,7 @@ def save_ai_keys(keys: AIKeysSchema, usuario: dict = Depends(requiere_staff), db
     update_or_create("DEEPSEEK_API_KEY", keys.deepseek_api_key)
     update_or_create("GEMINI_API_KEY", keys.gemini_api_key)
     update_or_create("ELEVENLABS_API_KEY", keys.elevenlabs_api_key)
+    update_or_create("TAVILY_API_KEY", keys.tavily_api_key)
     db.commit()
     return {"message": "Claves actualizadas exitosamente"}
 

@@ -355,6 +355,8 @@ class ChatSession(Base):
     id_usuario = Column(Integer, ForeignKey('usuarios.id_usuario', ondelete='CASCADE'), nullable=False)
     titulo = Column(String(150), nullable=True)
     active_knowledge_folder_id = Column(String(36), ForeignKey('knowledge_folders.id_folder', ondelete='SET NULL'), nullable=True, index=True)
+    web_search_pending_query = Column(Text, nullable=True)
+    web_search_pending_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
     

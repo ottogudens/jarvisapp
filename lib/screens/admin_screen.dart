@@ -1030,6 +1030,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     final deepseekCtrl = TextEditingController(text: _aiKeys['deepseek_api_key'] ?? '');
     final geminiCtrl = TextEditingController(text: _aiKeys['gemini_api_key'] ?? '');
     final elevenLabsCtrl = TextEditingController(text: _aiKeys['elevenlabs_api_key'] ?? '');
+    final tavilyCtrl = TextEditingController(text: _aiKeys['tavily_api_key'] ?? '');
     
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -1046,6 +1047,8 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
           _buildAiKeyRow('Gemini', geminiCtrl),
           const SizedBox(height: 24),
           _buildAiKeyRow('ElevenLabs', elevenLabsCtrl),
+          const SizedBox(height: 12),
+          _buildAiKeyRow('Tavily (búsqueda web)', tavilyCtrl),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () {
@@ -1055,6 +1058,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                 'deepseek_api_key': deepseekCtrl.text,
                 'gemini_api_key': geminiCtrl.text,
                 'elevenlabs_api_key': elevenLabsCtrl.text,
+                'tavily_api_key': tavilyCtrl.text,
               });
             },
             child: const Text('Guardar Claves'),

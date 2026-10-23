@@ -251,7 +251,7 @@ def load_ai_keys(db: Session):
     keys = db.query(SystemSettings).filter(SystemSettings.key.in_(
         [
             "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
-            "GEMINI_API_KEY", "ELEVENLABS_API_KEY",
+            "GEMINI_API_KEY", "ELEVENLABS_API_KEY", "TAVILY_API_KEY",
         ]
     )).all()
     for k in keys:

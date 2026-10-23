@@ -555,26 +555,70 @@ async def telegram_webhook(
                 )
         except Exception as exc:
             logger.warning("Recuperación de biblioteca para Telegram no disponible: %s", exc)
+    # Telegram usa el mismo consentimiento persistente que la aplicación web.
+    # Nunca se consulta internet hasta que la persona confirme expresamente.
+    web_search_context = ""
+    web_search_gate_response = ""
+    from backend.web_search_service import (
+        confirmation_decision, is_informational_query, pending_search_is_valid,
+        search_web, tavily_api_key,
+    )
+    pending_query = session.web_search_pending_query
+    if pending_query:
+        decision = confirmation_decision(text)
+        if pending_search_is_valid(session.web_search_pending_at) and decision is True:
+            try:
+                web_search_context, _ = await search_web(db, pending_query)
+                if not web_search_context:
+                    web_search_gate_response = "No encontré resultados confiables en internet para esa consulta."
+            except Exception as exc:
+                logger.warning("Búsqueda web no disponible para Telegram: %s", exc)
+                web_search_gate_response = "No pude completar la búsqueda en internet en este momento."
+            session.web_search_pending_query = None
+            session.web_search_pending_at = None
+        elif decision is False:
+            session.web_search_pending_query = None
+            session.web_search_pending_at = None
+            web_search_gate_response = "Entendido. No realizaré una búsqueda en internet."
+        elif not pending_search_is_valid(session.web_search_pending_at):
+            session.web_search_pending_query = None
+            session.web_search_pending_at = None
+
+    if not knowledge_context and not web_search_context and not web_search_gate_response and is_informational_query(text):
+        if tavily_api_key(db):
+            session.web_search_pending_query = text
+            session.web_search_pending_at = datetime.now(timezone.utc)
+            web_search_gate_response = "No encontré información relevante en la biblioteca local. ¿Autorizas que busque esta información en internet?"
+        else:
+            web_search_gate_response = "No encontré información relevante en la biblioteca local y la búsqueda web no está configurada."
     prompt_con_contexto = (
         f"[BIBLIOTECA EMPRESARIAL RECUPERADA]\n{knowledge_context}\n\n"
         f"{contexto_historial}\nUsuario: {text}"
         if knowledge_context else f"{contexto_historial}\nUsuario: {text}"
     )
+    if web_search_context:
+        prompt_con_contexto = (
+            f"[BÚSQUEDA WEB AUTORIZADA POR EL USUARIO]\nConsulta original: {pending_query}\n"
+            f"{web_search_context}\n\n{contexto_historial}\nUsuario: {text}"
+        )
     uploaded_urls = [file_url] if file_url else []
     generated_urls = []
     
     # Procesar IA
     try:
         from backend.ai_service import call_llm_with_tools
-        respuesta_jarvis, tokens = call_llm_with_tools(
-            db=db,
-            user_db=user,
-            sys_prompt=sys_prompt,
-            prompt_con_contexto=prompt_con_contexto,
-            uploaded_urls=uploaded_urls,
-            generated_urls=generated_urls,
-            session_id=session.id_session,
-        )
+        if web_search_gate_response:
+            respuesta_jarvis, tokens = web_search_gate_response, 0
+        else:
+            respuesta_jarvis, tokens = call_llm_with_tools(
+                db=db,
+                user_db=user,
+                sys_prompt=sys_prompt,
+                prompt_con_contexto=prompt_con_contexto,
+                uploaded_urls=uploaded_urls,
+                generated_urls=generated_urls,
+                session_id=session.id_session,
+            )
     except Exception as e:
         logger.error(f"Error procesando LLM en Webhook: {e}")
         respuesta_jarvis = "❌ Tuve un error interno de inteligencia. Intenta de nuevo..."

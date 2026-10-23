@@ -68,3 +68,15 @@ def test_litellm_mcp_dependency_is_explicit_and_reproducible():
 
     assert "litellm==1.106.1" in requirements
     assert "mcp>=2.2.0,<3.0.0" in requirements
+
+
+def test_web_fallback_persists_consent_and_never_searches_automatically():
+    main = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+    telegram = (ROOT / "backend" / "telegram_router.py").read_text(encoding="utf-8")
+    model = (ROOT / "backend" / "models.py").read_text(encoding="utf-8")
+
+    assert "web_search_pending_query" in model
+    assert "¿Autorizas que busque esta información en internet?" in main
+    assert "confirmation_decision" in main
+    assert "search_web(db, pending_query)" in main
+    assert "confirmation_decision" in telegram
