@@ -600,3 +600,22 @@ class NotificationDelivery(Base):
     status = Column(String(20), nullable=False, default='pending')
     detail = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ISPSupportSession(Base):
+    __tablename__ = 'isp_support_sessions'
+    id_connection = Column(String(36), ForeignKey('channel_connections.id_connection', ondelete='CASCADE'), primary_key=True)
+    customer_phone = Column(String(20), primary_key=True)
+    id_tenant = Column(Integer, ForeignKey('saas_tenants.id_tenant', ondelete='CASCADE'), nullable=False, index=True)
+    id_cliente = Column(Integer, nullable=False)
+    verified_by = Column(Integer, ForeignKey('usuarios.id_usuario'), nullable=False)
+    state = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ISPSupportEvent(Base):
+    __tablename__ = 'isp_support_events'
+    id_connection = Column(String(36), ForeignKey('channel_connections.id_connection', ondelete='CASCADE'), primary_key=True)
+    message_id = Column(String(255), primary_key=True)
+    status = Column(String(30), nullable=False, default='processing')
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
