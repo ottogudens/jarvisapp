@@ -71,3 +71,31 @@ La prueba real pendiente requiere Meta, Mikrowisp y PostgreSQL del entorno de pr
 
 Referencias: blueprint `mikrowisp.apib` entregado por el cliente (GetClientsDetails,
 NewTicket); validación Meta https://whatsapp.github.io/WhatsApp-Nodejs-SDK/api-reference/webhooks/start/ .
+
+## Comprobar configuración antes del piloto
+
+Un administrador autenticado puede llamar a `GET /v1/isp-support/configuration`
+con su JWT. Funciona incluso si `ISP_SUPPORT_CONNECTION_ID` todavía está vacío.
+Devuelve `configured`, un mapa de comprobaciones booleanas y
+`external_connectivity: "not_tested"`. No devuelve valores de tokens ni claves,
+no envía mensajes, no crea tickets y no consulta servicios externos.
+
+Comprueba la conexión WhatsApp del tenant autenticado, presencia de las dos
+tablas de soporte, secretos Meta, formato de versión Graph, identificador de
+teléfono, descifrado de la credencial, URL/token de Mikrowisp y departamento
+ positivo. No sustituye verificar la revisión de Alembic ni comprobar permisos,
+ vigencia de credenciales, versión Graph admitida o conectividad real.
+Una conexión seleccionada de otro tenant devuelve 404; un usuario cliente recibe
+403. `configured: true` solo indica configuración local completa.
+
+El token de WhatsApp debe estar cifrado con la clave del despliegue. Este módulo
+rechaza credenciales heredadas en texto plano, cifrado corrupto y claves distintas.
+Si falla esa comprobación, volver a guardar la credencial mediante la conexión de
+canales con la clave correcta y reiniciar el backend si se cambió su configuración.
+Mikrowisp exige URL HTTPS terminada en `/api/v1`, sin credenciales en URL, query
+ni fragmento. Guardar el token exclusivamente en `MIKROWISP_API_TOKEN`.
+
+Después del chequeo, completar la prueba de extremo a extremo con un número
+vinculado: verificar una única creación de ticket, repetir el mismo evento Meta
+y confirmar que no aparece un duplicado. Un chequeo local correcto no activa ni
+certifica ese flujo real.

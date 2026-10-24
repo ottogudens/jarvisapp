@@ -6,6 +6,10 @@ import json
 import os
 import re
 import time
+from urllib.parse import urlsplit
+
+from cryptography.fernet import Fernet, InvalidToken
+from sqlalchemy import inspect
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -15,7 +19,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.auth import obtener_usuario_actual
-from backend.crypto_utils import decrypt_secret
 from backend.database import get_db
 from backend.isp_support_flow import advance
 from backend.models import ChannelConnection, ISPSupportSession, ISPSupportEvent, ROLS_STAFF
@@ -42,13 +45,72 @@ def phone(value: str) -> str:
     return result
 
 
+def mikrowisp_configured() -> bool:
+    try:
+        url = urlsplit(os.getenv('MIKROWISP_BASE_URL', ''))
+        return bool(url.scheme == 'https' and url.hostname and not url.username
+                    and not url.password and not url.query and not url.fragment
+                    and url.path.rstrip('/') == '/api/v1'
+                    and os.getenv('MIKROWISP_API_TOKEN', '').strip())
+    except ValueError:
+        return False
+
+
+def whatsapp_token(channel: ChannelConnection) -> str:
+    """Exigir cifrado válido; no aceptar el fallback legado a texto plano."""
+    key = os.getenv('APP_ENCRYPTION_KEY') or os.getenv('MIKROTIK_ENCRYPTION_KEY', '')
+    try:
+        token = Fernet(key.encode()).decrypt((channel.credential_encrypted or '').encode()).decode()
+        if not token.strip():
+            raise ValueError()
+        return token
+    except (ValueError, InvalidToken, UnicodeError, TypeError):
+        raise HTTPException(503, 'Credencial WhatsApp cifrada inválida o clave no configurada.') from None
+
+
+@router.get('/configuration')
+def configuration(usuario: dict = Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
+    """Comprobación local: no llama a Meta/Mikrowisp ni revela valores secretos."""
+    if usuario.get('rol') not in ROLS_STAFF:
+        raise HTTPException(403, 'Solo un administrador puede revisar la configuración.')
+    connection_id = os.getenv('ISP_SUPPORT_CONNECTION_ID', '')
+    channel = None
+    if connection_id:
+        channel = db.query(ChannelConnection).filter_by(
+            id_connection=connection_id, id_tenant=usuario['id_tenant'], provider='whatsapp').first()
+        if not channel:
+            raise HTTPException(404, 'Conexión WhatsApp no encontrada para este tenant.')
+    encrypted_token = False
+    if channel:
+        try:
+            whatsapp_token(channel)
+            encrypted_token = True
+        except HTTPException:
+            pass
+    tables = set(inspect(db.get_bind()).get_table_names())
+    department = os.getenv('MIKROWISP_SUPPORT_DEPARTMENT', '1')
+    checks = {
+        'connection_selected': bool(channel),
+        'support_tables': {'isp_support_sessions', 'isp_support_events'} <= tables,
+        'meta_app_secret': bool(os.getenv('META_APP_SECRET', '').strip()),
+        'meta_verify_token': bool(os.getenv('META_WEBHOOK_VERIFY_TOKEN', '').strip()),
+        'meta_graph_version': bool(re.fullmatch(r'v\d+\.\d+', os.getenv('META_GRAPH_API_VERSION', ''))),
+        'meta_phone_number': bool(channel and str(channel.phone_number_id or '').isdigit()),
+        'meta_encrypted_token': encrypted_token,
+        'mikrowisp_config': mikrowisp_configured(),
+        'support_department': department.isascii() and department.isdigit() and int(department) > 0,
+    }
+    return {'configured': all(checks.values()), 'checks': checks,
+            'external_connectivity': 'not_tested'}
+
+
 async def mikrowisp(endpoint: str, payload: dict) -> dict:
     # No endpoints elegidos por el usuario o el modelo, ni redirects con token.
     if endpoint not in {'GetClientsDetails', 'NewTicket'}:
         raise ValueError('Endpoint no permitido')
     base = os.getenv('MIKROWISP_BASE_URL', '').rstrip('/')
     token = os.getenv('MIKROWISP_API_TOKEN', '')
-    if not base.startswith('https://') or not token:
+    if not mikrowisp_configured():
         raise HTTPException(503, 'Mikrowisp aún no configurado.')
     try:
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
@@ -108,10 +170,11 @@ async def send_text(channel: ChannelConnection, recipient: str, text: str):
     version = os.getenv('META_GRAPH_API_VERSION', '')
     if not re.fullmatch(r'v\d+\.\d+', version) or not channel.credential_encrypted or not str(channel.phone_number_id or '').isdigit():
         raise HTTPException(503, 'Falta configurar versión Graph, teléfono o credenciales de WhatsApp.')
-    async with httpx.AsyncClient(timeout=10) as client:
+    token = whatsapp_token(channel)
+    async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.post(
             f'https://graph.facebook.com/{version}/{channel.phone_number_id}/messages',
-            headers={'Authorization': f'Bearer {decrypt_secret(channel.credential_encrypted)}'},
+            headers={'Authorization': f'Bearer {token}'},
             json={'messaging_product': 'whatsapp', 'to': recipient, 'type': 'text', 'text': {'body': text[:4096]}},
         )
     if response.status_code >= 300:

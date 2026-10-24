@@ -169,3 +169,100 @@ def test_webhook_verifies_handshake_and_rejects_forged_request(monkeypatch):
     assert response.status_code == 200 and response.text == '123'
     assert client.get(url, params={'hub.mode': 'subscribe', 'hub.verify_token': 'wrong'}).status_code == 403
     assert client.post(url, json={}, headers={'x-hub-signature-256': 'sha256=wrong'}).status_code == 403
+
+
+def configured_channel(db, monkeypatch):
+    from cryptography.fernet import Fernet
+    from backend.models import ChannelConnection
+    ChannelConnection.__table__.create(db.get_bind(), checkfirst=True)
+    key = Fernet.generate_key()
+    monkeypatch.setenv('APP_ENCRYPTION_KEY', key.decode())
+    monkeypatch.setenv('ISP_SUPPORT_CONNECTION_ID', 'channel1')
+    monkeypatch.setenv('META_APP_SECRET', 'test-secret')
+    monkeypatch.setenv('META_WEBHOOK_VERIFY_TOKEN', 'test-verify')
+    monkeypatch.setenv('META_GRAPH_API_VERSION', 'v99.0')  # Solo validación sintáctica.
+    monkeypatch.setenv('MIKROWISP_BASE_URL', 'https://isp.example/api/v1')
+    monkeypatch.setenv('MIKROWISP_API_TOKEN', 'test-mikrowisp-token')
+    monkeypatch.setenv('MIKROWISP_SUPPORT_DEPARTMENT', '1')
+    row = ChannelConnection(id_connection='channel1', id_tenant=4, provider='whatsapp',
+        account_name='Prueba', phone_number_id='12345',
+        credential_encrypted=Fernet(key).encrypt(b'test-meta-token').decode())
+    db.add(row)
+    db.commit()
+    return row
+
+
+def test_configuration_reports_ready_without_revealing_secrets(db, monkeypatch):
+    configured_channel(db, monkeypatch)
+    result = support.configuration({'rol': 'admin', 'id_tenant': 4}, db)
+    assert result['configured']
+    assert result['external_connectivity'] == 'not_tested'
+    assert all(isinstance(value, bool) for value in result['checks'].values())
+    assert 'test-meta-token' not in str(result)
+    assert 'test-mikrowisp-token' not in str(result)
+
+
+def test_configuration_reports_missing_tables_and_invalid_settings(db, monkeypatch):
+    configured_channel(db, monkeypatch)
+    ISPSupportEvent.__table__.drop(db.get_bind())
+    monkeypatch.setenv('META_GRAPH_API_VERSION', '')
+    monkeypatch.setenv('MIKROWISP_SUPPORT_DEPARTMENT', '-1')
+    result = support.configuration({'rol': 'admin', 'id_tenant': 4}, db)
+    assert not result['configured']
+    for name in ['support_tables', 'meta_graph_version', 'support_department']:
+        assert not result['checks'][name]
+
+
+def test_configuration_permissions_and_tenant_isolation(db, monkeypatch):
+    configured_channel(db, monkeypatch)
+    for user, status in [({'rol': 'cliente', 'id_tenant': 4}, 403),
+                         ({'rol': 'admin', 'id_tenant': 5}, 404)]:
+        with pytest.raises(HTTPException) as error:
+            support.configuration(user, db)
+        assert error.value.status_code == status
+
+
+def test_configuration_can_be_checked_before_activation(db, monkeypatch):
+    monkeypatch.delenv('ISP_SUPPORT_CONNECTION_ID', raising=False)
+    result = support.configuration({'rol': 'admin', 'id_tenant': 4}, db)
+    assert not result['configured']
+    assert not result['checks']['connection_selected']
+
+
+def test_whatsapp_requires_valid_ciphertext_and_matching_key(db, monkeypatch):
+    from cryptography.fernet import Fernet
+    row = configured_channel(db, monkeypatch)
+    assert support.whatsapp_token(row) == 'test-meta-token'
+    monkeypatch.setenv('APP_ENCRYPTION_KEY', Fernet.generate_key().decode())
+    with pytest.raises(HTTPException):
+        support.whatsapp_token(row)
+    row.credential_encrypted = 'legacy-plaintext-token'
+    with pytest.raises(HTTPException):
+        support.whatsapp_token(row)
+    monkeypatch.setenv('APP_ENCRYPTION_KEY', 'invalid-key')
+    with pytest.raises(HTTPException):
+        support.whatsapp_token(row)
+
+
+def test_mikrowisp_configuration_rejects_unsafe_or_incorrect_url(monkeypatch):
+    monkeypatch.setenv('MIKROWISP_API_TOKEN', 'token')
+    for url in ['http://isp.example/api/v1', 'https://isp.example',
+                'https://user:pass@isp.example/api/v1',
+                'https://isp.example/api/v1?token=x', 'https://isp.example/api/v1#fragment']:
+        monkeypatch.setenv('MIKROWISP_BASE_URL', url)
+        assert not support.mikrowisp_configured()
+    monkeypatch.setenv('MIKROWISP_BASE_URL', 'https://isp.example/api/v1/')
+    assert support.mikrowisp_configured()
+
+
+def test_bad_whatsapp_credentials_preserve_created_ticket(db, monkeypatch):
+    row = configured_channel(db, monkeypatch)
+    row.credential_encrypted = 'legacy-plaintext-token'
+    seed(db)
+    api = AsyncMock(return_value={'estado': 'exito', 'idticket': '100'})
+    monkeypatch.setattr(support, 'mikrowisp', api)
+    asyncio.run(support.process_message(db, row, message()))
+    assert db.query(ISPSupportEvent).one().status == 'delivery_unknown'
+    assert db.query(ISPSupportSession).one().state['ticket_id'] == '100'
+    asyncio.run(support.process_message(db, row, message()))
+    assert api.await_count == 1
